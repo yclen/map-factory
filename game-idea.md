@@ -23,7 +23,7 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 
 **The world.** A seeded 1000 × 1000 disk floating in space, ringed by an ice wall: continents, islands, grassland, desert and mountains. Same seed (`?seed=42`), same world. Above it is a whole solar system (the Moon, the Sun, lava world Vulcan, red Aries, gas giants Zeus and Poseidon with their moons, and a seed world generated from the map seed); zoom from one house out to the solar system, and click any body to lock on.
 
-**The start.** A home town of 10 houses (100 people) near the centre of the disk, a logger's cabin and a miner's camp on its home forest and stone, 30 wood and 30 stone.
+**The start.** A home town of 10 houses (100 people) near the centre of the disk, a logger's cabin and a miner's camp on its home forest and stone (about 1.8 wood and 1.4 stone a second), 50 wood and 50 stone.
 
 **People.** Every country has its own people. They regrow toward its **housing capacity** (an S-curve, fastest at half full) and are spent to expand and to send expeditions. People working a collector can't be sent.
 
@@ -39,7 +39,7 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 
 **Energy.** Each country has a power budget (top bar: MW used / available). **Wood burner** (400): 8 MW, burns up to 0.25 wood/s, only what's needed. **Solar panel** (700): 1.5 MW per tile, free, used first. Short on power, every user slows down evenly. Power never leaves a territory: no power lines.
 
-**Transport.** **Rail stations** (150) lay track to your nearest station (up to 120 tiles); **ports** (200) open a sea route to your nearest port. Goods and people **ride the vehicles** (a train carries 30 goods and 12 people a trip, a ship 40 and 10): at each stop a vehicle unloads, then loads the goods above that country's **population share**, never touching a **50-per-resource reserve**, plus people if it's fuller than the other end. Long routes deliver slowly and late; the top bar shows goods on their way.
+**Transport.** **Rail stations** (from the start) lay track to your nearest station (up to 120 tiles; track costs 0.15 wood + 0.15 stone per tile); **ports** (from the start) open a sea route to your nearest port. Linked countries **share their output, not their stockpiles**: each country's new production is split with the countries it's linked to by **population**, and each end gets at least **25%** of the other's output however small it is (a country with several links divides that between them). So a new colony keeps its kit and gets a quarter of home's income; a mining colony sends most of its iron home. The share waits at the station until a train or ship picks it up (30 goods and 12 people a trip by train, 40 and 10 by ship), so long routes deliver slowly and late. The top bar shows each country's income after sharing, and goods on their way in gold. People move too, toward the end with more room in its houses.
 
 **AI nations.** 7 static nations in their own colours, each with houses, collectors and a population that regrows. **Conquest works like openfront:** push into their land; each tile costs 0.5 + 2.5 × (their people per tile) extra and kills defenders, and their buildings become yours. A nation with no land left is conquered.
 
@@ -297,8 +297,8 @@ Resources: **wood, stone, iron**
 | **House** | Housing | L1 of the housing ladder | 0 | 10 wood, 10 stone | +10 capacity | ✅ |
 | **Apartment** | Housing | L2 (upgrade a house) | 300 | 20 wood, 10 iron | +30 capacity | ✅ |
 | **City block** | Housing | L3 (upgrade an apartment) | 1,000 | 40 wood, 40 stone, 30 iron | +80 capacity; uses 3 MW (holds only 30 without power) | ✅ |
-| **Rail station** | Transport | L1–L3 (faster, more cargo) | 150 | 15 wood, 10 stone + track | links countries by land | ✅ (L1) |
-| **Port** | Transport | L1–L2 (bigger ships) | 200 | 20 wood, 10 stone | links countries by sea | ✅ (L1) |
+| **Rail station** | Transport | L1–L3 (faster, more cargo) | 0 | 15 wood, 10 stone + track | links countries by land | ✅ (L1) |
+| **Port** | Transport | L1–L2 (bigger ships) | 0 | 20 wood, 10 stone | links countries by sea | ✅ (L1) |
 | **Wood burner** | Energy | - | 400 | 10 wood, 20 stone | +8 MW, burns up to 0.25 wood/s | ✅ |
 | **Logger's cabin** | Extraction | L1 (people) | 0 | 5 wood, 10 stone | makes a forest produce; employs 5 people | ✅ |
 | **Miner's camp** | Extraction | L1 (people) | 0 | 15 wood, 5 stone | makes stone or iron produce; employs 5 people | ✅ |
@@ -540,6 +540,8 @@ python art/generate_art.py
 - **v1:** people were assigned to deposits as workers (0.1/sec each), and drills replaced workers. Food was an open question.
 - **v2 (2026-11-20):** deposits inside your border produce on their own. People are spent to claim land and to send expeditions, and regrow toward house capacity. Food is built into land fertility. Drills and factories are parked.
 - **Disk world (2026-11-20):** the map became a round disk in outer space, with an ice wall around the rim.
+- **v13 (2026-11-21), sharing fixed:** links split each country's **output** by population (at least 25% each way) instead of balancing stockpiles. The stockpile rule never shipped anything while home kept spending its stone on houses (so a linked colony sat at zero), and without the reserve it shipped the colony's own kit home instead.
+- **v12 (2026-11-21), faster early game:** deposits produce more (wood and iron 0.1/s per tile, stone 0.12, up from 0.06), you start with 50 wood / 50 stone, stations and ports are available from the start, and track is cheaper (0.15 per tile). A build-houses-only test reached 300 people in about 2 minutes and 400 in about 3.5; stone is still the limit, at twice the old rate.
 - **v11 (2026-11-21):** expeditions carry a real kit (the send % of the stockpile, at least 40 wood / 40 stone) so a new colony can build its station right away; expeditions drive as trucks over land and sail as boats over water, leaving from your nearest port. Decided to keep one collector per deposit.
 - **v10 (2026-11-21):** cleanup: autosave in the browser; the build bar became a 10-slot hotbar (keys 1–0) and the E menu got categories; expanding no longer rescans the whole map (from ~1.6 ms per tick with 12–48 ms spikes to ~0.06 ms, worst 1 ms); this doc reorganised around "How the game works now".
 - **v9 (2026-11-21):** physical shipping: goods and people ride the trains and ships, split by population share; goods on their way shown in the top bar; transport ladder (trucks, steamships, airports) proposed.

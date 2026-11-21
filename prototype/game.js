@@ -27,13 +27,13 @@ const CFG = {
   desertShare: 0.24,           // driest X% of land becomes desert
 
   startPeople: 100, startHouses: 10, startRadius: 8,
-  startResources: { wood: 30, stone: 30, iron: 0 },
+  startResources: { wood: 50, stone: 50, iron: 0 },
   // An expedition takes the same share of its country's stockpile as of its people (the send %),
   // and at least this much if home has it: enough for a station with some track, or a cabin and a camp.
   expeditionKit: { wood: 40, stone: 40 },
   // what one train / ship carries per trip. Goods and people ride the vehicle, so long routes deliver slower and later.
   vehicles: { rail: { cargo: 30, people: 12 }, sea: { cargo: 40, people: 10 } },
-  shipReserve: 50,             // a country never ships away its first 50 of each resource (a new colony keeps its kit)
+  minShare: 0.25,              // each end of a link gets at least 25% of the other end's output, however few people it has
 
   // people regrowth:  growth/sec = rate * P * (1 - P/C) + base
   growthRate: 0.06, growthBase: 0.3,
@@ -43,7 +43,7 @@ const CFG = {
   // how fast a push claims land: "work" per second; a tile takes (cost / grass cost) work
   pushWorkPerSec: budget => 4 + 3 * Math.sqrt(budget),
 
-  prodPerTile: { forest: 0.06, stone: 0.06, iron: 0.06 },   // per owned, connected deposit tile, per second
+  prodPerTile: { forest: 0.1, stone: 0.12, iron: 0.1 },   // stone a bit richer: it's in almost everything   // per owned, connected deposit tile, per second
 
   // unlock = how many people your whole empire must reach (at its peak) before you can build it
   buildings: {
@@ -56,9 +56,9 @@ const CFG = {
     house3:  { cat: 'Housing', name: 'City block', cap: 80, unlock: 1000, cost: { wood: 40, stone: 40, iron: 30 }, from: 'house2',
                use: 3, capPowered: 50,
                desc: 'Click an apartment to upgrade it: holds 80 people, but uses 3 MW. Without power it holds only 30.' },
-    station: { cat: 'Transport', name: 'Station', cap: 0,  unlock: 150, cost: { wood: 15, stone: 10 },
+    station: { cat: 'Transport', name: 'Station', cap: 0,  unlock: 0, cost: { wood: 15, stone: 10 },
                desc: 'Lays its own rail to your nearest station. Trains carry people and cargo between your countries.' },
-    port:    { cat: 'Transport', name: 'Port',    cap: 0,  unlock: 200, cost: { wood: 20, stone: 10 },
+    port:    { cat: 'Transport', name: 'Port',    cap: 0,  unlock: 0, cost: { wood: 20, stone: 10 },
                desc: 'On the coast. Opens a sea route to your nearest port. Ships carry people and cargo.' },
     // energy: every country has its own power budget (supply from plants, demand from machines)
     burner:  { cat: 'Energy', name: 'Wood burner', cap: 0, unlock: 400, cost: { wood: 10, stone: 20 }, gen: 8,
@@ -84,7 +84,7 @@ const CFG = {
   missile: { cost: { wood: 10, iron: 10 }, speed: 30, radius: 3, reload: 6, killPerTile: 3 },   // wood/s a burner eats at full output; output multiplier of a powered rig
 
   // rail: a new station links itself to the nearest station by the cheapest land route
-  trackCostPerTile: { wood: 0.25, stone: 0.25 },
+  trackCostPerTile: { wood: 0.15, stone: 0.15 },
   trackWeight: { grass: 1, desert: 1.5, mountain: 3 },   // track through mountains costs 3x
   railMaxLength: 120,          // max weighted track length for one link
   seaMaxLength: 500,           // max sea route length (tiles)
@@ -883,10 +883,11 @@ function recomputeBuildings() {
   clustersDirty = true;
 }
 
-// Links: each train or ship physically carries goods and people. At each stop it unloads, then loads for
-// the other end: goods above this country's POPULATION SHARE of the two stockpiles (but never its reserve,
-// so a small colony keeps what it has while the bigger country sends it a share), and people if this
-// country is fuller (relative to its houses) than the other. Long routes = slower, delayed deliveries.
+// Links: each country's new OUTPUT (not its stockpile) is split with the countries it's linked to, by
+// population (each end gets at least CFG.minShare of the other's output). The share waits at the station
+// (L.out) until a train or ship picks it up, then rides the vehicle: long routes deliver slower and later.
+// Stockpiles stay where they are, so a new colony keeps its kit. People move too: toward the country with
+// more room in its houses.
 const CARGO_RES = ['wood', 'stone', 'iron'];
 function unloadAt(L, C) {
   if (L.cargo && C) {
@@ -895,20 +896,21 @@ function unloadAt(L, C) {
   }
   L.cargo = null; L.to = -1;
 }
-function loadAt(L, src, dst) {
+const emptyBox = () => ({ wood: 0, stone: 0, iron: 0 });
+// what share of `from`'s output goes to `to` over one link
+function outputShare(from, to) {
+  const m = CFG.minShare, pop = from.people + to.people;
+  return clamp(pop > 0 ? to.people / pop : 0.5, m, 1 - m) / Math.max(1, from.nLinks);
+}
+function loadAt(L, src, dst, end) {
   L.cargo = null; L.to = -1;
   if (!src || !dst || src === dst) return;
   const V = CFG.vehicles[L.kind], cargo = { wood: 0, stone: 0, iron: 0, people: 0 };
-  const pop = src.people + dst.people, share = pop > 0 ? src.people / pop : 0.5;
-  const extra = {};
+  const box = L.out[end];                          // goods waiting at this stop for the other end
   let total = 0;
-  for (const r of CARGO_RES) {
-    const x = Math.min(src.res[r] - (src.res[r] + dst.res[r]) * share,   // what's above our fair share,
-      src.res[r] - CFG.shipReserve);                                     // keeping a reserve at home
-    if (x >= 5) { extra[r] = x; total += x; }                    // skip crumbs
-  }
-  const k = total > V.cargo ? V.cargo / total : 1;               // a full load is split across what's needed
-  for (const r in extra) { cargo[r] = Math.floor(extra[r] * k); src.res[r] -= cargo[r]; }
+  for (const r of CARGO_RES) total += Math.floor(box[r]);
+  const k = total > V.cargo ? V.cargo / total : 1; // a full load is split across what's waiting
+  for (const r of CARGO_RES) { cargo[r] = Math.floor(Math.floor(box[r]) * k); box[r] -= cargo[r]; }
   const full = c => (c.cap > 0 ? c.people / c.cap : 0);   // settlers in a country with no houses yet stay put, waiting for houses
   if (full(src) > full(dst) + 0.05) {
     cargo.people = Math.floor(Math.min(V.people, Math.max(0, dst.cap - dst.people), freePeople(src) * 0.5));
@@ -919,7 +921,13 @@ function loadAt(L, src, dst) {
 // goods (and people) on their way to a country right now
 function incomingTo(C) {
   const inc = { wood: 0, stone: 0, iron: 0, people: 0 };
-  for (const L of game.links) if (L.cargo && liveCountry(L.to) === C) for (const r in inc) inc[r] += L.cargo[r];
+  for (const L of game.links) {
+    if (L.cargo && liveCountry(L.to) === C) for (const r in inc) inc[r] += L.cargo[r];
+    if (!L.out) continue;                          // plus what's waiting at the other end's station for it
+    const A = countryAt(L.a), B = countryAt(L.b);
+    if (B === C && A !== C) for (const r of CARGO_RES) inc[r] += Math.floor(L.out.a[r]);
+    if (A === C && B !== C) for (const r of CARGO_RES) inc[r] += Math.floor(L.out.b[r]);
+  }
   return inc;
 }
 
@@ -946,7 +954,7 @@ function checkUnlocks(quiet = false) {
   for (const [type, b] of Object.entries(CFG.buildings)) {
     if (game.unlocked.has(type) || !isUnlocked(type)) continue;
     game.unlocked.add(type);
-    if (!quiet) addToBar(type);
+    addToBar(type);                                // new unlocks (and, on load, anything newly unlocked by an update) take a free slot
     if (!quiet) toast(`Unlocked: ${b.name}! Your empire reached ${b.unlock} people. Press E to see it.`);
   }
   refreshBuildBar();
@@ -1388,6 +1396,7 @@ function tick(dt) {
       const prod = (P.colDep[t] * c.staff + P.rigDep[t] * CFG.power.rigMult * c.sat) * CFG.prodPerTile[t];
       c.res[r] += prod * dt;
       c.rates[r] = prod - (r === 'wood' ? burn : 0);
+      (c.prod || (c.prod = {}))[r] = prod;
     }
     if (c.cap > 0 && c.people < c.cap) {
       c.growth = CFG.growthRate * c.people * (1 - c.people / c.cap) + CFG.growthBase;
@@ -1413,14 +1422,33 @@ function tick(dt) {
     n.growth = (CFG.growthRate * n.people * (1 - n.people / n.cap) + CFG.growthBase) * CFG.ai.growth;
     n.people = Math.min(n.cap, n.people + n.growth * dt);
   }
+  for (const c of game.countries) c.nLinks = 0;
+  for (const L of game.links) {
+    const A = countryAt(L.a), B = countryAt(L.b);
+    if (A && B && A !== B) { A.nLinks++; B.nLinks++; }
+  }
   for (const L of game.links) {
     const speed = L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed;
     const A = countryAt(L.a), B = countryAt(L.b);
-    if (L.cargo === undefined) loadAt(L, L.dir > 0 ? A : B, L.dir > 0 ? B : A);   // a brand-new link loads at its first stop
+    if (!L.out) L.out = { a: emptyBox(), b: emptyBox() };   // out.a: waiting at end a for b; out.b the other way
+    if (A && B && A !== B && A.prod && B.prod) {
+      const fa = outputShare(A, B), fb = outputShare(B, A);
+      for (const r of CARGO_RES) {
+        const ga = Math.min(A.res[r], A.prod[r] * fa * dt), gb = Math.min(B.res[r], B.prod[r] * fb * dt);
+        if (ga > 0) { A.res[r] -= ga; L.out.a[r] += ga; }
+        if (gb > 0) { B.res[r] -= gb; L.out.b[r] += gb; }
+        // the top bar shows each country's income after sharing (what it sends out, what's coming to it)
+        const ra = A.prod[r] * fa, rb = B.prod[r] * fb;
+        A.rates[r] += rb - ra; B.rates[r] += ra - rb;
+      }
+    } else if (A && A === B) {                     // both ends merged into one country: hand back what was waiting
+      for (const r of CARGO_RES) { A.res[r] += L.out.a[r] + L.out.b[r]; L.out.a[r] = L.out.b[r] = 0; }
+    }
+    if (L.cargo === undefined) loadAt(L, L.dir > 0 ? A : B, L.dir > 0 ? B : A, L.dir > 0 ? 'a' : 'b');   // a new link loads at its first stop
     L.t += speed * dt * L.dir;
     const end = L.path.length - 1;
-    if (L.t >= end) { L.t = end; L.dir = -1; unloadAt(L, B); loadAt(L, B, A); }
-    else if (L.t <= 0) { L.t = 0; L.dir = 1; unloadAt(L, A); loadAt(L, A, B); }
+    if (L.t >= end) { L.t = end; L.dir = -1; unloadAt(L, B); loadAt(L, B, A, 'b'); }
+    else if (L.t <= 0) { L.t = 0; L.dir = 1; unloadAt(L, A); loadAt(L, A, B, 'a'); }
   }
   for (const f of game.floats) f.t += dt;
   game.floats = game.floats.filter(f => f.t < 2.4);
@@ -1450,7 +1478,7 @@ function saveGame() {
         people: c.people + back[c.id].people, res: { wood: c.res.wood + back[c.id].wood, stone: c.res.stone + back[c.id].stone, iron: c.res.iron + back[c.id].iron } })),
       nations: game.nations.map(n => ({ people: n.people, alive: n.alive })),
       buildings: game.buildings.map(b => [b.i, b.type, b.ready || 0]),
-      links: game.links.map(L => ({ kind: L.kind, a: L.a, b: L.b, path: L.path, t: L.t, dir: L.dir, cargo: L.cargo || null, to: L.to ?? -1 })),
+      links: game.links.map(L => ({ kind: L.kind, a: L.a, b: L.b, path: L.path, t: L.t, dir: L.dir, cargo: L.cargo || null, to: L.to ?? -1, out: L.out || null })),
       runs, cam: { x: cam.x, y: cam.y, zoom: cam.zoom },
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
