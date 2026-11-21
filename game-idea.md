@@ -396,6 +396,27 @@ Things the prototype had to pick that the design hasn't decided:
 - **Unlock thresholds** (150 to 1,000 people) and most costs are placeholders: needs a real playtest.
 - ~~A colony that starves keeps its land~~ (settlers no longer starve; a colony is just a country)
 
+### Playtest 1: the bot (2026-11-21)
+A simple AI ([`prototype/bot.js`](prototype/bot.js); watch it with `?bot`, or run `MFBot.simulate(30)` in the console) played 30 game-minutes on seed 42. It works every deposit it owns, builds houses when full, pushes toward the nearest free deposit, sends an expedition to iron, links colonies by rail, and uses each unlock.
+
+| Time | Milestone |
+|---|---|
+| 0:28 | 150 people |
+| 2:37 | 300 people: Apartments |
+| 3:50 | expedition founds an iron colony 49 tiles away, rail link |
+| 4:21 – 5:43 | Wood burner, Mining rig, Missile silo, Solar panel unlock |
+| 6:25 | **1,000 people: City block, the last unlock** |
+| 9:01 / 12:13 | 2,000 / 5,000 people |
+| 30:00 | **89,000 people**, 107,000 tiles (28% of all land), 4,000 MW |
+
+**What it shows:**
+1. **Everything unlocks in under 7 minutes**, then there's nothing new: the catalogue past 1,000 people isn't built yet.
+2. **Growth runs away after ~10 minutes** (1k → 10k → 89k): more land → more deposits → more houses → more people → more land, with nothing pushing back. Land is cheap (0.5 people a tile) at any size.
+3. **Stone is the only real limit**; wood (486,000) and iron (56,000) pile up unused. Forests are ~2.5× more common than stone, and every house needs stone.
+4. **Pushes toward deposits conquered an AI nation by accident** (the small one next door).
+5. Colonies merge into home as the empire grows, so the rail link stops mattering.
+6. Power did become a real limit late (4,000 MW needed), mostly met by wood burners; solar barely got used.
+
 ### Smaller things still to decide
 - The regrowth curve: keep the S-curve, or a flat rate per house?
 - Do deposits run out? More resources and biomes (coal as burner fuel, oil, uranium for nuclear)?

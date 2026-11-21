@@ -3775,6 +3775,11 @@ function start() {
   buildMenu();
   checkUnlocks(true);
   setInterval(saveGame, 10000);
+  if (params.has('bot')) {                         // ?bot: a simple AI plays your side (prototype/bot.js), for playtesting
+    const sc = document.createElement('script');
+    sc.src = 'bot.js';
+    document.body.appendChild(sc);
+  }
   window.addEventListener('beforeunload', saveGame);
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
   window.__game.genMs = Math.round(performance.now() - t0);
@@ -3802,5 +3807,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, stopSaving: () => { noSave = true; } };
+window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, stopSaving: () => { noSave = true; } };
 init();
