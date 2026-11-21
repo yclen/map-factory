@@ -28,7 +28,7 @@ Add `?seed=123` to the address to play a specific map (this starts that map, and
 | Input | Action |
 |---|---|
 | Click near your border | Expand toward that spot (into an AI nation: conquer it) |
-| Right-click far away | Send an expedition (becomes a boat over water) |
+| Right-click far away | Send an expedition: a truck over land, a boat over water, carrying people and supplies for the new colony |
 | E | Build menu (everything, including what's still locked) |
 | 1 – 9, 0 | Build whatever is on that slot of your build bar · Esc cancels |
 | In the E menu: hover + 1 – 0 | Put that building on that key (right-click a building to add / remove it) |

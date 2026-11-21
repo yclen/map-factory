@@ -29,7 +29,7 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 
 **Expanding.** Click near your border to push it toward that spot with a share of the nearest country's free people (10 / 25 / 50 / 100 %, `[ ]`). Land costs people per tile: grassland 0.5, desert 1.5, mountains 2.5. Pushing into an **AI nation** costs extra (see below).
 
-**Countries.** Every separate piece of your territory is a **country** with its own people, stockpile and power. **Right-click** far away to send an expedition: it founds a colony with a 20 wood / 20 stone kit, and the settlers live there until you build houses. Countries **merge** when their borders touch. **Names grow with housing**: *the Colony of Gorethus* → *Gorethus Harbor / Hold / Oasis / Vale* (50) → *the Free State of Gorethus* (200) → *the Federation of Gorethus* (1,000) → *the United States of Gorethus* (5,000). Click a country from far out (or press Tab) to fly to it.
+**Countries.** Every separate piece of your territory is a **country** with its own people, stockpile and power. **Right-click** far away to send an expedition: a **truck** over land, a **boat** over water (boats leave from your nearest port if you have one). It carries the same share of the country's stockpile as of its people (the send %), and at least 40 wood and 40 stone if home has them: enough for the colony to build a station with track, or a cabin and a camp, straight away. The settlers live there until you build houses. Countries **merge** when their borders touch. **Names grow with housing**: *the Colony of Gorethus* → *Gorethus Harbor / Hold / Oasis / Vale* (50) → *the Free State of Gorethus* (200) → *the Federation of Gorethus* (1,000) → *the United States of Gorethus* (5,000). Click a country from far out (or press Tab) to fly to it.
 
 **Resources: wood, stone, iron.** A deposit produces only when something works it:
 - **Logger's cabin** (forest) / **Miner's camp** (stone, iron): employ 5 people each.
@@ -401,6 +401,7 @@ Things the prototype had to pick that the design hasn't decided:
 - Do deposits run out? More resources and biomes (coal as burner fuel, oil, uranium for nuclear)?
 - Day and night for solar (the Sun's position is already real).
 - Manual link control ("send 50 settlers to Gorethus").
+- Should expeditions *need* a building to launch from (boats only from ports, trucks from a depot)? Today boats prefer a port but don't require one.
 - What each world in the solar system is for (resources per planet are sketched in the galaxy brainstorm).
 - More seed-world classes (desert, ocean and frozen worlds) and moon types.
 
@@ -539,6 +540,7 @@ python art/generate_art.py
 - **v1:** people were assigned to deposits as workers (0.1/sec each), and drills replaced workers. Food was an open question.
 - **v2 (2026-11-20):** deposits inside your border produce on their own. People are spent to claim land and to send expeditions, and regrow toward house capacity. Food is built into land fertility. Drills and factories are parked.
 - **Disk world (2026-11-20):** the map became a round disk in outer space, with an ice wall around the rim.
+- **v11 (2026-11-21):** expeditions carry a real kit (the send % of the stockpile, at least 40 wood / 40 stone) so a new colony can build its station right away; expeditions drive as trucks over land and sail as boats over water, leaving from your nearest port. Decided to keep one collector per deposit.
 - **v10 (2026-11-21):** cleanup: autosave in the browser; the build bar became a 10-slot hotbar (keys 1–0) and the E menu got categories; expanding no longer rescans the whole map (from ~1.6 ms per tick with 12–48 ms spikes to ~0.06 ms, worst 1 ms); this doc reorganised around "How the game works now".
 - **v9 (2026-11-21):** physical shipping: goods and people ride the trains and ships, split by population share; goods on their way shown in the top bar; transport ladder (trucks, steamships, airports) proposed.
 - **v8 (2026-11-21):** static AI nations, openfront-style conquest (push in, take their houses), missile silos and short-range missiles.

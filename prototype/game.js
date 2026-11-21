@@ -28,7 +28,9 @@ const CFG = {
 
   startPeople: 100, startHouses: 10, startRadius: 8,
   startResources: { wood: 30, stone: 30, iron: 0 },
-  expeditionKit: { wood: 20, stone: 20 },   // supplies an expedition carries from its home country (if it has them)
+  // An expedition takes the same share of its country's stockpile as of its people (the send %),
+  // and at least this much if home has it: enough for a station with some track, or a cabin and a camp.
+  expeditionKit: { wood: 40, stone: 40 },
   // what one train / ship carries per trip. Goods and people ride the vehicle, so long routes deliver slower and later.
   vehicles: { rail: { cargo: 30, people: 12 }, sea: { cargo: 40, people: 10 } },
   shipReserve: 50,             // a country never ships away its first 50 of each resource (a new colony keeps its kit)
@@ -252,6 +254,13 @@ const SHAPES = {
     <circle cx="0" cy="0" r="7" fill="#3a4049" stroke="#1d2126" stroke-width="1"/>
     <path d="M0 -6 L2.6 -1 V5 H-2.6 V-1 Z" fill="#e8ecef" stroke="#59616b" stroke-width="0.7"/><path d="M-2.6 2 H2.6" stroke="#d64045" stroke-width="1.4"/>
     <path d="M-12 -11 L-8 -7 M12 -11 L8 -7 M-12 11 L-8 7 M12 11 L8 7" stroke="#f2c14e" stroke-width="1.4"/>`,
+  truck: `<ellipse cx="0" cy="8" rx="12" ry="2.5" fill="#000" opacity="0.2"/>
+    <rect x="-12" y="-6" width="15" height="11" rx="1" fill="#c9a66b" stroke="#5a4310" stroke-width="1"/>
+    <path d="M-12 -2 H3" stroke="#a6844c" stroke-width="0.9"/>
+    <path d="M3 -3 H8 L12 1 V5 H3 Z" fill="#2f7de1" stroke="#1c4f99" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M5 -1.5 H7.5 L9.8 1 H5 Z" fill="#cfe3ff"/>
+    <circle cx="-7" cy="6" r="2.6" fill="#2b3038"/><circle cx="7" cy="6" r="2.6" fill="#2b3038"/>
+    <circle cx="-7" cy="6" r="1" fill="#8d969e"/><circle cx="7" cy="6" r="1" fill="#8d969e"/>`,
   bolt: `<path d="M2 -11 L-7 2 H-1 L-3 11 L7 -3 H1 Z" fill="#f2c14e" stroke="#5a4310" stroke-width="0.9" stroke-linejoin="round"/>`,
   station: `<rect x="-10" y="-8" width="24" height="20" fill="#000" opacity="0.22"/>
     <rect x="-12" y="-10" width="24" height="20" rx="2" fill="#a3aab1" stroke="#4c535b" stroke-width="1"/>
@@ -1214,8 +1223,25 @@ function launchExpedition(tx, ty) {
   if (n < 2) return toast(`${src.short} doesn't have enough people for an expedition`);
   src.people -= n;
   const kit = {};                                  // supplies to get the colony started, if home can spare them
-  for (const [r, k] of Object.entries(CFG.expeditionKit)) { kit[r] = Math.min(k, Math.floor(src.res[r])); src.res[r] -= kit[r]; }
-  game.expeditions.push({ x: tile % W + 0.5, y: ((tile / W) | 0) + 0.5, tx: tx + 0.5, ty: ty + 0.5, n, kit, from: src.id });
+  for (const r of CARGO_RES) {
+    const want = Math.max(CFG.expeditionKit[r] || 0, src.res[r] * game.sendPct / 100);
+    kit[r] = Math.floor(Math.min(want, src.res[r]));
+    src.res[r] -= kit[r];
+  }
+  let [sx, sy] = [tile % W + 0.5, ((tile / W) | 0) + 0.5];
+  const crossesWater = (ax, ay) => {
+    const d = Math.hypot(tx - ax, ty - ay), steps = Math.ceil(d);
+    for (let k = 1; k < steps; k++) if (biome[idx(Math.floor(ax + (tx - ax) * k / steps), Math.floor(ay + (ty - ay) * k / steps))] === OCEAN) return true;
+    return false;
+  };
+  if (crossesWater(sx, sy)) {
+    const ports = game.ports.filter(pt => countryAt(pt) === src);
+    if (ports.length) {
+      const pt = ports.reduce((a, b) => (Math.hypot(a % W - tx, ((a / W) | 0) - ty) <= Math.hypot(b % W - tx, ((b / W) | 0) - ty) ? a : b));
+      [sx, sy] = [pt % W + 0.5, ((pt / W) | 0) + 0.5];
+    }
+  }
+  game.expeditions.push({ x: sx, y: sy, tx: tx + 0.5, ty: ty + 0.5, n, kit, from: src.id });
 }
 
 function stepExpedition(e, dt) {
@@ -3004,9 +3030,11 @@ function render() {
     const overWater = biome[idx(Math.floor(e.x), Math.floor(e.y))] === OCEAN;
     ctx.beginPath(); ctx.arc(sx, sy, 16, 0, Math.PI * 2);
     ctx.fillStyle = '#141a25'; ctx.fill(); ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2.5; ctx.stroke();
-    if (SPR.person.complete) ctx.drawImage(overWater ? SPR.boat : SPR.person, sx - 13, sy - 13, 26, 26);
+    const spr = overWater ? SPR.boat : SPR.truck;
+    if (spr.complete) ctx.drawImage(spr, sx - 13, sy - 13, 26, 26);
     const eta = Math.hypot(e.tx - e.x, e.ty - e.y) / CFG.expeditionSpeed;
-    pill(sx, sy + 30, `${overWater ? 'Boat' : 'Expedition'} · ${e.n} people · ${eta.toFixed(0)}s`, { dot: '#f2c14e', size: 11 });
+    const load = Object.entries(e.kit).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(' · ');
+    pill(sx, sy + 30, `${overWater ? 'Boat' : 'Truck'} · ${e.n} people${load ? ' · ' + load : ''} · ${eta.toFixed(0)}s`, { dot: '#f2c14e', size: 11 });
   }
 
   // floating texts
