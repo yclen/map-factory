@@ -25,7 +25,7 @@
       <div><div class="lbl">TERRITORY</div><div class="val" id="val-terr">0%</div></div></div>
     <div class="spacer"></div>
     <div class="res"><div><div class="lbl">VIEW</div><div class="val small" id="val-view">Detail</div></div></div>
-    <div class="res"><div><div class="lbl">TIME</div><div class="val" id="val-time">00:00</div></div></div>
+    <div class="res"><div><div class="lbl">TIME <span class="rate" id="save-note"></span></div><div class="val" id="val-time">00:00</div></div></div>
   </div>
 
   <!-- bottom row -->
@@ -57,7 +57,7 @@
       <div class="help-row"><b>Click</b> near your border: expand (into a nation: conquer) · <b>Click</b> a country: view it (zoomed out: fly to it)</div>
       <div class="help-row"><b>Right-click</b> far away: send an expedition (founds a new country)</div>
       <div class="help-row"><b>Drag</b> a box over houses: select · <b>C</b> paste a copy at the cursor</div>
-      <div class="help-row"><b>E</b> build menu · <b>1–0, Q</b> build · <b>F</b> fire missiles · <b>Tab</b> next country · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>M</b> map / orbit · <b>N</b> new map</div>
+      <div class="help-row"><b>E</b> build menu · <b>1–0</b> build bar (set it in <b>E</b>) · <b>F</b> fire missiles · <b>Tab</b> next country · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>M</b> map / orbit · <b>N</b> new map</div>
       <div class="help-row"><b>Scroll</b> zoom · <b>Right-drag</b> or <b>WASD</b> pan · <b>Click</b> any planet, moon or the Sun to lock on</div>
       <div class="help-row">Lock-on keys: <b>L</b> Moon · <b>V</b> Vulcan · <b>R</b> Aries · <b>Z</b> Zeus · <b>P</b> Poseidon · <b>G</b> seed world · <b>U</b> Sun</div>
       <div class="hover" id="hover-info">&nbsp;</div>
@@ -68,7 +68,7 @@
   <div id="buildmenu" class="panel">
     <div class="bm-head">
       <div><div class="bm-title">Build</div><div class="bm-sub" id="bm-sub"></div></div>
-      <div class="bm-close">E or Esc to close</div>
+      <div class="bm-close">E or Esc to close<br>Hover + 1–0: put on your bar · right-click: on/off</div>
     </div>
     <div id="bm-grid"></div>
   </div>

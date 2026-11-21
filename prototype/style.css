@@ -104,8 +104,11 @@ canvas#game.building { cursor: copy; }
 .bm-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
 .bm-title { font-size: 20px; font-weight: 800; }
 .bm-sub { font-size: 12px; color: var(--dim); margin-top: 3px; }
-.bm-close { font-size: 11px; color: var(--dim); font-weight: 700; letter-spacing: 0.5px; }
-#bm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bm-close { font-size: 11px; color: var(--dim); font-weight: 700; letter-spacing: 0.5px; text-align: right; line-height: 1.5; }
+#bm-grid { display: block; }
+.bm-cat { font-size: 11px; font-weight: 800; letter-spacing: 1.4px; color: var(--accent); text-transform: uppercase; margin: 14px 0 8px; }
+.bm-cat:first-child { margin-top: 0; }
+.bm-catgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .bm-card { display: flex; gap: 12px; padding: 12px; border-radius: 12px; background: var(--panel); border: 1px solid #2f3a52; cursor: pointer; }
 .bm-card:hover { background: #26304a; }
 .bm-card.sel { border: 2px solid var(--accent); }
