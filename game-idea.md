@@ -99,7 +99,7 @@ A browser prototype of the core loop is in [`prototype/`](prototype/). To play, 
 - **Countries (v4):** every separate territory is a named **country** with its **own people, houses and stockpile**. The top bar shows the country you're viewing (click inside any of your countries to view it).
   - **Pushes and expeditions** use the people of the country nearest the spot you click.
   - **An expedition founds a new country:** it carries a supply kit (20 wood, 20 stone, if home can spare it). The settlers simply live there: build houses with the colony's own stockpile so they can grow, or link it home. *(Until v8 there was a 45-second timer before unhoused settlers starved; it was removed.)*
-  - **Links between your countries** (rail or sea) automatically move **people** toward the emptier country (an overcrowded colony evacuates home; a growing colony gets settlers) and **even out stockpiles** (a rich home supplies a broke colony). Rail moves 3 people and 4 cargo per second; sea 2 and 3.
+  - **Links between your countries** (rail or sea) carry **people** toward the emptier country (an overcrowded colony evacuates home; a growing colony gets settlers) and **goods split by population share**. *(Since v9 the goods physically ride the trains and ships; see below.)*
   - **Countries merge** when their borders touch, pooling people and resources.
   - **Names** are generated from the seed and written across each country on the map when you zoom out. **Titles grow with the country** (v8), by its housing capacity, and fit its land:
 
@@ -113,6 +113,7 @@ A browser prototype of the core loop is in [`prototype/`](prototype/). To play, 
 
     The choice within a tier is seeded, so a country keeps its name; a title never shrinks back if houses are lost. Growing a tier shows a toast ("Gorethus Vale is now the Free State of Gorethus!").
 - **Build menu (E) and population unlocks:** press **E** for every building, with a description, its cost, and what's still locked. New buildings unlock as your empire's peak population grows: House from the start, **Station at 150**, **Port at 200**, **Apartment at 300**, **City block at 1,000**. The bottom bar shows only what you've unlocked. Send % moved to **[ ]**.
+- **Physical shipping (v9):** goods and people **ride the trains and ships**. Each vehicle unloads at a stop, then loads for the other end: the goods above that country's **population share** of the two stockpiles (a country with 20% of the people on a link aims for 20% of the iron), plus people if it's fuller than the other end relative to its houses. **Every country keeps a reserve of 50 of each resource** that never gets shipped away, so a new colony keeps its starting kit while the bigger country sends it a share; settlers in a colony with no houses yet **stay put** (they aren't shipped home). A train carries 30 goods and 12 people a trip, a ship 40 and 10. So a far colony's stockpile rises in steps, late, as each load arrives: long routes are slow, which is the reason to want faster transport. The top bar shows goods on their way in gold (*34 +27*), the people panel shows settlers arriving, and a loaded vehicle shows what it carries (*27 iron*). Loads under 5 of a resource aren't worth a trip.
 - **Colonies are just countries (v8):** a new colony is blue like the rest of your empire, with **no supply timer**: its settlers simply live there until you build houses (they only grow into houses that exist). Orange is now an enemy colour.
 - **Names grow (v8):** *the Colony of Gorethus* → *Gorethus Vale / Harbor / Hold / Oasis* (50 housing) → *the Free State of Gorethus* (200) → *Federation…* (1,000) → *the United States of Gorethus* (5,000). See Countries.
 - **AI nations (v8):** 7 static nations spawn across the disk (seeded), each in its own colour with a name (*the Empire of Yrlia*), a ring of houses, cabins and camps on its deposits, and a population that regrows to fill its houses. Their city icons on the map have rings in their colour. **Click into their land to conquer it**: each tile costs your push extra people (0.5 + 2.5 × their people per tile) and kills some defenders; tiles with buildings hand you the buildings. A nation with no land left is conquered. Hovering their land shows their people and the cost per tile. (Test: 600 people took 118 of Yrlia's 155 tiles and its houses, raising the colony's capacity from 0 to 170.)
@@ -434,6 +435,17 @@ A simple way to organise the whole progression, so it stays coherent as it grows
 
 ### Draft transport tiers (placeholders)
 
+**Direction set 2026-11-21:** cargo physically rides the vehicles (in the prototype, v9), so **speed and capacity per trip** are what each tier improves. Proposed ladder, built as in-place upgrades like housing:
+
+| Tier | Land | Sea | Air |
+|---|---|---|---|
+| 1 | Trucks: a cheap depot, short land routes, no track | Sailing ship | |
+| 2 | Rail (in the prototype) | Steamship: faster, 2× cargo | |
+| 3 | Fast rail | Container ship: huge cargo | **Airport**: links any two of your airports, no route needed, very fast, small loads, uses power |
+| 4 | | | Rockets (the space era) |
+
+Older draft, kept for reference:
+
 | Tier | Transport | Crosses | Speed / capacity | Unlock idea |
 |---|---|---|---|---|
 | 0 | Walking (expeditions) | land | slow / small | start |
@@ -528,7 +540,7 @@ Open: is **hydrogen** its own resource, or just made from water? How do you actu
 
 ### Prototype choices to revisit
 Things the prototype had to pick that the design hasn't decided:
-- **Links balance automatically.** You can't yet choose to send people or cargo one way; links just move people toward the emptier country and even out stockpiles. Manual control (e.g. "send 50 settlers to Gorethus") may be needed for "choosing where your empire grows".
+- **Links balance automatically.** You can't yet choose to send people or cargo one way; vehicles move people toward the emptier country and split goods by population share (v9). Manual control (e.g. "send 50 settlers to Gorethus") may be needed for "choosing where your empire grows".
 - **Unlocks use the empire's peak population** (all countries added up, at its highest), so an unlock never disappears when you spend people.
 - **Unlock thresholds** (150 / 200 / 300) are placeholders.
 - ~~A colony that starves keeps its land~~ (settlers no longer starve; a colony is just a country)
@@ -738,6 +750,7 @@ python art/generate_art.py
 - **v1:** people were assigned to deposits as workers (0.1/sec each), and drills replaced workers. Food was an open question.
 - **v2 (2026-11-20):** deposits inside your border produce on their own. People are spent to claim land and to send expeditions, and regrow toward house capacity. Food is built into land fertility. Drills and factories are parked.
 - **Disk world (2026-11-20):** the map became a round disk in outer space, with an ice wall around the rim.
+- **v9 (2026-11-21):** physical shipping: goods and people ride the trains and ships, split by population share; goods on their way shown in the top bar; transport ladder (trucks, steamships, airports) proposed.
 - **v8 (2026-11-21):** static AI nations, openfront-style conquest (push in, take their houses), missile silos and short-range missiles.
 - **v7 (2026-11-21):** collectors (logger's cabin, miner's camp) worked by people; mining rig as their powered upgrade; power stays inside each territory (no power lines); click or Tab to fly to a country.
 - **v6 (2026-11-21):** energy decided as the central system (no crafting chains, no compute, no wind); the prototype gets per-country power, wood burners, solar panels, mining rigs and powered city blocks. Resource collection left open.

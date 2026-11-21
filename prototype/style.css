@@ -161,3 +161,6 @@ canvas#game.building { cursor: copy; }
 
 /* narrower screens: the build bar grows with unlocks, so the controls panel gives way first */
 @media (max-width: 1560px) { #help { display: none; } }
+
+/* goods and people on their way by ship or train */
+.incoming { font-size: 11px; font-weight: 700; color: var(--accent); margin-left: 5px; }

@@ -29,8 +29,9 @@ const CFG = {
   startPeople: 100, startHouses: 10, startRadius: 8,
   startResources: { wood: 30, stone: 30, iron: 0 },
   expeditionKit: { wood: 20, stone: 20 },   // supplies an expedition carries from its home country (if it has them)
-  // what a link moves per second between two of your countries
-  linkRates: { rail: { people: 3, cargo: 4 }, sea: { people: 2, cargo: 3 } },
+  // what one train / ship carries per trip. Goods and people ride the vehicle, so long routes deliver slower and later.
+  vehicles: { rail: { cargo: 30, people: 12 }, sea: { cargo: 40, people: 10 } },
+  shipReserve: 50,             // a country never ships away its first 50 of each resource (a new colony keeps its kit)
 
   // people regrowth:  growth/sec = rate * P * (1 - P/C) + base
   growthRate: 0.06, growthBase: 0.3,
@@ -847,22 +848,44 @@ function recomputeNetwork() {
   clustersDirty = true;
 }
 
-// a link between two of your countries moves people toward the emptier one, and evens out their stockpiles
-function linkTransfer(L, A, B, dt) {
-  const rate = CFG.linkRates[L.kind];
-  const full = c => (c.cap > 0 ? c.people / c.cap : c.people > 0 ? 9 : 1);   // a colony with no houses counts as overfull
-  const fa = full(A), fb = full(B);
-  if (Math.abs(fa - fb) > 0.05) {
-    const [src, dst] = fa > fb ? [A, B] : [B, A];
-    const move = Math.min(rate.people * dt, Math.max(0, dst.cap - dst.people), src.people * 0.5);
-    if (move > 0) { src.people -= move; dst.people += move; }
+// Links: each train or ship physically carries goods and people. At each stop it unloads, then loads for
+// the other end: goods above this country's POPULATION SHARE of the two stockpiles (but never its reserve,
+// so a small colony keeps what it has while the bigger country sends it a share), and people if this
+// country is fuller (relative to its houses) than the other. Long routes = slower, delayed deliveries.
+const CARGO_RES = ['wood', 'stone', 'iron'];
+function unloadAt(L, C) {
+  if (L.cargo && C) {
+    for (const r of CARGO_RES) C.res[r] += L.cargo[r];
+    C.people += L.cargo.people;
   }
-  for (const r of ['wood', 'stone', 'iron']) {
-    const d = A.res[r] - B.res[r];
-    if (Math.abs(d) < 2) continue;
-    const amt = Math.min(rate.cargo * dt, Math.abs(d) / 2);
-    if (d > 0) { A.res[r] -= amt; B.res[r] += amt; } else { B.res[r] -= amt; A.res[r] += amt; }
+  L.cargo = null; L.to = -1;
+}
+function loadAt(L, src, dst) {
+  L.cargo = null; L.to = -1;
+  if (!src || !dst || src === dst) return;
+  const V = CFG.vehicles[L.kind], cargo = { wood: 0, stone: 0, iron: 0, people: 0 };
+  const pop = src.people + dst.people, share = pop > 0 ? src.people / pop : 0.5;
+  const extra = {};
+  let total = 0;
+  for (const r of CARGO_RES) {
+    const x = Math.min(src.res[r] - (src.res[r] + dst.res[r]) * share,   // what's above our fair share,
+      src.res[r] - CFG.shipReserve);                                     // keeping a reserve at home
+    if (x >= 5) { extra[r] = x; total += x; }                    // skip crumbs
   }
+  const k = total > V.cargo ? V.cargo / total : 1;               // a full load is split across what's needed
+  for (const r in extra) { cargo[r] = Math.floor(extra[r] * k); src.res[r] -= cargo[r]; }
+  const full = c => (c.cap > 0 ? c.people / c.cap : 0);   // settlers in a country with no houses yet stay put, waiting for houses
+  if (full(src) > full(dst) + 0.05) {
+    cargo.people = Math.floor(Math.min(V.people, Math.max(0, dst.cap - dst.people), freePeople(src) * 0.5));
+    src.people -= cargo.people;
+  }
+  if (cargo.wood + cargo.stone + cargo.iron + cargo.people > 0) { L.cargo = cargo; L.to = dst.id; }
+}
+// goods (and people) on their way to a country right now
+function incomingTo(C) {
+  const inc = { wood: 0, stone: 0, iron: 0, people: 0 };
+  for (const L of game.links) if (L.cargo && liveCountry(L.to) === C) for (const r in inc) inc[r] += L.cargo[r];
+  return inc;
 }
 
 // which of your countries is closest to a spot (measured to its border)
@@ -1322,12 +1345,12 @@ function tick(dt) {
   }
   for (const L of game.links) {
     const speed = L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed;
+    const A = countryAt(L.a), B = countryAt(L.b);
+    if (L.cargo === undefined) loadAt(L, L.dir > 0 ? A : B, L.dir > 0 ? B : A);   // a brand-new link loads at its first stop
     L.t += speed * dt * L.dir;
     const end = L.path.length - 1;
-    if (L.t >= end) { L.t = end; L.dir = -1; }
-    if (L.t <= 0) { L.t = 0; L.dir = 1; }
-    const A = countryAt(L.a), B = countryAt(L.b);
-    if (A && B && A !== B) linkTransfer(L, A, B, dt);
+    if (L.t >= end) { L.t = end; L.dir = -1; unloadAt(L, B); loadAt(L, B, A); }
+    else if (L.t <= 0) { L.t = 0; L.dir = 1; unloadAt(L, A); loadAt(L, A, B); }
   }
   for (const f of game.floats) f.t += dt;
   game.floats = game.floats.filter(f => f.t < 2.4);
@@ -2704,10 +2727,20 @@ function vehiclePos(L) {
   return [lerp(ax, bx, f), lerp(ay, by, f), Math.atan2(by - ay, bx - ax)];
 }
 
+function cargoLabel(c) {
+  const parts = [];
+  for (const r of ['iron', 'stone', 'wood', 'people']) if (c[r] >= 1) parts.push(`${c[r]} ${r}`);
+  return parts.slice(0, 2).join(' · ') + (parts.length > 2 ? ' …' : '');
+}
 function drawVehicles(z) {
   for (const L of game.links) {
     const [wx, wy, ang] = vehiclePos(L);
     const [sx, sy] = toScreen(wx, wy);
+    if (L.cargo) {                                 // loaded: a gold crate marker, and what it carries up close
+      const off = Math.max(14, z * 1.2);
+      if (z >= 2) pill(sx, sy - off - 6, cargoLabel(L.cargo), { size: 10, fg: '#f2c14e', dot: '#a67c52' });
+      else { ctx.fillStyle = '#f2c14e'; ctx.fillRect(sx - 3, sy - off, 6, 6); }
+    }
     if (L.kind === 'sea') {
       const s = Math.max(18, z * 1.6);
       if (SPR.boat.complete) ctx.drawImage(SPR.boat, sx - s / 2, sy - s / 2, s, s);
@@ -3284,8 +3317,9 @@ function updateHud() {
   const alive = game.countries.filter(c => c.alive).length;
   $('val-country').textContent = C.full;
   $('country-count').textContent = alive > 1 ? `${game.countries.filter(c => c.alive).indexOf(C) + 1} of ${alive}` : '';
+  const inc = incomingTo(C);
   for (const r of ['wood', 'stone', 'iron']) {
-    $('val-' + r).textContent = fmtNum(C.res[r]);
+    $('val-' + r).innerHTML = fmtNum(C.res[r]) + (inc[r] >= 1 ? `<span class="incoming" title="on its way by ship or train">+${fmtNum(inc[r])}</span>` : '');
     const rate = C.rates[r];
     const el = $('rate-' + r);
     el.textContent = `${rate < 0 ? '' : '+'}${rate.toFixed(1)}/s`;
@@ -3305,7 +3339,7 @@ function updateHud() {
   $('people-lbl').textContent = alive > 1 ? `PEOPLE · EMPIRE ${fmtNum(game.population)}` : 'PEOPLE';
   $('val-people').textContent = `${fmtNum(C.people)} / ${fmtNum(C.cap)}`;
   $('people-fill').style.width = (C.cap ? clamp(C.people / C.cap, 0, 1) * 100 : 0) + '%';
-  $('people-rate').textContent = C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : (C.people >= C.cap - 0.5 ? 'Full' : '');
+  $('people-rate').innerHTML = (inc.people >= 1 ? `<span class="incoming">+${fmtNum(inc.people)} arriving</span> ` : '') + (C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : (C.people >= C.cap - 0.5 ? 'Full' : ''));
   $('send-n').textContent = `= ${sendFrom(C)} people`;
   $('bar-note').textContent = C.pw.workers
     ? `${fmtNum(Math.min(C.people, C.pw.workers))} at work${C.staff < 0.999 ? ` (need ${C.pw.workers})` : ''} · regrows fastest at half full`
