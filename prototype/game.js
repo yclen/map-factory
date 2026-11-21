@@ -371,10 +371,21 @@ const SHAPES = {
   boat: `<path d="M-12 0 H12 L8 7 H-8 Z" fill="#a67c52" stroke="#5a3d22" stroke-width="1"/>
     <path d="M0 -12 V0" stroke="#5a3d22" stroke-width="1.5"/><path d="M1 -11 L10 -3 H1 Z" fill="#f4f1e6" stroke="#8d969e" stroke-width="0.6"/>`,
 };
-const SVG = {}, SPR = {};
+// SPR holds each sprite as an SVG image; RAS holds it drawn once into two small bitmaps (large and small).
+// The map draws from RAS: stamping a bitmap is many times faster than drawing an SVG image, which the
+// browser re-renders from its shapes on every draw, and a forest is thousands of draws a frame.
+const SVG = {}, SPR = {}, RAS = {};
 for (const [name, inner] of Object.entries(SHAPES)) {
   SVG[name] = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-15 -15 30 30" width="64" height="64">${inner}</svg>`;
   const img = new Image();
+  img.onload = () => {
+    RAS[name] = [128, 40].map(px => {
+      const c = document.createElement('canvas');
+      c.width = c.height = px;
+      c.getContext('2d').drawImage(img, 0, 0, px, px);
+      return c;
+    });
+  };
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(SVG[name]);
   SPR[name] = img;
 }
@@ -902,7 +913,23 @@ function aiClaim(n, i) {
 const yourDefense = c => CFG.ai.defenseBase + CFG.ai.defensePerDensity * (c ? c.people / Math.max(1, c.tiles) : 0);
 // a nation takes one of your tiles: the land, and anything built on it, is now theirs
 function aiTake(n, i) {
-  const x = i % W, y = (i / W) | 0;
+  const x = i % W, y = (i / W) | 0, c = countryAt(i);
+  // Recounting every country means scanning the whole map, so only ask for it when this tile could have
+  // been holding two parts of your land together (or was the country's last). Otherwise just subtract it.
+  const own = (dx, dy) => inb(x + dx, y + dy) && owner[idx(x + dx, y + dy)] ? 1 : 0;
+  const N4 = own(0, -1), E4 = own(1, 0), S4 = own(0, 1), W4 = own(-1, 0);
+  let parts = N4 + E4 + S4 + W4;
+  if (N4 && E4 && own(1, -1)) parts--;
+  if (E4 && S4 && own(1, 1)) parts--;
+  if (S4 && W4 && own(-1, 1)) parts--;
+  if (W4 && N4 && own(-1, -1)) parts--;
+  if (c) {
+    c.tiles--; c.sx -= x; c.sy -= y;
+    if (c.tiles) { c.lx = c.sx / c.tiles + 0.5; c.ly = c.sy / c.tiles + 0.5; }
+    if (biome[i] === MOUNTAIN) c.geo.mtn--; else if (biome[i] === DESERT) c.geo.desert--;
+    if (isCoastal(i)) c.geo.coast--;
+  }
+  if (!c || !c.tiles || parts > 1) game.netDirty = true;
   owner[i] = 0; countryOf[i] = -1; game.ownedCount--;
   aiOf[i] = n.id + 1; n.tiles++; n.sx += x; n.sy += y;
   n.warFront.delete(i);
@@ -914,7 +941,7 @@ function aiTake(n, i) {
     else if (aiOf[nb]) paintTerr(nb);
     else if (freeLand(nb)) n.front.add(nb);
   }
-  game.netDirty = game.landDirty = game.bldDirty = true;   // your country may have shrunk, split or fallen
+  game.landDirty = game.bldDirty = true;           // your settlements here hold less now, or are theirs
 }
 // a clear tile of this nation's within `rad` of a point (or -1)
 function aiSpot(n, px, py, rad, rnd = Math.random) {
@@ -3302,8 +3329,9 @@ function drawLockHover(z) {
 }
 
 function drawSprite(name, wx, wy, sizePx, alpha = 1) {
-  const img = SPR[name];
-  if (!img.complete) return;
+  const ras = RAS[name];
+  if (!ras) return;
+  const img = sizePx * dpr <= 44 ? ras[1] : ras[0];
   const [sx, sy] = toScreen(wx, wy);
   if (alpha !== 1) ctx.globalAlpha = alpha;
   ctx.drawImage(img, sx - sizePx / 2, sy - sizePx / 2, sizePx, sizePx);
@@ -3605,11 +3633,11 @@ function drawSettlementBadges(z) {
       ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(20,26,37,0.9)'; ctx.stroke();
       continue;
     }
-    const r = 11 + lvl * 3, spr = SPR['settle' + (lvl + 1)];
+    const r = 11 + lvl * 3, spr = RAS['settle' + (lvl + 1)];
     ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(20,26,37,0.88)'; ctx.fill();
     ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.stroke();
-    if (spr.complete) ctx.drawImage(spr, sx - r * 0.85, sy - r * 0.85, r * 1.7, r * 1.7);
+    if (spr) ctx.drawImage(spr[0], sx - r * 0.85, sy - r * 0.85, r * 1.7, r * 1.7);
     const full = who && who.cap > 0 ? clamp(who.people / who.cap, 0, 1) : 0;
     if (full > 0.01) {
       ctx.beginPath(); ctx.arc(sx, sy, r + 3.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * full);
@@ -4489,5 +4517,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, aiTake, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; } };
+window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, render, recomputeNetwork2: recomputeNetwork, aiTake, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; } };
 init();
