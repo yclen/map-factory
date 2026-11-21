@@ -96,6 +96,13 @@ A browser prototype of the core loop is in [`prototype/`](prototype/). To play, 
 - **Moon phases:** the Moon is lit from the Sun's real direction, so as it orbits your world its lit side swings round: real phases.
 - **The full core loop:** people regrow toward house capacity; **click** to push your border (a gold number counts down as land is claimed); deposits inside connected territory produce; build **House / Level 2 / Station / Port** with keys 1–4; **right-click** sends an expedition, which turns into a boat over water.
 - **Connections:** a new outpost is **cut off** (outlined in orange, with a 45-second supply ring). Build a **station** there and it links itself by rail to your nearest station, with a train running on it. Or build a **port** on the coast and it links by sea to your nearest port, with a ship sailing the route. Once it's connected, the outpost turns blue, its settlers join your people, and its resources count. If you don't connect it in time, the settlers starve.
+- **Countries (v4):** every separate territory is a named **country** with its **own people, houses and stockpile**. The top bar shows the country you're viewing (click inside any of your countries to view it).
+  - **Pushes and expeditions** use the people of the country nearest the spot you click.
+  - **An expedition founds a new country:** it carries a supply kit (20 wood, 20 stone, if home can spare it) and gets 45 seconds to house its settlers. Build houses there with its own stockpile, or link it home. If it runs out of time, the settlers who can't be housed starve.
+  - **Links between your countries** (rail or sea) automatically move **people** toward the emptier country (an overcrowded colony evacuates home; a growing colony gets settlers) and **even out stockpiles** (a rich home supplies a broke colony). Rail moves 3 people and 4 cargo per second; sea 2 and 3.
+  - **Countries merge** when their borders touch, pooling people and resources.
+  - **Names** are generated from the seed (e.g. *the Union of Ethbelzanus*, *the Federation of Gorethus*), and written across each country on the map when you zoom out.
+- **Build menu (E) and population unlocks:** press **E** for every building, with a description, its cost, and what's still locked. New buildings unlock as your empire's peak population grows: House from the start, **Station at 150**, **Port at 200**, **Level 2 house at 300**. The bottom bar shows only what you've unlocked. Send % moved to **[ ]**.
 - **Copy and paste houses:** hold left click and drag a box over houses to select them (gold outlines). A ghost copy follows the mouse, with green tiles where it fits and red where it doesn't. Press **C** to paste it there. It only builds on your own clear land, skips blocked tiles, and stops if you run out of resources. Press C again for more copies; Esc or a click clears the selection. Stations and ports aren't copied. Because of this, **panning is right-drag** (or WASD).
 - **Previews:** with the Station or Port tool selected, hovering shows the route it would build (green dashed line), its length, and the total cost including track. Hover any tile to see its biome, cost per tile, and whether it's yours and connected.
 
@@ -289,6 +296,204 @@ The `small base` keeps you from getting stuck at 0. `rate` is the main speed set
 
 ---
 
+## Progression: reach and logistics (brainstorm draft)
+
+> Status: **mostly brainstorm.** Captures the 2026-11-21 voice brainstorms plus a proposed way to organise them. **Decided so far:** population unlocks the tech tree; the build menu opens with **E**; territories are **countries** with their own people and resources; the end goal is to **fly into the black hole** at the centre of the galaxy. Nothing here is in the prototype yet.
+
+### The big idea: progression is about motion
+Players don't progress by stacking abstract upgrades. They progress by **reaching further**: every new technology is a better way to move people and resources across a barrier they couldn't cross before.
+
+**The journey:**
+1. Start in the centre of the disk and build up your first city.
+2. Get the transport technology to travel: cross land, then oceans.
+3. Set up **travel links** between your colonies, because colonies can't share anything without them (see Logistics). This is the reason to keep investing in better transport.
+4. Push all the way to the **edge of the world, the ice wall**. That's where space technology starts.
+5. Launch a **rocket** into orbit around your world. From orbit, build **fuel stations** and **space stations**.
+6. From orbit, launch to the **other planets**.
+
+### Logistics: every territory keeps its own stockpile
+A shift from the prototype, where all resources go into one global pool:
+- **Each separate territory has its own stockpile.** Resources mined in a colony belong to that colony.
+- **Merged territories share one stockpile.** If two territories grow until they touch, they become one.
+- **Travel links move resources and people between territories.** Each link has a **throughput** (how much per minute) and a **travel time** (how long a shipment takes), set by the transport technology it uses.
+- So better transport means more stuff moving faster, which is the point of upgrading.
+
+### Countries (DECIDED 2026-11-21, in the prototype)
+- **Every separate territory is a country,** with its own name, its own **people** and its own **resources**. Your first country is your home; every outpost that survives becomes a new country of yours until it merges with another.
+- **People are per country too.** Each country's population regrows toward the capacity of *its own* houses, and its pushes and buildings spend *its own* people.
+- **Links move people as well as resources.** A port, rail line or (later) spaceport has a **person transfer rate** (people per minute) alongside its cargo rate.
+- **What moving people is for:** a small new colony can't grow fast on its own people. You ship settlers from your big home country to power its expansion and building. Moving people is how you choose *where* your empire grows.
+- **Merging:** when two of your countries' borders touch, they become one country and pool their people and resources.
+- **Country names:** generated from the seed: a name plus a form, e.g. *the Kingdom of Velmora*, *the Kethar Republic*, *the Free State of Ixos*, *the Union of Oth*. AI nations get names the same way.
+
+### A methodology for the tech tree
+A simple way to organise the whole progression, so it stays coherent as it grows:
+
+**1. Every technology is a transport tier (or something that serves one).** Each tier answers one question: *which barrier does it let you cross, and how fast and how much?*
+
+**2. Every tier is described by the same few properties,** so they can all live in one table (like the `CFG` block in the code):
+
+| Property | What it means |
+|---|---|
+| Crosses | which terrain it can travel over (land, coast, deep ocean, ice wall, orbit, interplanetary) |
+| Speed | how fast people and cargo travel |
+| Capacity | how much it carries per trip / per minute |
+| Build cost | which resources it costs to build the link |
+| Running cost | fuel or upkeep, if any |
+| Unlock | what you need before you can build it (see step 3) |
+
+**3. Unlocking (DECIDED 2026-11-21): population unlocks the tech tree. No research points.** You unlock a tier by reaching a population size; some tiers also need their "first" building.
+- Each tier needs a **population threshold** (e.g. 500 people across your connected territory) **plus** a one-off construction (e.g. your first *Shipyard*, costing resources).
+- **Why this way:** it uses the systems the game already has (people are the currency, resources build things), it's visible on the map (you can see the Shipyard), and it ties growth to reach: you need a bigger empire to unlock the next way of travelling.
+- Considered and rejected: research points generated by people (the classic tech tree).
+
+### The build menu (E)
+- Press **E** to open a menu of everything you can build.
+- **New objects appear in the menu as your population passes their threshold**, so the menu itself shows your progress. Locked objects could show greyed out with the population they need ("unlocks at 500 people"), so players know what's coming.
+- Key change needed in the prototype: **E** is currently "send more people" (Q / E). Proposal: move send % to **[** and **]** (and the on-screen buttons).
+
+### Object levels (proposal)
+- **Some objects have levels you upgrade in place:** click a built object, pay, and it gets better. Each level is its own population unlock.
+- **Worth it for a few core objects, not everything:**
+  - **Housing ladder:** hut → house → apartment → **city block**, each holding more people. (The prototype's "Level 2 house" is the first rung.)
+  - **Transport links:** e.g. a rail line upgraded to carry more, faster.
+- **Why:** keeps the menu short, makes your city visibly grow up, and reuses the population-unlock system.
+- **Cities** as the top of the housing ladder, or as a special building that boosts all the houses around it. Open.
+- **Copy and paste** (already in the prototype) matters more as cities get bigger: it's how you'd lay out whole districts quickly.
+
+**4. Resources follow the same eras.** Each era adds the resources the next tier needs, and those resources are usually found *beyond* the current barrier, so you must cross it to progress.
+
+### Draft transport tiers (placeholders)
+
+| Tier | Transport | Crosses | Speed / capacity | Unlock idea |
+|---|---|---|---|---|
+| 0 | Walking (expeditions) | land | slow / small | start |
+| 1 | Roads and carts (horses?) | land | faster / small | a few hundred people + wood, stone |
+| 2 | Boats | coasts, lakes | medium / medium | first port + people |
+| 3 | Rail | land | fast / large | iron |
+| 4 | Ocean ships | deep ocean | medium / large | steel? fuel? |
+| 5 | Ice-wall launch site | the edge of the world | - | reach the ice wall |
+| 6 | Rockets | world → orbit | - / small | fuel + metals |
+| 7 | Orbital fuel and space stations | orbit | - | water (ice), metals |
+| 8 | Interplanetary ships | orbit → other planets | slow / medium | nuclear fuel |
+
+**Why the ice wall is where space starts (one idea):** the wall is made of ice, and ice → **water** → rocket **fuel** (hydrogen). Its height could also make it the natural launch site. So reaching the edge of the world is the gate to space.
+
+### Resources by era (draft)
+- **Disk, early:** wood, stone, iron (what the prototype has now)
+- **Disk, industrial:** fuel (oil? coal?), steel
+- **Space:** **water** (from ice), **minerals and metals**, rocket **fuel**, **nuclear fuel** for energy production
+- Open: which resources exist only on other planets (Vulcan's heavy metals and sulfur? Aries? the gas giants?)
+
+### Combat (rough)
+- You should be able to fight **other territories**, e.g. AI empires on the same disk.
+- Weapons should be fairly advanced and unlock over time.
+- Idea to explore: weapons ride on the same transport network. Faster, longer-range transport also means faster, longer-range attacks, so the transport tree doubles as the military tree.
+
+### Items and properties
+There will be many items, each with properties to track. Proposal: keep every item and technology as a **row in one data table** (name, era, costs, requirements, speed, capacity, what it crosses), the way the prototype keeps all its numbers in `CFG`. New content then means adding a row, not writing new code.
+
+### Open questions
+- How detailed should transport get (horses? carts? or straight to roads)?
+- What does combat look like moment to moment?
+- Which resources exist only off-world?
+- How does the detailed small-scale world connect to large-scale planning (see `notes.md`)?
+
+### Zoom levels: what you see at each scale (direction set 2026-11-21)
+- **Up close:** detailed, interesting models of buildings, trees, deposits.
+- **Zooming out:** details simply **stop being drawn** once they'd be too small to see.
+- **In their place:** an **icon** where there's a city or settlement, and the **country's name** written across its territory on the map.
+- The prototype already does most of this (Detail → Region → Map → whole disk: sprites become squares become city icons). **New:** country names on the map, and making the detailed close-up models more interesting.
+
+### The galaxy and exploration (future brainstorm, 2026-11-21)
+- **A galaxy of about 1,000 stars,** generated from the seed, with a **black hole at the centre** (the end goal: fly into it).
+- **Each star has a procedurally generated solar system** (its planets built by rules like the seed world). The "format" of a solar system still needs designing: how many planets, what kinds, in what order, belts, moons.
+- **You can't see everything at once.** The galaxy map has a **resolution limit**: zoom in on any star and it's just a dot. Only your **own Sun** is in high resolution, with its planets visible.
+- **Telescopes resolve stars.** Build a telescope, click a star, and it **resolves over time**: you watch it scan in pixel by pixel until its planets appear. Better telescopes could resolve faster, or further away.
+- **Or go there.** Travelling to a star reveals it fully.
+- This makes **seeing** part of progression too: like transport, telescopes extend your *reach*.
+- Rendering should be cheap: 1,000 stars are just dots until you resolve one.
+
+#### Star types (brainstorm 2026-11-21)
+Each star type has its own **rules for what kind of solar system it gets**:
+
+| Star | How common | Its solar system |
+|---|---|---|
+| **Red dwarf** | Most common | Small, dim stars. A few **smallish rocky worlds**, packed close in |
+| **Yellow star** | Common | Like our Sun, but with a **shuffled order**: a **big gas giant close in**, then a **big rocky or ocean world**, then a mix of other planets. Only a few rocky worlds |
+| **Blue giant** | Rare, found in **nebula clouds** | Huge, wild systems: up to **~30 planets**, widely spread, with the strangest worlds |
+
+**Exotic objects** (rare, for fun and danger):
+- **White dwarfs:** the cooling leftover core of a dead star; a few scorched or frozen survivor worlds
+- **Neutron stars:** tiny, incredibly dense dead stars
+- **Pulsars:** neutron stars sweeping beams of radiation around like a lighthouse
+- **Magnetars:** neutron stars with enormous magnetic fields
+- **Stellar black holes:** smaller black holes scattered around the galaxy
+- **The supermassive black hole** at the centre: the end goal
+
+#### Galaxy regions
+The galaxy isn't uniform. Different regions have different mixes of stars:
+- **Nebula clouds:** dense, glowing gas regions full of **young blue stars** (rich, wild systems)
+- **The open galaxy:** mostly **red dwarfs**, with **yellow stars** mixed in
+- **The core** around the black hole: crowded, with old stars and remnants (white dwarfs, neutron stars)
+- Open: spiral arms? dead zones? where each exotic object type shows up
+
+#### Planets are resource sources
+The main point of exploring: **every planet has resources you can extract**, and its type decides which:
+
+| Planet type | Main resources (draft) |
+|---|---|
+| Rocky worlds | minerals, metals |
+| Lava worlds (like Vulcan) | heavy metals, sulfur |
+| Ice worlds and icy moons | **water** |
+| Ocean worlds | water |
+| Gas giants | hydrogen, **helium-3** (fusion fuel) |
+| Exotic remnants (neutron stars etc.) | something rare and late-game (exotic matter?) |
+
+Open: is **hydrogen** its own resource, or just made from water? How do you actually extract resources (outposts on the surface, orbital mining, scoops for gas giants)?
+
+#### Can we generate this many planets? Yes.
+- A planet is just a **recipe**: a few dozen numbers rolled from the seed (type, size, colours, resources). 1,000 stars × up to 30 planets ≈ 30,000 recipes, which takes almost no time or memory.
+- The expensive part is **painting a planet's surface** (~0.05–0.1 s each with the current code). That only happens **when you actually look at one** (after a telescope resolves it or you travel there), and the result is kept. Only a handful are ever painted at once.
+- So the galaxy can be huge and still fast. The seed-world generator is already the first version of this.
+
+### Prototype choices to revisit
+Things the prototype had to pick that the design hasn't decided:
+- **Links balance automatically.** You can't yet choose to send people or cargo one way; links just move people toward the emptier country and even out stockpiles. Manual control (e.g. "send 50 settlers to Gorethus") may be needed for "choosing where your empire grows".
+- **Unlocks use the empire's peak population** (all countries added up, at its highest), so an unlock never disappears when you spend people.
+- **Unlock thresholds** (150 / 200 / 300) are placeholders.
+- **A colony that starves keeps its land**, with 0 people; it can be rebuilt if resources reach it.
+
+### Design checklist
+Everything the design still has to work out, with where each stands after the 2026-11-21 brainstorms:
+
+| # | Topic | Direction so far | Status |
+|---|---|---|---|
+| 1 | **People per country** | Yes: each country has its own people and resources; links carry both (see Countries) | **Decided, in the prototype** |
+| 2 | **Object catalogue** | Every building, level and population threshold, kept as rows in one data table | To do (big job) |
+| 3 | **Production chains** | Processing buildings (e.g. iron → steel, fuel) needed before rockets | To do |
+| 4 | **Energy** | Many sources, including **solar**. Candidates to consider: burning wood/coal, wind, hydro, solar, **geothermal** (Vulcan?), nuclear fission, and late-game fusion (helium-3 from the Moon or gas giants?) | To do |
+| 5 | **AI nations and combat** | AI countries that play like you but differently: build houses, expand, and **launch weapons at you**. Needs a full **military tech tree** | To do |
+| 6 | **Goal** | **Fly into the black hole at the centre of the galaxy.** Eventually a whole galaxy of seeded solar systems; for now, just one system | **Decided** (galaxy later) |
+| 7 | **Losing and damage** | Part of combat: losing territory, damaged buildings | To do (with combat) |
+| 8 | **Space gameplay** | Where the game should **shine**: visit planets, mine them for resources, a **planetary tech tree** of advanced technology, and big weapons like **planet-slicing lasers** | To do |
+| 9 | **Small scale vs large scale** | Detailed models up close; the further out you zoom, the more detail **disappears** and is replaced by **icons** (city, settlement) and **country names** on the map (see Zoom levels below) | **Direction set** |
+| 10 | **Pace and saving** | Game length, save / load | Open |
+| 11 | **Multiplayer** | Single-player first; **multiplayer combat eventually** | Direction set |
+| 12 | **Tutorial** | A **tutorial mode** to teach new players | **Decided** (build later) |
+| 13 | **Galaxy and exploration** | ~**1,000 seeded stars** in regions (nebula clouds of blue stars, open galaxy of red and yellow stars, a crowded core); each **star type** has its own solar-system rules; exotic objects (white dwarfs, neutron stars, pulsars, magnetars, black holes); every planet is a **resource source**; you only see your own system in detail, and **telescopes** resolve other stars over time | Direction set (later) |
+
+**Suggested work order:** each step builds on the one before.
+1. ~~The **people-per-country model** in the prototype~~ **done**
+2. The **object catalogue** (still to write) and ~~the **E build menu** with population unlocks~~ **done**
+3. **Production chains** and **energy**
+4. **AI nations**, then **combat**, losing and damage
+5. **Space**: rockets, orbit, other planets, the planetary tech tree
+6. The **galaxy** (1,000 seeded stars), **telescopes**, and the black hole
+7. **Tutorial** once the core is stable; multiplayer last
+
+---
+
 ## Later systems (parked for now)
 
 These came up earlier. They don't fit cleanly with the current rules yet, so they're parked until the core works.
@@ -368,6 +573,7 @@ python art/generate_art.py
 ---
 
 ## Open questions
+- **Progression:** how should the tech tree unlock (see the Progression brainstorm section for a proposal)?
 - **Regrowth curve:** is the S-curve right, or should regrowth be simpler (flat rate per house)?
 - **Expedition supplies:** how long should they last? Building a station or port at a cut-off outpost currently uses your main stockpile. Should it only use resources the expedition carries (harder, more strategic)?
 - **Networks:** should rail and sea links ever carry more than "connected or not", like goods that take time to arrive, or capacity limits per line?
@@ -384,6 +590,8 @@ python art/generate_art.py
 - **v1:** people were assigned to deposits as workers (0.1/sec each), and drills replaced workers. Food was an open question.
 - **v2 (2026-11-20):** deposits inside your border produce on their own. People are spent to claim land and to send expeditions, and regrow toward house capacity. Food is built into land fertility. Drills and factories are parked.
 - **Disk world (2026-11-20):** the map became a round disk in outer space, with an ice wall around the rim.
+- **v4 (2026-11-21), in the prototype:** territories became countries with their own people, houses and stockpiles; expeditions found new countries with a supply kit; links move people and cargo between countries; countries merge when they touch; the E build menu with population unlocks (send % moved to [ ]).
+- **Progression decisions (2026-11-21):** population unlocks the tech tree; build menu on E; territories are countries with their own people and resources, linked by transport that moves both; the end goal is the black hole at the centre of the galaxy.
 - **v3 (2026-11-20):** farms and fertility removed. Territory is either connected to your capital or cut off. Rail stations and ports link themselves to keep outposts alive and bring their resources home.
 
 ---
@@ -410,5 +618,10 @@ python art/generate_art.py
 - [ ] Decide what the Moon is for: a place to settle? rare resources? something launched from the disk to reach it?
 - [ ] Decide what Vulcan is for: heavy metals and sulfur for late-game buildings?
 - [ ] Decide what the outer planets and their moons are for (a late-game space-travel layer?)
+- [x] Unlock system: population unlocks the tech tree; build menu on **E**
+- [x] People are per country, like resources; countries get generated names
+- [x] End goal: fly into the black hole at the centre of the galaxy
+- [ ] Write the object catalogue: buildings, levels, population thresholds
+- [ ] Turn the rest of the Progression brainstorm into decisions: transport tiers, per-territory stockpiles, resources by era, combat
 - [ ] Extend the seed-world rules: more planet classes (desert worlds, ocean worlds, frozen worlds), more moon types, or several seed worlds per system
 - [ ] Redraw the concept snapshots for v3 (no farm; a station linking the outpost)

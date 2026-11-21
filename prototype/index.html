@@ -11,6 +11,8 @@
 
   <!-- top bar: resources, territory, view, time -->
   <div id="topbar">
+    <div class="res country"><span class="flag"></span>
+      <div><div class="lbl">COUNTRY <span class="rate zero" id="country-count"></span></div><div class="val small" id="val-country">-</div></div></div>
     <div class="res"><span class="ic" data-icon="tree"></span>
       <div><div class="lbl">WOOD <span class="rate" id="rate-wood"></span></div><div class="val" id="val-wood">0</div></div></div>
     <div class="res"><span class="ic" data-icon="rock"></span>
@@ -32,7 +34,7 @@
       <div class="people-top">
         <span class="ic big" data-icon="person"></span>
         <div>
-          <div class="lbl">PEOPLE</div>
+          <div class="lbl" id="people-lbl">PEOPLE</div>
           <div class="val big" id="val-people">0 / 0</div>
         </div>
         <div class="bar-wrap">
@@ -50,14 +52,23 @@
 
     <div id="help" class="panel">
       <div class="lbl">CONTROLS</div>
-      <div class="help-row"><b>Click</b> near your border: expand there</div>
-      <div class="help-row"><b>Right-click</b> far away: send an expedition</div>
+      <div class="help-row"><b>Click</b> near your border: expand · <b>Click</b> inside a country: view it</div>
+      <div class="help-row"><b>Right-click</b> far away: send an expedition (founds a new country)</div>
       <div class="help-row"><b>Drag</b> a box over houses: select · <b>C</b> paste a copy at the cursor</div>
-      <div class="help-row"><b>1–4</b> build · <b>Esc</b> cancel · <b>Q / E</b> send % · <b>M</b> map / orbit · <b>N</b> new map</div>
+      <div class="help-row"><b>E</b> build menu · <b>1–4</b> build · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>M</b> map / orbit · <b>N</b> new map</div>
       <div class="help-row"><b>Scroll</b> zoom · <b>Right-drag</b> or <b>WASD</b> pan · <b>Click</b> any planet, moon or the Sun to lock on</div>
       <div class="help-row">Lock-on keys: <b>L</b> Moon · <b>V</b> Vulcan · <b>R</b> Aries · <b>Z</b> Zeus · <b>P</b> Poseidon · <b>G</b> seed world · <b>U</b> Sun</div>
       <div class="hover" id="hover-info">&nbsp;</div>
     </div>
+  </div>
+
+  <!-- build menu (E): everything you can build, and what your population still has to unlock -->
+  <div id="buildmenu" class="panel">
+    <div class="bm-head">
+      <div><div class="bm-title">Build</div><div class="bm-sub" id="bm-sub"></div></div>
+      <div class="bm-close">E or Esc to close</div>
+    </div>
+    <div id="bm-grid"></div>
   </div>
 
   <div id="loading"><div class="spin"></div>Generating world…</div>

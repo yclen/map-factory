@@ -28,6 +28,9 @@ const CFG = {
 
   startPeople: 100, startHouses: 10, startRadius: 8,
   startResources: { wood: 30, stone: 30, iron: 0 },
+  expeditionKit: { wood: 20, stone: 20 },   // supplies an expedition carries from its home country (if it has them)
+  // what a link moves per second between two of your countries
+  linkRates: { rail: { people: 3, cargo: 4 }, sea: { people: 2, cargo: 3 } },
 
   // people regrowth:  growth/sec = rate * P * (1 - P/C) + base
   growthRate: 0.06, growthBase: 0.3,
@@ -39,11 +42,16 @@ const CFG = {
 
   prodPerTile: { forest: 0.06, stone: 0.06, iron: 0.06 },   // per owned, connected deposit tile, per second
 
+  // unlock = how many people your whole empire must reach (at its peak) before you can build it
   buildings: {
-    house:   { key: '1', name: 'House',   cap: 10, cost: { wood: 10, stone: 10 } },
-    house2:  { key: '2', name: 'Level 2', cap: 30, cost: { wood: 20, iron: 10 } },
-    station: { key: '3', name: 'Station', cap: 0,  cost: { wood: 15, stone: 10 } },
-    port:    { key: '4', name: 'Port',    cap: 0,  cost: { wood: 20, stone: 10 } },
+    house:   { key: '1', name: 'House',   cap: 10, unlock: 0,   cost: { wood: 10, stone: 10 },
+               desc: 'Holds 10 people in the country you build it in.' },
+    house2:  { key: '2', name: 'Level 2', cap: 30, unlock: 300, cost: { wood: 20, iron: 10 },
+               desc: 'A bigger house: holds 30 people. Needs iron, which is never near the start.' },
+    station: { key: '3', name: 'Station', cap: 0,  unlock: 150, cost: { wood: 15, stone: 10 },
+               desc: 'Lays its own rail to your nearest station. Trains carry people and cargo between your countries.' },
+    port:    { key: '4', name: 'Port',    cap: 0,  unlock: 200, cost: { wood: 20, stone: 10 },
+               desc: 'On the coast. Opens a sea route to your nearest port. Ships carry people and cargo.' },
   },
 
   // rail: a new station links itself to the nearest station by the cheapest land route
@@ -251,9 +259,9 @@ let spawn = { x: 0, y: 0 };
 let capitalTile = 0;
 
 const game = {
-  people: CFG.startPeople, cap: 0, growth: 0,
-  res: { ...CFG.startResources },
-  rates: { wood: 0, stone: 0, iron: 0 },
+  countries: [],          // every country you have founded (merged ones stay, marked not alive)
+  active: 0,              // the country the HUD is showing
+  population: 0, peakPop: 0, unlocked: new Set(),
   time: 0, landTiles: 0, ownedCount: 0,
   ownedDep: { forest: 0, stone: 0, iron: 0 },
   buildings: [], stations: [], ports: [], links: [],
@@ -441,15 +449,17 @@ function generateWorld() {
     }
   }
 
-  // claim the start circle, place the start town
+  // your home country: claim the start circle, place the start town
+  const home = newCountry({ res: { ...CFG.startResources } });
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     if (dx * dx + dy * dy > R * R) continue;
     const x = spawn.x + dx, y = spawn.y + dy;
-    if (inb(x, y) && biome[idx(x, y)] !== OCEAN) claim(idx(x, y));
+    if (inb(x, y) && biome[idx(x, y)] !== OCEAN) claim(idx(x, y), home.id);
   }
   for (const i of townTiles) placeBuilding(i, 'house');
   recomputeNetwork();
-  game.people = Math.min(CFG.startPeople, game.cap);
+  home.people = Math.min(CFG.startPeople, home.cap);
+  game.population = game.peakPop = home.people;
 }
 
 // ======================================================================
@@ -458,7 +468,7 @@ function generateWorld() {
 // Two 1-px-per-tile layers: a flat tint for every owned tile, and the border
 // pixels. Far out, both are drawn (chunky pixel border, like openfront). Close
 // up, only the tint is drawn and the border is stroked as thin lines instead.
-// Connected land is blue; cut-off land is orange.
+// Your countries are blue; a brand-new colony still waiting for houses is orange.
 function makeLayer() {
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
@@ -499,9 +509,10 @@ function paintTerr(i) {
   if (border) { b[o] = bc[0]; b[o + 1] = bc[1]; b[o + 2] = bc[2]; b[o + 3] = bc[3]; } else b[o + 3] = 0;
 }
 
-function claim(i) {
+function claim(i, cid) {
   if (owner[i] || !isLand(i)) return false;
   owner[i] = 1;
+  countryOf[i] = cid;
   game.ownedCount++;
   frontier.delete(i);
   paintTerr(i);
@@ -520,22 +531,54 @@ function claim(i) {
 const tileCost = i => CFG.tileCost[BIOME_KEY[biome[i]]];
 
 // ======================================================================
-// the network: which parts of your territory are connected to the capital
 // ======================================================================
-const comp = new Int32Array(N).fill(-1);   // territory piece id per owned tile
-let compConn = new Uint8Array(0);           // 1 if that piece is connected to the capital
+// countries: every separate piece of your territory is a country with its own
+// name, people and resources. Links move people and cargo between them; when two
+// of your countries' borders touch, they merge into one.
+// ======================================================================
+const comp = new Int32Array(N).fill(-1);        // territory piece id per owned tile
+const countryOf = new Int16Array(N).fill(-1);   // which of your countries owns each tile
+const NAME_FORMS = ['the Kingdom of {}', 'the {} Republic', 'the Free State of {}', 'the Union of {}',
+  'the {} Dominion', 'the Federation of {}', 'the Duchy of {}', 'the {} Commonwealth'];
+function countryName(id) {
+  const r = mulberry32(Math.floor(hash2(SEED, id + 1, 4242) * 4294967296));
+  const short = makeName(r);
+  return { short, full: NAME_FORMS[(r() * NAME_FORMS.length) | 0].replace('{}', short) };
+}
+function newCountry({ people = 0, res = {}, supply = 0 } = {}) {
+  const id = game.countries.length;
+  const c = { id, ...countryName(id), people, cap: 0, growth: 0, supply,
+    res: { wood: 0, stone: 0, iron: 0, ...res }, rates: { wood: 0, stone: 0, iron: 0 },
+    ownedDep: { forest: 0, stone: 0, iron: 0 }, tiles: 0, lx: 0, ly: 0, alive: true, mergedInto: -1 };
+  game.countries.push(c);
+  return c;
+}
+function liveCountry(id) {                       // follows merges to the country that exists now
+  let c = game.countries[id];
+  while (c && !c.alive && c.mergedInto >= 0) c = game.countries[c.mergedInto];
+  return c && c.alive ? c : null;
+}
+const countryAt = i => (owner[i] ? liveCountry(countryOf[i]) : null);
+const activeCountry = () => liveCountry(game.active) || liveCountry(0) || game.countries.find(c => c.alive);
+const isCutOff = i => { const c = countryAt(i); return !!c && c.supply > 0; };   // a new colony still waiting for houses
 
-// tiles claimed since the last recompute have comp -1: treat as connected for drawing only
-const isConnected = i => owner[i] === 1 && comp[i] >= 0 && compConn[comp[i]] === 1;
-const isCutOff = i => owner[i] === 1 && comp[i] >= 0 && compConn[comp[i]] === 0;
+function mergeCountry(from, into) {
+  into.people += from.people;
+  for (const r in from.res) into.res[r] += from.res[r];
+  into.supply = into.supply > 0 && from.supply > 0 ? Math.max(into.supply, from.supply) : 0;
+  from.alive = false; from.mergedInto = into.id; from.people = 0;
+  if (game.active === from.id) game.active = into.id;
+  toast(`${from.short} has merged into ${into.full}`);
+}
 
 function recomputeNetwork() {
+  // 1) find the separate pieces of territory
   comp.fill(-1);
   let nc = 0;
   const stack = [];
-  for (let s = 0; s < N; s++) {
-    if (!owner[s] || comp[s] >= 0) continue;
-    comp[s] = nc; stack.push(s);
+  for (let s0 = 0; s0 < N; s0++) {
+    if (!owner[s0] || comp[s0] >= 0) continue;
+    comp[s0] = nc; stack.push(s0);
     while (stack.length) {
       const i = stack.pop(), x = i % W, y = (i / W) | 0;
       for (const [dx, dy] of DIRS4) {
@@ -547,34 +590,81 @@ function recomputeNetwork() {
     }
     nc++;
   }
-  // rail and sea links join territory pieces together
-  const parent = new Int32Array(nc);
-  for (let k = 0; k < nc; k++) parent[k] = k;
-  const find = k => { while (parent[k] !== k) { parent[k] = parent[parent[k]]; k = parent[k]; } return k; };
-  for (const L of game.links) {
-    const a = comp[L.a], b = comp[L.b];
-    if (a >= 0 && b >= 0) parent[find(a)] = find(b);
+  // 2) each piece is one country: whichever owns most of it. Countries that now share a piece merge.
+  const tally = Array.from({ length: nc }, () => new Map());
+  for (let i = 0; i < N; i++) {
+    if (!owner[i]) continue;
+    const c = liveCountry(countryOf[i]), k = c ? c.id : -1, m = tally[comp[i]];
+    m.set(k, (m.get(k) || 0) + 1);
   }
-  const root = comp[capitalTile] >= 0 ? find(comp[capitalTile]) : -1;
-  compConn = new Uint8Array(nc);
-  for (let k = 0; k < nc; k++) compConn[k] = find(k) === root ? 1 : 0;
-
-  // capacity: only houses on connected land
-  let cap = 0;
-  for (const b of game.buildings) {
-    const c = CFG.buildings[b.type].cap;
-    if (c && isConnected(b.i)) cap += c;
+  const pieceCountry = new Int32Array(nc);
+  for (let pc = 0; pc < nc; pc++) {
+    let best = -1, bestN = -1;
+    for (const [k, n] of tally[pc]) if (k >= 0 && (n > bestN || (k === 0 && n === bestN))) { best = k; bestN = n; }
+    if (best < 0) best = newCountry().id;
+    for (const [k] of tally[pc]) if (k >= 0 && k !== best && game.countries[k].alive) mergeCountry(game.countries[k], game.countries[best]);
+    pieceCountry[pc] = best;
   }
-  game.cap = cap;
-
-  // production: only deposits on connected land
-  const cnt = { forest: 0, stone: 0, iron: 0 };
-  for (const d of deposits) for (const t of d.tiles) if (isConnected(t)) cnt[d.type]++;
-  game.ownedDep = cnt;
-
+  // 3) relabel tiles and recount every country
+  for (const c of game.countries) { c.cap = 0; c.tiles = 0; c.sx = 0; c.sy = 0; c.ownedDep = { forest: 0, stone: 0, iron: 0 }; }
+  for (let i = 0; i < N; i++) {
+    if (!owner[i]) continue;
+    const c = game.countries[pieceCountry[comp[i]]];
+    countryOf[i] = c.id; c.tiles++; c.sx += i % W; c.sy += (i / W) | 0;
+  }
+  for (const c of game.countries) if (c.tiles) { c.lx = c.sx / c.tiles + 0.5; c.ly = c.sy / c.tiles + 0.5; }
+  for (const b of game.buildings) { const cap = CFG.buildings[b.type].cap; if (cap) game.countries[countryOf[b.i]].cap += cap; }
+  for (const d of deposits) for (const t of d.tiles) if (owner[t]) game.countries[countryOf[t]].ownedDep[d.type]++;
   for (let i = 0; i < N; i++) if (owner[i]) paintTerr(i);
   game.netDirty = false;
   clustersDirty = true;
+}
+
+// a link between two of your countries moves people toward the emptier one, and evens out their stockpiles
+function linkTransfer(L, A, B, dt) {
+  const rate = CFG.linkRates[L.kind];
+  const full = c => (c.cap > 0 ? c.people / c.cap : c.people > 0 ? 9 : 1);   // a colony with no houses counts as overfull
+  const fa = full(A), fb = full(B);
+  if (Math.abs(fa - fb) > 0.05) {
+    const [src, dst] = fa > fb ? [A, B] : [B, A];
+    const move = Math.min(rate.people * dt, Math.max(0, dst.cap - dst.people), src.people * 0.5);
+    if (move > 0) { src.people -= move; dst.people += move; }
+  }
+  for (const r of ['wood', 'stone', 'iron']) {
+    const d = A.res[r] - B.res[r];
+    if (Math.abs(d) < 2) continue;
+    const amt = Math.min(rate.cargo * dt, Math.abs(d) / 2);
+    if (d > 0) { A.res[r] -= amt; B.res[r] += amt; } else { B.res[r] -= amt; A.res[r] += amt; }
+  }
+}
+
+// which of your countries is closest to a spot (measured to its border)
+function nearestCountryTo(tx, ty) {
+  let best = -1, bd = Infinity;
+  for (const i of frontier) {
+    const d = (i % W - tx) ** 2 + (((i / W) | 0) - ty) ** 2;
+    if (d < bd) { bd = d; best = i; }
+  }
+  if (best >= 0) {
+    const x = best % W, y = (best / W) | 0;
+    for (const [dx, dy] of DIRS4) {
+      const nx = x + dx, ny = y + dy;
+      if (inb(nx, ny) && owner[idx(nx, ny)]) { const c = countryAt(idx(nx, ny)); if (c) return { country: c, tile: best }; }
+    }
+  }
+  return { country: activeCountry(), tile: best >= 0 ? best : idx(spawn.x, spawn.y) };
+}
+
+// ---------- unlocks: your empire's peak population opens up new buildings ----------
+const isUnlocked = type => game.peakPop >= (CFG.buildings[type].unlock || 0);
+function checkUnlocks(quiet = false) {
+  for (const [type, b] of Object.entries(CFG.buildings)) {
+    if (game.unlocked.has(type) || !isUnlocked(type)) continue;
+    game.unlocked.add(type);
+    if (!quiet) toast(`Unlocked: ${b.name}! Your empire reached ${b.unlock} people. Press E to see it.`);
+  }
+  refreshBuildBar();
+  if (menuOpen) renderBuildMenu();
 }
 
 // ---------- route finding ----------
@@ -715,10 +805,11 @@ function planFor(i, type) {
   return (type === 'station' || type === 'port') && !canBuild(i, type) ? linkPlan(i, type) : null;
 }
 function totalCost(type, plan) { return addCost(CFG.buildings[type].cost, plan && plan.extra); }
-function missingFor(cost) {
-  for (const [r, n] of Object.entries(cost)) if (game.res[r] < n) return r;
+function missingFor(cost, C = activeCountry()) {
+  for (const [r, n] of Object.entries(cost)) if (!C || C.res[r] < n) return r;
   return null;
 }
+const empireCap = () => game.countries.reduce((a, c) => a + (c.alive ? c.cap : 0), 0);
 function placeBuilding(i, type) {
   building[i] = BLD_CODE[type];
   game.buildings.push({ i, type });
@@ -726,67 +817,74 @@ function placeBuilding(i, type) {
   if (type === 'port') game.ports.push(i);
 }
 function tryBuild(i, type) {
+  if (!isUnlocked(type)) return toast(`${CFG.buildings[type].name} unlocks when your empire reaches ${CFG.buildings[type].unlock} people`);
   const why = canBuild(i, type);
   if (why) return toast(why);
+  const C = countryAt(i);                       // every building is paid for by the country it's built in
   const plan = planFor(i, type);
   const cost = totalCost(type, plan);
-  const miss = missingFor(cost);
-  if (miss) return toast(`Not enough ${miss}`);
-  for (const [r, n] of Object.entries(cost)) game.res[r] -= n;
-  const before = game.cap;
+  const miss = missingFor(cost, C);
+  if (miss) return toast(`${C.short} doesn't have enough ${miss}`);
+  for (const [r, n] of Object.entries(cost)) C.res[r] -= n;
+  const before = empireCap();
   placeBuilding(i, type);
   if (plan && plan.path) {
     game.links.push({ kind: type === 'station' ? 'rail' : 'sea', a: i, b: plan.to, path: plan.path, t: 0, dir: 1 });
     floatText(i % W + 0.5, (i / W) | 0, type === 'station' ? `Rail link: ${plan.tiles} tiles` : `Sea route: ${plan.tiles} tiles`, '#7bd389');
   }
   recomputeNetwork();
-  const gained = game.cap - before;
-  if (CFG.buildings[type].cap) {
-    floatText(i % W + 0.5, ((i / W) | 0) - 1, gained > 0 ? `+${gained} capacity` : 'Counts once connected', gained > 0 ? '#7bd389' : '#ff9f43');
-  }
+  const gained = empireCap() - before;
+  if (gained > 0) floatText(i % W + 0.5, ((i / W) | 0) - 1, `+${gained} capacity in ${C.short}`, '#7bd389');
 }
 
 // ======================================================================
 // pushes (left-click) and expeditions (right-click)
 // ======================================================================
 let pushId = 0;
-function sendAmount() { return Math.floor(game.people * game.sendPct / 100); }
+// people per click come from the country that will do the work
+const sendFrom = C => Math.floor((C ? C.people : 0) * game.sendPct / 100);
 
 function startPush(tx, ty) {
   const b = biome[idx(tx, ty)];
   if (b === OCEAN) return toast("Can't expand into water. Right-click to send a boat expedition.");
   if (b === ICE || b === VOID) return toast('Nothing to claim there: that is the edge of the world.');
   if (!frontier.size) return toast('Nowhere left to expand');
-  const n = sendAmount();
-  if (n < 1) return toast('Not enough people. Wait for them to regrow.');
-  game.people -= n;
-  game.pushes.push({ id: pushId++, tx, ty, budget: n, start: n, work: 0, mx: null, my: null, lx: null, ly: null });
+  const { country: src } = nearestCountryTo(tx, ty);
+  const n = sendFrom(src);
+  if (n < 1) return toast(`${src.short} doesn't have enough people. Wait for them to regrow.`);
+  src.people -= n;
+  game.pushes.push({ id: pushId++, country: src.id, tx, ty, budget: n, start: n, work: 0, mx: null, my: null, lx: null, ly: null });
 }
 
 function stepPush(p, dt) {
+  const owner0 = liveCountry(p.country);           // follow merges
+  if (!owner0) { p.done = true; return; }
+  const cid = p.country = owner0.id;
   p.work += CFG.pushWorkPerSec(p.budget) * dt;
   const grassCost = CFG.tileCost.grass;
   if (p.work < 1) return;
-  // The front: frontier tiles within a band of the closest one to the target.
+  // The front: this country's frontier tiles within a band of the closest one to the target.
   // Inside the band, pick randomly (preferring tiles already hugged by territory),
   // so the border advances as a wide, slightly ragged front instead of a spike.
   let minD = Infinity;
-  const all = [];
+  const mine = [];
   for (const i of frontier) {
-    const d = Math.hypot(i % W - p.tx, ((i / W) | 0) - p.ty);
-    all.push(i, d);
+    const x = i % W, y = (i / W) | 0;
+    let on = 0, ours = false;
+    for (const [dx, dy] of DIRS4) {
+      const nx = x + dx, ny = y + dy;
+      if (!inb(nx, ny)) continue;
+      const n = idx(nx, ny);
+      if (owner[n]) { on++; const c = liveCountry(countryOf[n]); if (c && c.id === cid) ours = true; }
+    }
+    if (!ours) continue;
+    const d = Math.hypot(x - p.tx, y - p.ty);
+    mine.push({ i, d, on });
     if (d < minD) minD = d;
   }
   const band = 4 + Math.sqrt(p.start) * 1.3;
   const cands = [];
-  for (let k = 0; k < all.length; k += 2) {
-    const i = all[k], d = all[k + 1];
-    if (d > minD + band) continue;
-    const x = i % W, y = (i / W) | 0;
-    let on = 0;
-    for (const [dx, dy] of DIRS4) { const nx = x + dx, ny = y + dy; if (inb(nx, ny) && owner[idx(nx, ny)]) on++; }
-    cands.push({ i, s: (d - minD) / band * 1.2 - on * 0.45 + rng() });
-  }
+  for (const m of mine) if (m.d <= minD + band) cands.push({ i: m.i, s: (m.d - minD) / band * 1.2 - m.on * 0.45 + rng() });
   cands.sort((a, b) => a.s - b.s);
   for (const c of cands) {
     if (owner[c.i]) continue;
@@ -794,7 +892,7 @@ function stepPush(p, dt) {
     if (cost > p.budget) continue;
     if (work > p.work) break;
     p.work -= work; p.budget -= cost;
-    claim(c.i);
+    claim(c.i, cid);
     // marker follows the part of the front closest to the target
     const cx = c.i % W + 0.5, cy = ((c.i / W) | 0) + 0.5;
     if (p.lx == null || Math.hypot(cx - p.tx, cy - p.ty) < Math.hypot(p.lx - p.tx, p.ly - p.ty) + 1.5) { p.lx = cx; p.ly = cy; }
@@ -808,16 +906,13 @@ function launchExpedition(tx, ty) {
   const t = idx(tx, ty);
   if (!isLand(t)) return toast('Pick a land tile for the expedition');
   if (owner[t]) return toast('That land is already yours. Left-click to expand instead.');
-  const n = sendAmount();
-  if (n < 2) return toast('Not enough people for an expedition');
-  let best = -1, bd = Infinity;
-  for (const i of frontier) {
-    const d = (i % W - tx) ** 2 + (((i / W) | 0) - ty) ** 2;
-    if (d < bd) { bd = d; best = i; }
-  }
-  const sx = best >= 0 ? best % W + 0.5 : spawn.x + 0.5, sy = best >= 0 ? ((best / W) | 0) + 0.5 : spawn.y + 0.5;
-  game.people -= n;
-  game.expeditions.push({ x: sx, y: sy, tx: tx + 0.5, ty: ty + 0.5, n });
+  const { country: src, tile } = nearestCountryTo(tx, ty);
+  const n = sendFrom(src);
+  if (n < 2) return toast(`${src.short} doesn't have enough people for an expedition`);
+  src.people -= n;
+  const kit = {};                                  // supplies to get the colony started, if home can spare them
+  for (const [r, k] of Object.entries(CFG.expeditionKit)) { kit[r] = Math.min(k, Math.floor(src.res[r])); src.res[r] -= kit[r]; }
+  game.expeditions.push({ x: tile % W + 0.5, y: ((tile / W) | 0) + 0.5, tx: tx + 0.5, ty: ty + 0.5, n, kit, from: src.id });
 }
 
 function stepExpedition(e, dt) {
@@ -827,35 +922,34 @@ function stepExpedition(e, dt) {
   e.x += dx / d * step; e.y += dy / d * step;
 }
 
+// an expedition that lands on free land founds a new country (a colony) with its own people and stockpile
 function arrive(e) {
   const cx = Math.floor(e.tx), cy = Math.floor(e.ty);
-  if (owner[idx(cx, cy)]) {   // territory got there first: they just rejoin
-    game.people = Math.min(game.cap, game.people + e.n);
-    floatText(e.tx, e.ty, `${e.n} rejoined`, '#f2c14e');
+  const there = countryAt(idx(cx, cy));
+  if (there) {                                     // your territory got there first: they just join that country
+    there.people += e.n;
+    for (const r in e.kit) there.res[r] += e.kit[r];
+    floatText(e.tx, e.ty, `${e.n} joined ${there.short}`, '#f2c14e');
     return;
   }
+  const col = newCountry({ people: e.n, res: e.kit, supply: CFG.outpostSupply });
   const r = CFG.outpostRadius;
   for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
     if (dx * dx + dy * dy > r * r + 1) continue;
     const x = cx + dx, y = cy + dy;
-    if (inb(x, y)) claim(idx(x, y));
+    if (inb(x, y)) claim(idx(x, y), col.id);
   }
   recomputeNetwork();
-  game.outposts.push({ x: e.tx, y: e.ty, tile: idx(cx, cy), settlers: e.n, timer: CFG.outpostSupply });
-  toast(`Outpost founded. Connect it by rail or port within ${CFG.outpostSupply}s, or the settlers starve.`);
+  const live = liveCountry(col.id);
+  if (live !== col) { toast(`The settlers joined ${live.full}`); return; }
+  game.outposts.push({ x: e.tx, y: e.ty, country: col.id });
+  const kitTxt = Object.entries(e.kit).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing';
+  toast(`Founded ${col.full}! It has its own stockpile (${kitTxt}). Build houses there within ${CFG.outpostSupply}s, or link it home, before the settlers starve.`);
 }
 
-function stepOutpost(o, dt) {
-  if (isConnected(o.tile)) {
-    o.done = true;
-    game.people = Math.min(game.cap, game.people + o.settlers);
-    floatText(o.x, o.y - 1.5, `Connected! ${o.settlers} settlers joined`, '#7bd389');
-    return;
-  }
-  o.timer -= dt;
-  if (o.timer > 0) return;
-  o.done = true;
-  floatText(o.x, o.y, `${o.settlers} starved (never connected)`, '#ff7a6b');
+function stepOutpost(o) {
+  const c = liveCountry(o.country);
+  if (!c || c.supply <= 0) o.done = true;         // housed, merged, or the supplies ran out
 }
 
 // ======================================================================
@@ -903,13 +997,13 @@ function pastePlan(tx, ty) {
 function pasteAt(tx, ty) {
   if (!blueprint) return toast('Select some houses first: hold left click and drag a box over them');
   const plan = pastePlan(tx, ty);
-  const before = game.cap;
+  const before = empireCap();
   let placed = 0, short = null;
   for (const o of plan.tiles) {
     if (!o.ok) continue;
-    const c = CFG.buildings[o.type].cost, miss = missingFor(c);
+    const C = countryAt(idx(o.x, o.y)), c = CFG.buildings[o.type].cost, miss = missingFor(c, C);
     if (miss) { short = miss; break; }
-    for (const [r, n] of Object.entries(c)) game.res[r] -= n;
+    for (const [r, n] of Object.entries(c)) C.res[r] -= n;
     placeBuilding(idx(o.x, o.y), o.type);
     placed++;
   }
@@ -920,8 +1014,8 @@ function pasteAt(tx, ty) {
   if (short) msg += ` · ran out of ${short}`;
   toast(msg);
   if (placed) {
-    const gained = game.cap - before;
-    floatText(tx + 0.5, ty - 1, gained > 0 ? `+${gained} capacity` : `${placed} built (count once connected)`, gained > 0 ? '#7bd389' : '#ff9f43');
+    const gained = empireCap() - before;
+    floatText(tx + 0.5, ty - 1, `+${gained} capacity`, '#7bd389');
   }
 }
 
@@ -934,25 +1028,42 @@ function tick(dt) {
   netTimer += dt;
   if (game.netDirty && netTimer > 0.25) { recomputeNetwork(); netTimer = 0; }
 
-  // production (connected deposits only)
-  for (const t of ['forest', 'stone', 'iron']) {
-    const r = DEP_RES[t];
-    game.rates[r] = game.ownedDep[t] * CFG.prodPerTile[t];
-    game.res[r] += game.rates[r] * dt;
+  // every country produces into its own stockpile and regrows its own people
+  let pop = 0;
+  for (const c of game.countries) {
+    if (!c.alive) continue;
+    for (const t of ['forest', 'stone', 'iron']) {
+      const r = DEP_RES[t];
+      c.rates[r] = c.ownedDep[t] * CFG.prodPerTile[t];
+      c.res[r] += c.rates[r] * dt;
+    }
+    if (c.cap > 0 && c.people < c.cap) {
+      c.growth = CFG.growthRate * c.people * (1 - c.people / c.cap) + CFG.growthBase;
+      c.people = Math.min(c.cap, c.people + c.growth * dt);
+    } else c.growth = 0;
+    // a new colony: settled once it can house everyone; if supplies run out first, the extra settlers starve
+    if (c.supply > 0) {
+      c.supply -= dt;
+      if (c.people <= c.cap + 0.01) {
+        c.supply = 0; game.netDirty = true;
+        floatText(c.lx, c.ly - 2, `${c.short} is settled!`, '#7bd389');
+      } else if (c.supply <= 0) {
+        const lost = Math.floor(c.people - c.cap);
+        c.people = c.cap; c.supply = 0; game.netDirty = true;
+        floatText(c.lx, c.ly, `${lost} settlers starved in ${c.short}`, '#ff7a6b');
+      }
+    }
+    pop += c.people;
   }
-  // people regrowth
-  const P = game.people, C = game.cap;
-  if (C > 0 && P < C) {
-    game.growth = CFG.growthRate * P * (1 - P / C) + CFG.growthBase;
-    game.people = Math.min(C, P + game.growth * dt);
-  } else game.growth = 0;
+  game.population = pop;
+  if (pop > game.peakPop + 0.5) { game.peakPop = pop; checkUnlocks(); }
 
   for (const p of game.pushes) stepPush(p, dt);
-  for (const p of game.pushes) if (p.done && p.budget > 0) game.people = Math.min(game.cap, game.people + p.budget);
+  for (const p of game.pushes) if (p.done && p.budget > 0) { const c = liveCountry(p.country); if (c) c.people += p.budget; }
   game.pushes = game.pushes.filter(p => !p.done);
   for (const e of game.expeditions) stepExpedition(e, dt);
   game.expeditions = game.expeditions.filter(e => !e.done);
-  for (const o of game.outposts) stepOutpost(o, dt);
+  for (const o of game.outposts) stepOutpost(o);
   game.outposts = game.outposts.filter(o => !o.done);
   for (const L of game.links) {
     const speed = L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed;
@@ -960,6 +1071,8 @@ function tick(dt) {
     const end = L.path.length - 1;
     if (L.t >= end) { L.t = end; L.dir = -1; }
     if (L.t <= 0) { L.t = 0; L.dir = 1; }
+    const A = countryAt(L.a), B = countryAt(L.b);
+    if (A && B && A !== B) linkTransfer(L, A, B, dt);
   }
   for (const f of game.floats) f.t += dt;
   game.floats = game.floats.filter(f => f.t < 2.4);
@@ -2417,18 +2530,22 @@ function render() {
   drawSelection(z);
   drawDiskLabel(z);
 
-  // outposts: supply countdown ring
+  drawCountryLabels(z);
+
+  // new colonies: supply countdown ring
   for (const o of game.outposts) {
+    const c = liveCountry(o.country);
+    if (!c) continue;
     const [sx, sy] = toScreen(o.x, o.y);
     const r = Math.max(26, CFG.outpostRadius * z * 1.6);
-    const frac = clamp(o.timer / CFG.outpostSupply, 0, 1);
+    const frac = clamp(c.supply / CFG.outpostSupply, 0, 1);
     ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 5; ctx.strokeStyle = '#ff9f43'; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.arc(sx, sy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); ctx.stroke();
     ctx.lineCap = 'butt';
-    pill(sx, sy - r - 30, `CUT OFF · ${o.settlers} settlers`, { dot: '#ff7a6b' });
-    pill(sx, sy - r - 8, `Connect by rail or port in ${Math.ceil(o.timer)}s`, { dot: '#ff9f43', size: 11 });
+    pill(sx, sy - r - 30, `New colony: ${c.short} · ${Math.floor(c.people)} settlers · housing for ${c.cap}`, { dot: '#ff7a6b' });
+    pill(sx, sy - r - 8, `Supplies ${Math.ceil(c.supply)}s · build houses here or link it home`, { dot: '#ff9f43', size: 11 });
   }
 
   // pushes: gold number at the advancing edge
@@ -2499,6 +2616,27 @@ function drawSelection(z) {
   }
 }
 
+// country names written across their territory when you're zoomed out (hidden up close, where you see the details)
+function drawCountryLabels(z) {
+  if (z >= CFG.detailZoom || z < 0.15) return;
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const c of game.countries) {
+    if (!c.alive || !c.tiles) continue;
+    const span = Math.sqrt(c.tiles) * z;           // rough on-screen size of the country
+    if (span < 18) continue;
+    const [sx, sy0] = toScreen(c.lx, c.ly);
+    const size = clamp(span * 0.16, 11, 26);
+    const sy = sy0 + (z < CFG.cityZoom ? 14 + size * 0.6 : 0);   // sit just below the city icon when zoomed out
+    const text = (span > 140 ? c.full : c.short).toUpperCase();
+    ctx.font = `800 ${size}px 'Segoe UI', Inter, Arial, sans-serif`;
+    ctx.letterSpacing = `${Math.round(size * 0.12)}px`;
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10,14,24,0.75)'; ctx.strokeText(text, sx, sy);
+    ctx.fillStyle = c.id === game.active ? '#ffffff' : 'rgba(214,228,255,0.88)'; ctx.fillText(text, sx, sy);
+  }
+  ctx.restore();
+}
+
 function nearestFrontier(tx, ty) {
   let best = null, bd = Infinity;
   for (const i of frontier) {
@@ -2561,7 +2699,10 @@ window.addEventListener('mouseup', e => {
   if (btn === 0) {
     if (game.tool) tryBuild(t.i, game.tool);
     else if (blueprint) clearSelection();          // with a selection, a click just deselects
-    else startPush(t.x, t.y);
+    else if (owner[t.i]) {                         // clicking inside one of your countries selects it
+      const c = countryAt(t.i);
+      if (c && c.id !== game.active) { game.active = c.id; toast(`Viewing ${c.full}`); }
+    } else startPush(t.x, t.y);
   } else if (btn === 2) {
     if (game.tool) setTool(null);
     else if (blueprint) clearSelection();
@@ -2592,14 +2733,15 @@ window.addEventListener('keydown', e => {
   keys.add(e.key.toLowerCase());
   const k = e.key.toLowerCase();
   for (const [type, b] of Object.entries(CFG.buildings)) if (k === b.key) setTool(game.tool === type ? null : type);
-  if (k === 'escape') { setTool(null); clearSelection(); stopFollow(); }
+  if (k === 'escape') { setTool(null); clearSelection(); stopFollow(); if (menuOpen) toggleBuildMenu(false); }
+  if (k === 'e' && !e.repeat) toggleBuildMenu();
   if (k === 'c' && !e.repeat) {
     const t = mouse.in ? hoverTile() : null;
     if (t) pasteAt(t.x, t.y);
   }
-  if (k === 'q' || k === 'e') {
+  if (k === '[' || k === ']') {
     const opts = [10, 25, 50, 100];
-    const j = clamp(opts.indexOf(game.sendPct) + (k === 'e' ? 1 : -1), 0, opts.length - 1);
+    const j = clamp(opts.indexOf(game.sendPct) + (k === ']' ? 1 : -1), 0, opts.length - 1);
     setPct(opts[j]);
   }
   if (k === 'm') toggleMapView();
@@ -2737,10 +2879,45 @@ function buildMenu() {
   setPct(game.sendPct);
 }
 function setTool(t) {
+  if (t && !isUnlocked(t)) return toast(`${CFG.buildings[t].name} unlocks when your empire reaches ${CFG.buildings[t].unlock} people`);
   game.tool = t;
   document.querySelectorAll('.bbtn').forEach(el => el.classList.toggle('sel', el.dataset.type === t));
   canvas.classList.toggle('building', !!t);
 }
+// the bottom bar only shows what you've unlocked
+function refreshBuildBar() {
+  document.querySelectorAll('.bbtn').forEach(el => { el.style.display = isUnlocked(el.dataset.type) ? '' : 'none'; });
+}
+
+// ---------- the build menu (E): everything, with what's still locked ----------
+let menuOpen = false;
+function toggleBuildMenu(force) {
+  menuOpen = force === undefined ? !menuOpen : force;
+  $('buildmenu').classList.toggle('show', menuOpen);
+  if (menuOpen) renderBuildMenu();
+}
+function renderBuildMenu() {
+  const C = activeCountry();
+  $('bm-sub').textContent = `Your empire: ${fmtNum(game.population)} people (peak ${fmtNum(game.peakPop)}) · building in ${C ? C.short : '-'}`;
+  const grid = $('bm-grid');
+  grid.innerHTML = '';
+  const list = Object.entries(CFG.buildings).sort((a, b) => (a[1].unlock || 0) - (b[1].unlock || 0));
+  for (const [type, b] of list) {
+    const open = isUnlocked(type);
+    const el = document.createElement('div');
+    el.className = 'bm-card' + (open ? '' : ' locked') + (game.tool === type ? ' sel' : '');
+    const cost = Object.entries(b.cost).map(([r, n]) =>
+      `<span class="${C && C.res[r] < n ? 'no' : ''}">${SVG[RES_ICON[r]]}${n}</span>`).join('');
+    el.innerHTML = `<div class="tile">${SVG[type]}</div>
+      <div class="bm-body"><div class="bm-name">${b.name}${open ? ` <span class="bm-key">${b.key}</span>` : ''}</div>
+      <div class="bm-desc">${b.desc || ''}</div>
+      <div class="bm-foot"><div class="cost">${cost}</div>
+      <div class="bm-status">${open ? (b.cap ? `+${b.cap} capacity` : 'Unlocked') : `🔒 unlocks at ${b.unlock} people`}</div></div></div>`;
+    if (open) el.addEventListener('click', () => { setTool(type); toggleBuildMenu(false); });
+    grid.appendChild(el);
+  }
+}
+
 function setPct(p) {
   game.sendPct = p;
   document.querySelectorAll('.pbtn').forEach(el => el.classList.toggle('on', +el.dataset.p === p));
@@ -2755,9 +2932,13 @@ function toast(msg) {
 }
 
 function updateHud() {
+  const C = activeCountry();
+  const alive = game.countries.filter(c => c.alive).length;
+  $('val-country').textContent = C.full;
+  $('country-count').textContent = alive > 1 ? `${game.countries.filter(c => c.alive).indexOf(C) + 1} of ${alive}` : '';
   for (const r of ['wood', 'stone', 'iron']) {
-    $('val-' + r).textContent = fmtNum(game.res[r]);
-    const rate = game.rates[r];
+    $('val-' + r).textContent = fmtNum(C.res[r]);
+    const rate = C.rates[r];
     const el = $('rate-' + r);
     el.textContent = `+${rate.toFixed(1)}/s`;
     el.classList.toggle('zero', rate <= 0);
@@ -2767,12 +2948,13 @@ function updateHud() {
   $('val-view').textContent = cam.follow ? (mapStage === 3 ? 'Solar system' : LOCK[cam.follow].short)
     : cam.zoom < orbitZoom() * 0.6 ? 'Solar' : cam.zoom >= CFG.detailZoom ? 'Detail' : cam.zoom >= CFG.cityZoom ? 'Region'
     : cam.zoom > fitZoom() * 0.8 ? 'Map' : 'Orbit';
-  $('val-people').textContent = `${fmtNum(game.people)} / ${fmtNum(game.cap)}`;
-  $('people-fill').style.width = (game.cap ? clamp(game.people / game.cap, 0, 1) * 100 : 0) + '%';
-  $('people-rate').textContent = game.growth > 0 ? `+${game.growth.toFixed(1)} / sec` : (game.people >= game.cap - 0.5 ? 'Full' : '');
-  $('send-n').textContent = `= ${sendAmount()} people`;
+  $('people-lbl').textContent = alive > 1 ? `PEOPLE · EMPIRE ${fmtNum(game.population)}` : 'PEOPLE';
+  $('val-people').textContent = `${fmtNum(C.people)} / ${fmtNum(C.cap)}`;
+  $('people-fill').style.width = (C.cap ? clamp(C.people / C.cap, 0, 1) * 100 : 0) + '%';
+  $('people-rate').textContent = C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : (C.people >= C.cap - 0.5 ? 'Full' : '');
+  $('send-n').textContent = `= ${sendFrom(C)} people`;
   document.querySelectorAll('.bbtn .cost span').forEach(el => {
-    el.classList.toggle('no', game.res[el.dataset.r] < +el.dataset.n);
+    el.classList.toggle('no', C.res[el.dataset.r] < +el.dataset.n);
   });
   updateHover();
 }
@@ -2801,7 +2983,7 @@ function updateHover() {
   if (isLand(t.i)) {
     info += ` · ${tileCost(t.i)} people/tile`;
     if (depositOf[t.i] >= 0) info += ` · ${deposits[depositOf[t.i]].type}`;
-    if (owner[t.i]) info += isCutOff(t.i) ? ' · yours (cut off)' : ' · yours';
+    if (owner[t.i]) { const c = countryAt(t.i); if (c) info += ` · ${c.full}${c.supply > 0 ? ' (new colony)' : ''}`; }
   }
   $('hover-info').textContent = info;
 
@@ -2816,7 +2998,7 @@ function updateHover() {
   if (!game.tool && blueprint) {
     const plan = pastePlan(t.x, t.y), n = blueprint.items.length;
     const costTxt = Object.entries(plan.cost).map(([r, v]) => `${v} ${r}`).join(' · ') || 'nothing';
-    const miss = missingFor(plan.cost);
+    const miss = missingFor(plan.cost, countryAt(t.i) || activeCountry());
     placeTip(`<div class="t">Paste ${n} house${n > 1 ? 's' : ''}: press C</div>
       <div class="${plan.fit === n ? 'g' : 'r'}">${plan.fit} of ${n} fit here</div>
       <div class="d">Cost: ${costTxt}</div>
@@ -2830,13 +3012,12 @@ function updateHover() {
   const why = canBuild(t.i, type);
   const plan = planFor(t.i, type);
   const cost = totalCost(type, plan);
-  const miss = missingFor(cost);
+  const TC = countryAt(t.i);
+  const miss = missingFor(cost, TC || activeCountry());
   const costTxt = Object.entries(cost).map(([r, n]) => `${n} ${r}`).join(' · ');
   let html = `<div class="t">Place ${bdef.name}</div>`;
   if (bdef.cap) {
-    html += owner[t.i] && isCutOff(t.i)
-      ? `<div class="r">+${bdef.cap} capacity only once this land is connected</div>`
-      : `<div class="g">+${bdef.cap} people capacity</div>`;
+    html += `<div class="g">+${bdef.cap} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
   } else if (plan) {
     if (plan.path) {
       html += type === 'station'
@@ -2845,7 +3026,7 @@ function updateHover() {
     } else html += `<div class="d">${plan.note}</div>`;
   } else if (type === 'port') html += `<div class="d">Must be on the coast. Links to your other ports by sea.</div>`;
   else html += `<div class="d">Links to your nearest station by rail.</div>`;
-  html += `<div class="d">Cost: ${costTxt}${plan && plan.extra ? ' (incl. track)' : ''}</div>`;
+  html += `<div class="d">Cost: ${costTxt}${plan && plan.extra ? ' (incl. track)' : ''}${TC ? ', paid by ' + TC.short : ''}</div>`;
   if (why) html += `<div class="r">${why}</div>`;
   else if (miss) html += `<div class="r">Not enough ${miss}</div>`;
   tip.innerHTML = html;
@@ -2861,7 +3042,7 @@ function drawBuildPreview(z) {
   if (!t) return;
   const type = game.tool;
   const plan = planFor(t.i, type);
-  const ok = !canBuild(t.i, type) && !missingFor(totalCost(type, plan));
+  const ok = !canBuild(t.i, type) && !missingFor(totalCost(type, plan), countryAt(t.i) || activeCountry());
   if (plan && plan.path) strokeRoute(plan.path, type === 'station' ? 'rail' : 'sea', z, true);
   const [sx, sy] = toScreen(t.x, t.y);
   ctx.fillStyle = ok ? 'rgba(123,211,137,0.3)' : 'rgba(255,122,107,0.3)';
@@ -2892,6 +3073,7 @@ function start() {
   makeStars();
   iconFill();
   buildMenu();
+  checkUnlocks(true);
   cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5;
   window.__game.genMs = Math.round(performance.now() - t0);
   const ld = $('loading');
@@ -2916,5 +3098,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { game, cam, CFG, SEED, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCutOff, isConnected, isCoastal, OCEAN };
+window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCutOff, isCoastal, OCEAN };
 init();
