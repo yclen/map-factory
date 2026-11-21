@@ -51,12 +51,27 @@ const CFG = {
     house2:  { key: '2', name: 'Apartment',  cap: 30, unlock: 300,  cost: { wood: 20, iron: 10 }, from: 'house',
                desc: 'Click one of your houses to upgrade it: holds 30 people. Needs iron, which is never near the start.' },
     house3:  { key: '3', name: 'City block', cap: 80, unlock: 1000, cost: { wood: 40, stone: 40, iron: 30 }, from: 'house2',
-               desc: 'Click an apartment to upgrade it: holds 80 people. Dense cities fit far more people on the same land.' },
+               use: 3, capPowered: 50,
+               desc: 'Click an apartment to upgrade it: holds 80 people, but uses 3 MW. Without power it holds only 30.' },
     station: { key: '4', name: 'Station', cap: 0,  unlock: 150, cost: { wood: 15, stone: 10 },
                desc: 'Lays its own rail to your nearest station. Trains carry people and cargo between your countries.' },
     port:    { key: '5', name: 'Port',    cap: 0,  unlock: 200, cost: { wood: 20, stone: 10 },
                desc: 'On the coast. Opens a sea route to your nearest port. Ships carry people and cargo.' },
+    // energy: every country has its own power budget (supply from plants, demand from machines)
+    burner:  { key: '6', name: 'Wood burner', cap: 0, unlock: 400, cost: { wood: 10, stone: 20 }, gen: 8,
+               desc: 'Burns wood for 8 MW of power, up to 0.25 wood/s. It only burns what your country needs.' },
+    rig:     { key: '7', name: 'Mining rig',  cap: 0, unlock: 500, cost: { wood: 20, stone: 10, iron: 10 }, use: 4,
+               from: ['cabin', 'camp'],
+               desc: 'Click a logger\'s cabin or miner\'s camp to upgrade it: 3x the output and frees its workers, but runs on 4 MW. No power, no output.' },
+    solar:   { key: '8', name: 'Solar panel', cap: 0, unlock: 700, cost: { stone: 10, iron: 5 }, gen: 1.5,
+               desc: '1.5 MW, free, forever. Each panel takes a tile you can\'t use for anything else. Cover land with them.' },
+    // collectors: a deposit only produces once something works it. Early on that's people.
+    cabin:   { key: '9', name: "Logger's cabin", cap: 0, unlock: 0, cost: { wood: 5, stone: 10 }, workers: 5, on: ['forest'],
+               desc: 'Build it on a forest so it produces wood. Employs 5 of the country\'s people, who can\'t be sent anywhere.' },
+    camp:    { key: '0', name: "Miner's camp",   cap: 0, unlock: 0, cost: { wood: 15, stone: 5 }, workers: 5, on: ['stone', 'iron'],
+               desc: 'Build it on stone or iron so it produces. Employs 5 of the country\'s people, who can\'t be sent anywhere.' },
   },
+  power: { burnerWood: 0.25, rigMult: 3 },   // wood/s a burner eats at full output; output multiplier of a powered rig
 
   // rail: a new station links itself to the nearest station by the cheapest land route
   trackCostPerTile: { wood: 0.25, stone: 0.25 },
@@ -201,6 +216,31 @@ const SHAPES = {
     <rect x="-11" y="-11" width="10" height="10" fill="#8fa3b8"/><rect x="1" y="-11" width="10" height="10" fill="#7c8fa4"/>
     <rect x="-11" y="1" width="10" height="10" fill="#7c8fa4"/><rect x="1" y="1" width="10" height="10" fill="#8fa3b8"/>
     <path d="M-9 -8 H-3 M-9 -4 H-3 M3 -8 H9 M3 -4 H9 M-9 4 H-3 M-9 8 H-3 M3 4 H9 M3 8 H9" stroke="#f2d98a" stroke-width="1.3"/>`,
+  burner: `<rect x="-9" y="-7" width="22" height="20" fill="#000" opacity="0.22"/>
+    <rect x="-11" y="-6" width="20" height="16" rx="1.5" fill="#8a5a44" stroke="#4a2a1e" stroke-width="1"/>
+    <rect x="3" y="-13" width="5" height="9" fill="#6b4535" stroke="#4a2a1e" stroke-width="0.9"/>
+    <path d="M-6 6 C-7 2 -4 0 -3 -2 C-2 1 0 1 0 -1 C2 2 2 5 0 6 Z" fill="#ffb238" stroke="#d9531e" stroke-width="0.9"/>
+    <circle cx="5.5" cy="-14" r="2.2" fill="#c8c8c8" opacity="0.7"/>`,
+  rig: `<rect x="-8" y="-8" width="22" height="22" fill="#000" opacity="0.2"/>
+    <path d="M-9 11 L0 -12 L9 11" fill="none" stroke="#e0a93a" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M-5.5 2 H5.5 M-3 -5 H3" stroke="#e0a93a" stroke-width="1.6"/>
+    <rect x="-11" y="9" width="22" height="4" rx="1" fill="#59616b" stroke="#2b3038" stroke-width="0.8"/>
+    <path d="M0 -12 V9" stroke="#3d434a" stroke-width="1.6"/><circle cx="0" cy="-12" r="2" fill="#f2c14e" stroke="#5a4310" stroke-width="0.8"/>`,
+  solar: `<rect x="-10" y="-8" width="24" height="22" fill="#000" opacity="0.18"/>
+    <rect x="-12" y="-11" width="24" height="22" rx="1" fill="#1d3e78" stroke="#c9d3df" stroke-width="1.2"/>
+    <path d="M-4 -11 V11 M4 -11 V11 M-12 -3.7 H12 M-12 3.7 H12" stroke="#6f93cf" stroke-width="1"/>
+    <path d="M-11 -10 L-6 -10 L-10 -6 Z" fill="#9fc0f0" opacity="0.7"/>`,
+  cabin: `<rect x="-9" y="-5" width="22" height="18" fill="#000" opacity="0.22"/>
+    <path d="M-12 -1 L0 -11 L12 -1 Z" fill="#7a4a2a" stroke="#3e2414" stroke-width="1" stroke-linejoin="round"/>
+    <rect x="-10" y="-1" width="20" height="12" fill="#a0683e" stroke="#3e2414" stroke-width="1"/>
+    <path d="M-10 3 H10 M-10 7 H10" stroke="#6e4426" stroke-width="0.9"/><rect x="-3" y="3" width="6" height="8" fill="#3e2414"/>
+    <path d="M7 -14 L11 -6 M11 -14 L7 -6" stroke="#cfd5db" stroke-width="1.6"/>`,
+  camp: `<rect x="-9" y="-6" width="22" height="19" fill="#000" opacity="0.22"/>
+    <path d="M-12 11 L-3 -9 L6 11 Z" fill="#c9a66b" stroke="#5a4310" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M-3 -9 V11" stroke="#5a4310" stroke-width="0.9"/><path d="M-6 11 L-3 3 L0 11 Z" fill="#4a3a28"/>
+    <path d="M5 -10 L12 -3 M8 -12 L4 -6 L10 -8" stroke="#8d969e" stroke-width="2" stroke-linecap="round"/>
+    <path d="M6 -8 L13 1" stroke="#7a4a2a" stroke-width="1.6" stroke-linecap="round"/>`,
+  bolt: `<path d="M2 -11 L-7 2 H-1 L-3 11 L7 -3 H1 Z" fill="#f2c14e" stroke="#5a4310" stroke-width="0.9" stroke-linejoin="round"/>`,
   station: `<rect x="-10" y="-8" width="24" height="20" fill="#000" opacity="0.22"/>
     <rect x="-12" y="-10" width="24" height="20" rx="2" fill="#a3aab1" stroke="#4c535b" stroke-width="1"/>
     <path d="M-9 -2 V6 M-4 -2 V6 M1 -2 V6 M6 -2 V6" stroke="#6b5240" stroke-width="1.6"/>
@@ -232,17 +272,21 @@ for (const [name, inner] of Object.entries(SHAPES)) {
 const DEP_SPRITE = { forest: 'tree', stone: 'rock', iron: 'ore' };
 const DEP_RES = { forest: 'wood', stone: 'stone', iron: 'iron' };
 const DEP_COLOR = { forest: '#3f7a35', stone: '#a7adb3', iron: '#a8654a' };
-const BLD_CODE = { house: 1, house2: 2, station: 3, port: 4, house3: 5 };
-const BLD_COLOR = { house: '#cf5c3e', house2: '#5d84b0', house3: '#7c8fa4', station: '#8f979f', port: '#a67c52' };
+const BLD_CODE = { house: 1, house2: 2, station: 3, port: 4, house3: 5, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10 };
+const BLD_COLOR = { house: '#cf5c3e', house2: '#5d84b0', house3: '#7c8fa4', station: '#8f979f', port: '#a67c52',
+  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b' };
 // housing ladder helpers
 const LEVEL = { house: 1, house2: 2, house3: 3 };
 const buildingAt = i => (building[i] ? game.buildings.find(b => b.i === i) : null);
 // the steps from `have` (or clear land) up to `type`, or null if `have` isn't below `type` on its ladder
 function ladderSteps(type, have) {
   const steps = [];
-  for (let t = type; t; t = CFG.buildings[t].from) {
+  for (let t = type; t;) {
     if (t === have) return steps;
     steps.unshift(t);
+    const f = CFG.buildings[t].from;
+    if (Array.isArray(f)) return f.includes(have) ? steps : null;   // a branching ladder: only as an upgrade
+    t = f;
   }
   return have ? null : steps;
 }
@@ -448,7 +492,9 @@ function generateWorld() {
 
   // guaranteed starting forest + stone, fully inside the start circle
   const okStart = i => biome[i] === GRASS && depositOf[i] < 0 && !reserved.has(i) && d2(i) <= (R - 1) ** 2;
+  const startDeps = [deposits.length];
   addDeposit('forest', growBlob(spawn.x - 5, spawn.y - 1, 18, okStart));
+  startDeps.push(deposits.length);
   addDeposit('stone', growBlob(spawn.x + 5, spawn.y + 2, 12, okStart));
 
   // scattered deposits; iron only in mountains/desert and never near the start
@@ -478,6 +524,12 @@ function generateWorld() {
     if (inb(x, y) && biome[idx(x, y)] !== OCEAN) claim(idx(x, y), home.id);
   }
   for (const i of townTiles) placeBuilding(i, 'house');
+  for (const id of startDeps) {
+    const d = deposits[id];
+    if (!d) continue;
+    const t = d.tiles.reduce((a, b) => (d2(a) <= d2(b) ? a : b));
+    if (owner[t]) placeBuilding(t, d.type === 'forest' ? 'cabin' : 'camp');
+  }
   recomputeNetwork();
   home.people = Math.min(CFG.startPeople, home.cap);
   game.population = game.peakPop = home.people;
@@ -566,11 +618,16 @@ function countryName(id) {
   const short = makeName(r);
   return { short, full: NAME_FORMS[(r() * NAME_FORMS.length) | 0].replace('{}', short) };
 }
+const newPower = () => ({ burners: 0, solar: 0, need: 0, capPow: 0, workers: 0,
+  rigDep: { forest: 0, stone: 0, iron: 0 }, colDep: { forest: 0, stone: 0, iron: 0 } });
+// people not working a collector: only they can be sent on pushes and expeditions
+const freePeople = c => Math.max(0, c.people - c.pw.workers);
 function newCountry({ people = 0, res = {}, supply = 0 } = {}) {
   const id = game.countries.length;
   const c = { id, ...countryName(id), people, cap: 0, growth: 0, supply,
     res: { wood: 0, stone: 0, iron: 0, ...res }, rates: { wood: 0, stone: 0, iron: 0 },
-    ownedDep: { forest: 0, stone: 0, iron: 0 }, tiles: 0, lx: 0, ly: 0, alive: true, mergedInto: -1 };
+    ownedDep: { forest: 0, stone: 0, iron: 0 }, tiles: 0, lx: 0, ly: 0, alive: true, mergedInto: -1,
+    capBase: 0, capPow: 0, sat: 1, pw: newPower(), mw: { gen: 0, max: 0, need: 0, burn: 0 } };
   game.countries.push(c);
   return c;
 }
@@ -627,14 +684,33 @@ function recomputeNetwork() {
     pieceCountry[pc] = best;
   }
   // 3) relabel tiles and recount every country
-  for (const c of game.countries) { c.cap = 0; c.tiles = 0; c.sx = 0; c.sy = 0; c.ownedDep = { forest: 0, stone: 0, iron: 0 }; }
+  for (const c of game.countries) { c.capBase = 0; c.tiles = 0; c.sx = 0; c.sy = 0; c.ownedDep = { forest: 0, stone: 0, iron: 0 }; c.pw = newPower(); }
   for (let i = 0; i < N; i++) {
     if (!owner[i]) continue;
     const c = game.countries[pieceCountry[comp[i]]];
     countryOf[i] = c.id; c.tiles++; c.sx += i % W; c.sy += (i / W) | 0;
   }
   for (const c of game.countries) if (c.tiles) { c.lx = c.sx / c.tiles + 0.5; c.ly = c.sy / c.tiles + 0.5; }
-  for (const b of game.buildings) { const cap = CFG.buildings[b.type].cap; if (cap) game.countries[countryOf[b.i]].cap += cap; }
+  // bounding box per country (for flying the camera to it)
+  for (const c of game.countries) c.box = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < N; i++) {
+    if (!owner[i]) continue;
+    const b = game.countries[countryOf[i]].box, x = i % W, y = (i / W) | 0;
+    if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y;
+  }
+  for (const b of game.buildings) {
+    const def = CFG.buildings[b.type], c = game.countries[countryOf[b.i]];
+    if (def.cap) { c.capBase += def.cap - (def.capPowered || 0); c.pw.capPow += def.capPowered || 0; }
+    if (def.use) c.pw.need += def.use;
+    if (b.type === 'burner') c.pw.burners++;
+    if (b.type === 'solar') c.pw.solar++;
+    if (def.workers) c.pw.workers += def.workers;
+    if (b.type === 'rig' || def.on) {
+      const d = deposits[depositOf[b.i]], into = b.type === 'rig' ? c.pw.rigDep : c.pw.colDep;
+      for (const t of d.tiles) if (owner[t] && countryOf[t] === c.id) into[d.type]++;
+    }
+  }
+  for (const c of game.countries) c.cap = c.capBase + c.pw.capPow * c.sat;
   for (const d of deposits) for (const t of d.tiles) if (owner[t]) game.countries[countryOf[t]].ownedDep[d.type]++;
   for (let i = 0; i < N; i++) if (owner[i]) paintTerr(i);
   game.netDirty = false;
@@ -817,7 +893,16 @@ function isCoastal(i) {
 function canBuild(i, type) {
   if (!isLand(i)) return biome[i] === OCEAN ? "Can't build on water" : biome[i] === ICE ? "Can't build on the ice wall" : "That's outer space";
   if (!owner[i]) return 'Must be inside your territory';
-  if (depositOf[i] >= 0) return "Can't build on a resource deposit";
+  const def = CFG.buildings[type];
+  if (type === 'rig') {
+    if (depositOf[i] < 0) return 'Mining rigs go on a resource deposit';
+    const have = building[i] ? buildingAt(i).type : null;
+    if (have === 'rig') return 'Already a mining rig';
+    if (!have) return "Upgrade a logger's cabin or miner's camp: click the one on this deposit";
+  } else if (def.on) {
+    if (depositOf[i] < 0 || !def.on.includes(deposits[depositOf[i]].type)) return `${def.name}s go on ${def.on.join(' or ')}`;
+    if (deposits[depositOf[i]].tiles.some(t => building[t])) return 'Something already works this deposit';
+  } else if (depositOf[i] >= 0) return "Can't build on a resource deposit";
   if (building[i]) {
     const have = buildingAt(i).type;
     if (!ladderSteps(type, have)) {
@@ -877,7 +962,7 @@ function tryBuild(i, type) {
 // ======================================================================
 let pushId = 0;
 // people per click come from the country that will do the work
-const sendFrom = C => Math.floor((C ? C.people : 0) * game.sendPct / 100);
+const sendFrom = C => Math.floor((C ? freePeople(C) : 0) * game.sendPct / 100);
 
 function startPush(tx, ty) {
   const b = biome[idx(tx, ty)];
@@ -990,7 +1075,7 @@ function stepOutpost(o) {
 // ======================================================================
 // select + copy/paste (left-drag a box over houses, press C to paste at the cursor)
 // ======================================================================
-const COPYABLE = { house: true, house2: true, house3: true };   // stations/ports aren't copied (they'd all try to link)
+const COPYABLE = { house: true, house2: true, house3: true, solar: true, burner: true };   // collectors and rigs belong to one deposit   // stations/ports aren't copied (they'd all try to link)
 let blueprint = null;                              // { items: [{dx, dy, type}] } relative to the selection's centre
 
 function finishSelection(ax, ay, bx, by) {
@@ -1067,10 +1152,21 @@ function tick(dt) {
   let pop = 0;
   for (const c of game.countries) {
     if (!c.alive) continue;
+    // power: solar first (free), burners fill the rest and burn wood for it; short power slows every user evenly
+    const P = c.pw, B = CFG.buildings, solar = P.solar * B.solar.gen, burnMax = P.burners * B.burner.gen;
+    let fromBurn = Math.min(Math.max(0, P.need - solar), burnMax);
+    let burn = burnMax ? fromBurn / B.burner.gen * CFG.power.burnerWood : 0;   // wood per second
+    if (burn * dt > c.res.wood) { const k = burn ? c.res.wood / (burn * dt) : 0; burn *= k; fromBurn *= k; }
+    c.res.wood -= burn * dt;
+    c.sat = P.need > 0 ? Math.min(1, (solar + Math.min(fromBurn, P.need)) / P.need) : 1;
+    c.mw = { gen: Math.min(P.need, solar + fromBurn), max: solar + burnMax, need: P.need, burn };
+    c.cap = c.capBase + P.capPow * c.sat;
+    c.staff = P.workers > 0 ? Math.min(1, c.people / P.workers) : 1;   // too few people: collectors slow down
     for (const t of ['forest', 'stone', 'iron']) {
       const r = DEP_RES[t];
-      c.rates[r] = c.ownedDep[t] * CFG.prodPerTile[t];
-      c.res[r] += c.rates[r] * dt;
+      const prod = (P.colDep[t] * c.staff + P.rigDep[t] * CFG.power.rigMult * c.sat) * CFG.prodPerTile[t];
+      c.res[r] += prod * dt;
+      c.rates[r] = prod - (r === 'wood' ? burn : 0);
     }
     if (c.cap > 0 && c.people < c.cap) {
       c.growth = CFG.growthRate * c.people * (1 - c.people / c.cap) + CFG.growthBase;
@@ -2517,7 +2613,7 @@ function render() {
     for (const b of game.buildings) {
       const x = b.i % W, y = (b.i / W) | 0;
       if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'house' ? 1.45 : b.type === 'house3' ? 1.15 : 1.25));
+      drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'house' ? 1.45 : b.type === 'house3' || b.type === 'solar' ? 1.15 : 1.25));
     }
   } else if (z >= CFG.cityZoom) {
     // middle view: buildings as solid squares
@@ -2696,7 +2792,7 @@ function hoverTile() {
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('mousedown', e => {
   mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true;
-  mouse.down = e.button; mouse.sx = e.clientX; mouse.sy = e.clientY;
+  mouse.down = e.button; mouse.sx = e.clientX; mouse.sy = e.clientY; cam.anim = null;
   mouse.dragged = false; mouse.selecting = false; mouse.camX = cam.x; mouse.camY = cam.y;
   mouse.offX = cam.offX; mouse.offY = cam.offY;
   if (e.button === 1) e.preventDefault();   // no browser autoscroll on middle-drag
@@ -2736,7 +2832,8 @@ window.addEventListener('mouseup', e => {
     else if (blueprint) clearSelection();          // with a selection, a click just deselects
     else if (owner[t.i]) {                         // clicking inside one of your countries selects it
       const c = countryAt(t.i);
-      if (c && c.id !== game.active) { game.active = c.id; toast(`Viewing ${c.full}`); }
+      if (c && cam.zoom < CFG.cityZoom) flyToCountry(c);
+      else if (c && c.id !== game.active) { game.active = c.id; toast(`Viewing ${c.full}`); }
     } else startPush(t.x, t.y);
   } else if (btn === 2) {
     if (game.tool) setTool(null);
@@ -2748,6 +2845,7 @@ canvas.addEventListener('mouseenter', () => { mouse.in = true; });
 canvas.addEventListener('mouseleave', () => { mouse.in = false; });
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
+  cam.anim = null;
   const [bx, by] = toWorld(e.clientX, e.clientY);
   cam.zoom = clamp(cam.zoom * Math.exp(-e.deltaY * 0.0022), CFG.zoomMin, CFG.zoomMax);
   const [ax, ay] = toWorld(e.clientX, e.clientY);
@@ -2785,7 +2883,14 @@ window.addEventListener('keydown', e => {
     if (en.key !== k) continue;
     if (cam.follow === en.id) { stopFollow(); toast(`Let go of ${en.name}`); } else followBody(en.id);
   }
-  if (k === 'h') { stopFollow(); cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
+  if (k === 'h') { stopFollow(); cam.anim = null; cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
+  if (k === 'tab') {
+    e.preventDefault();
+    const alive = game.countries.filter(c => c.alive && c.tiles);
+    const j = alive.indexOf(activeCountry());
+    flyToCountry(alive[(j + (e.shiftKey ? alive.length - 1 : 1)) % alive.length]);
+  }
+  if ('wasd'.includes(k) || k.startsWith('arrow')) cam.anim = null;
   if (k === 'n') { location.search = ''; }
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
@@ -2854,6 +2959,25 @@ function lockWorld() {
   savedView = null; mapStage = 1;
   toast('Locked onto your world.');
 }
+// select a country and fly the camera to fit it
+function flyToCountry(c) {
+  if (!c) return;
+  game.active = c.id;
+  stopFollow();
+  const [x0, y0, x1, y1] = c.box;
+  const z = clamp(Math.min(cw / (x1 - x0 + 16), (ch - 230) / (y1 - y0 + 16)), 1.2, 24);
+  cam.anim = { x0: cam.x, y0: cam.y, z0: cam.zoom, x1: (x0 + x1) / 2 + 0.5, y1: (y0 + y1) / 2 + 0.5, z1: z, t: 0 };
+  toast(`${c.full} · ${fmtNum(c.people)} people · ${c.tiles} tiles`);
+}
+function stepCamAnim(dt) {
+  const a = cam.anim;
+  if (!a) return;
+  a.t = Math.min(1, a.t + dt / 0.7);
+  const e = a.t < 0.5 ? 2 * a.t * a.t : 1 - (-2 * a.t + 2) ** 2 / 2;   // ease in-out
+  cam.x = a.x0 + (a.x1 - a.x0) * e; cam.y = a.y0 + (a.y1 - a.y0) * e;
+  cam.zoom = a.z0 * Math.pow(a.z1 / a.z0, e);
+  if (a.t >= 1) cam.anim = null;
+}
 function stopFollow() {
   if (!cam.follow) return;
   cam.follow = null;
@@ -2894,7 +3018,8 @@ function iconFill() {
 function buildMenu() {
   const wrap = $('build');
   wrap.innerHTML = '';
-  for (const [type, b] of Object.entries(CFG.buildings)) {
+  // in unlock order, so the bar grows to the right as your empire grows
+  for (const [type, b] of Object.entries(CFG.buildings).sort((a, b) => (a[1].unlock || 0) - (b[1].unlock || 0))) {
     const el = document.createElement('div');
     el.className = 'bbtn'; el.dataset.type = type;
     const cost = Object.entries(b.cost).map(([r, n]) =>
@@ -2904,6 +3029,7 @@ function buildMenu() {
     el.addEventListener('click', () => setTool(game.tool === type ? null : type));
     wrap.appendChild(el);
   }
+  document.querySelector('#topbar .res.country').addEventListener('click', () => flyToCountry(activeCountry()));
   const pw = $('pct-buttons');
   for (const p of [10, 25, 50, 100]) {
     const el = document.createElement('div');
@@ -2947,7 +3073,7 @@ function renderBuildMenu() {
       <div class="bm-body"><div class="bm-name">${b.name}${open ? ` <span class="bm-key">${b.key}</span>` : ''}</div>
       <div class="bm-desc">${b.desc || ''}</div>
       <div class="bm-foot"><div class="cost">${cost}</div>
-      <div class="bm-status">${open ? (b.cap ? `+${b.cap} capacity` : 'Unlocked') : `🔒 unlocks at ${b.unlock} people`}</div></div></div>`;
+      <div class="bm-status">${open ? (b.cap ? `+${b.cap} capacity` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : `🔒 unlocks at ${b.unlock} people`}</div></div></div>`;
     if (open) el.addEventListener('click', () => { setTool(type); toggleBuildMenu(false); });
     grid.appendChild(el);
   }
@@ -2975,9 +3101,15 @@ function updateHud() {
     $('val-' + r).textContent = fmtNum(C.res[r]);
     const rate = C.rates[r];
     const el = $('rate-' + r);
-    el.textContent = `+${rate.toFixed(1)}/s`;
-    el.classList.toggle('zero', rate <= 0);
+    el.textContent = `${rate < 0 ? '' : '+'}${rate.toFixed(1)}/s`;
+    el.classList.toggle('zero', rate === 0);
+    el.classList.toggle('neg', rate < 0);
   }
+  const M = C.mw, short = M.need > 0 && C.sat < 0.999;
+  $('val-power').textContent = M.need || M.max ? `${fmtNum(M.need)} / ${fmtNum(M.max)} MW` : '-';
+  $('val-power').classList.toggle('short', short);
+  $('rate-power').textContent = short ? `${Math.round(C.sat * 100)}% POWERED` : M.need ? 'OK' : '';
+  $('rate-power').classList.toggle('neg', short);
   $('val-terr').textContent = (game.ownedCount / game.landTiles * 100).toFixed(1) + '%';
   $('val-time').textContent = fmtTime(game.time);
   $('val-view').textContent = cam.follow ? (mapStage === 3 ? 'Solar system' : LOCK[cam.follow].short)
@@ -2988,6 +3120,10 @@ function updateHud() {
   $('people-fill').style.width = (C.cap ? clamp(C.people / C.cap, 0, 1) * 100 : 0) + '%';
   $('people-rate').textContent = C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : (C.people >= C.cap - 0.5 ? 'Full' : '');
   $('send-n').textContent = `= ${sendFrom(C)} people`;
+  $('bar-note').textContent = C.pw.workers
+    ? `${fmtNum(Math.min(C.people, C.pw.workers))} at work${C.staff < 0.999 ? ` (need ${C.pw.workers})` : ''} · regrows fastest at half full`
+    : 'regrows fastest at half full';
+  $('bar-note').classList.toggle('neg', C.staff < 0.999);
   document.querySelectorAll('.bbtn .cost span').forEach(el => {
     el.classList.toggle('no', C.res[el.dataset.r] < +el.dataset.n);
   });
@@ -3018,6 +3154,9 @@ function updateHover() {
   if (isLand(t.i)) {
     info += ` · ${tileCost(t.i)} people/tile`;
     if (depositOf[t.i] >= 0) info += ` · ${deposits[depositOf[t.i]].type}`;
+    if (building[t.i]) info += ` · ${CFG.buildings[buildingAt(t.i).type].name}`;
+    else if (depositOf[t.i] >= 0 && !deposits[depositOf[t.i]].tiles.some(k => building[k]))
+      info += ` · nobody works it yet: build a ${deposits[depositOf[t.i]].type === 'forest' ? "logger's cabin" : "miner's camp"}`;
     if (owner[t.i]) { const c = countryAt(t.i); if (c) info += ` · ${c.full}${c.supply > 0 ? ' (new colony)' : ''}`; }
   }
   $('hover-info').textContent = info;
@@ -3055,12 +3194,24 @@ function updateHover() {
   if (bdef.cap) {
     html += `<div class="g">+${bdef.cap - (have ? CFG.buildings[have].cap : 0)} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
     if (!have && bdef.from) html += `<div class="d">Cheaper: click a ${CFG.buildings[bdef.from].name} to upgrade it</div>`;
+    if (bdef.use) html += `<div class="d">Uses ${bdef.use} MW; without power it holds ${bdef.cap - bdef.capPowered}</div>`;
   } else if (plan) {
     if (plan.path) {
       html += type === 'station'
         ? `<div class="g">Rail link: ${plan.tiles} tiles of track to your nearest station</div>`
         : `<div class="g">Sea route: ${plan.tiles} tiles to your nearest port</div>`;
     } else html += `<div class="d">${plan.note}</div>`;
+  } else if (bdef.gen) {
+    html += `<div class="g">+${bdef.gen} MW power${TC ? ' for ' + TC.short : ''}</div>`;
+    if (type === 'burner') html += `<div class="d">Burns up to ${CFG.power.burnerWood} wood/s, only as much as is needed</div>`;
+  } else if (type === 'rig' || bdef.on) {
+    if (depositOf[t.i] >= 0) {
+      const d = deposits[depositOf[t.i]], n = d.tiles.filter(k => owner[k] && countryOf[k] === countryOf[t.i]).length;
+      const mult = type === 'rig' ? CFG.power.rigMult : 1;
+      html += `<div class="g">${(n * mult * CFG.prodPerTile[d.type]).toFixed(1)} ${DEP_RES[d.type]}/s from this deposit (${n} tiles)</div>`;
+    } else html += `<div class="d">Must go on ${type === 'rig' ? 'a resource deposit' : bdef.on.join(' or ')}</div>`;
+    html += type === 'rig' ? `<div class="d">Uses ${bdef.use} MW and frees the workers; no power, no output</div>`
+      : `<div class="d">Employs ${bdef.workers} people</div>`;
   } else if (type === 'port') html += `<div class="d">Must be on the coast. Links to your other ports by sea.</div>`;
   else html += `<div class="d">Links to your nearest station by rail.</div>`;
   html += `<div class="d">Cost: ${costTxt}${plan && plan.extra ? ' (incl. track)' : ''}${TC ? ', paid by ' + TC.short : ''}</div>`;
@@ -3125,6 +3276,7 @@ function start() {
     acc += dt;
     while (acc >= step) { tick(step); acc -= step; }
     panKeys(dt);
+    stepCamAnim(dt);
     applyFollow();
     render();
     hudT += dt;
@@ -3135,5 +3287,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCutOff, isCoastal, OCEAN };
+window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCutOff, isCoastal, OCEAN, depositOf, deposits, canBuild };
 init();

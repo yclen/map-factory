@@ -103,6 +103,9 @@ A browser prototype of the core loop is in [`prototype/`](prototype/). To play, 
   - **Countries merge** when their borders touch, pooling people and resources.
   - **Names** are generated from the seed (e.g. *the Union of Ethbelzanus*, *the Federation of Gorethus*), and written across each country on the map when you zoom out.
 - **Build menu (E) and population unlocks:** press **E** for every building, with a description, its cost, and what's still locked. New buildings unlock as your empire's peak population grows: House from the start, **Station at 150**, **Port at 200**, **Apartment at 300**, **City block at 1,000**. The bottom bar shows only what you've unlocked. Send % moved to **[ ]**.
+- **Collectors (v7):** deposits only produce once something works them. **Logger's cabin** (key 9, on a forest) and **Miner's camp** (key 0, on stone or iron) each employ 5 people, who can't be sent; too few people and they slow down. The people panel shows how many are at work. The start town comes with both. The **Mining rig** is now the powered upgrade of either one (3x, frees the workers, no power = no output).
+- **Country select (v7):** zoomed out, **click one of your countries** to fly the camera to it and view its people, stockpile and power; **Tab** / **Shift+Tab** cycles through your countries; clicking the country name in the top bar flies back to it.
+- **Energy (v6):** each country has a **power budget**, shown in the top bar (MW used / MW available). **Wood burner** (400 people): 8 MW, burns up to 0.25 wood/s, only as much as needed. **Solar panel** (700): 1.5 MW per tile, free; solar is used first, so panels save wood. **Mining rig** (500): built on a deposit, triples it while powered, uses 4 MW, one per deposit. **City blocks** use 3 MW; without power they hold 30 instead of 80. Short on power, every user slows down evenly. Keys 6–8.
 - **Housing ladder (v5):** House (10) → **Apartment** (30) → **City block** (80). Pick a higher level and **click one of your houses to upgrade it in place**: you pay only the steps in between (House → Apartment costs 20 wood, 10 iron). Placing it on clear land works too but pays the whole ladder. Skipping a level (House → City block) pays both steps. Copy-paste copies the levels and upgrades whatever lower housing it lands on. City icons on the map show a country's densest housing.
 - **Copy and paste houses:** hold left click and drag a box over houses to select them (gold outlines). A ghost copy follows the mouse, with green tiles where it fits and red where it doesn't. Press **C** to paste it there. It only builds on your own clear land, skips blocked tiles, and stops if you run out of resources. Press C again for more copies; Esc or a click clears the selection. Stations and ports aren't copied. Because of this, **panning is right-drag** (or WASD).
 - **Previews:** with the Station or Port tool selected, hovering shows the route it would build (green dashed line), its length, and the total cost including track. Hover any tile to see its biome, cost per tile, and whether it's yours and connected.
@@ -327,6 +330,41 @@ A shift from the prototype, where all resources go into one global pool:
 - **Merging:** when two of your countries' borders touch, they become one country and pool their people and resources.
 - **Country names:** generated from the seed: a name plus a form, e.g. *the Kingdom of Velmora*, *the Kethar Republic*, *the Free State of Ixos*, *the Union of Oth*. AI nations get names the same way.
 
+### Energy and production (DECIDED 2026-11-21)
+**Energy is the central system.** Population unlocks a building; **power lets you run it**. Every ambitious thing (city blocks, mining rigs, launch sites, later the planet lasers) uses power, so each era's goal needs a new, bigger power source. The only technology the game is really *about* is **transportation**, since that's what gets you to space and wins the game. Energy is what pays for it.
+
+**No crafting chains.** Turning ore into bars, wood into planks and so on is cut: it's a delay, not a decision. A conversion step only exists if it creates a new decision about where to build or what to give up (e.g. ice + power → hydrogen at the ice wall, for rockets). At most a few in the whole game.
+
+**No item inventory.** Buildings are paid for straight out of a country's stockpile when you place them, as now. A country's inventory is just its raw resources. (Exception, maybe later: things that move, like rockets.)
+
+**No compute / data centers.** Considered and dropped: it doesn't add much.
+
+**How power works:**
+- Each country has a **power budget**: supply (MW) from its plants, demand from its machines. It shows in the top bar like capacity does.
+- **Short on power → everything that uses it slows down evenly** (a brownout). No wiring.
+- Power stays inside a country (for now; power lines between countries could come later).
+
+**Power sources:**
+
+| Source | Needs | Role | Status |
+|---|---|---|---|
+| **Wood burner** | burns wood (coal too, if coal deposits are added) | the first power; competes with building for wood | in the prototype |
+| **Solar panel** | open land, one tile each | **key**: free power, but every panel takes a tile you can't use for anything else. Cover land with it. | in the prototype |
+| **Nuclear plant** | uranium, a **rare deposit** | lots of power; a reason to fight over uranium | later (Era 3) |
+| **Geothermal plant** | lava | power from lava (Vulcan, and any lava world) | later (space) |
+| **Fusion plant** | helium-3 from gas giants | endgame power | later (Era 5) |
+
+Dropped: wind (there is no wind on the disk), a separate coal plant (coal is just another fuel for the burner), hydro.
+
+**Power users (first set):** mining rigs, city blocks; later launch sites, ice mines, hydrogen plants, telescopes, space stations, lasers.
+
+**Power belongs to a territory (DECIDED).** No power lines and no energy transport: power is made and used inside one connected territory (one country). Links carry people and cargo, never power. To power a colony, build plants there, or grow it until it touches your other land.
+
+**Resources are collector-based (DECIDED, in the prototype).** Owning a deposit gives you nothing until something works it:
+- **Early game: people do the work.** A **Logger's cabin** (on a forest) or a **Miner's camp** (on stone or iron) makes the whole deposit produce. Each **employs 5 people**: they still count toward your population, but they **can't be sent** on pushes or expeditions. If the country has fewer people than its jobs, every collector slows down evenly.
+- **Later: machines run on power.** A **Mining rig** is the upgrade of a cabin or camp (click it): 3x the output and the workers are freed, but it uses 4 MW, and **no power means no output**.
+- One collector per deposit. Your starting town comes with a cabin and a camp on its home forest and stone; colonies have to build their own.
+
 ### A methodology for the tech tree
 A simple way to organise the whole progression, so it stays coherent as it grows:
 
@@ -382,7 +420,7 @@ A simple way to organise the whole progression, so it stays coherent as it grows
 
 ### Resources by era (draft)
 - **Disk, early:** wood, stone, iron (what the prototype has now)
-- **Disk, industrial:** fuel (oil? coal?), steel
+- **Disk, industrial:** power; maybe coal as burner fuel (no steel or other processed goods)
 - **Space:** **water** (from ice), **minerals and metals**, rocket **fuel**, **nuclear fuel** for energy production
 - Open: which resources exist only on other planets (Vulcan's heavy metals and sulfur? Aries? the gas giants?)
 
@@ -472,8 +510,8 @@ Everything the design still has to work out, with where each stands after the 20
 |---|---|---|---|
 | 1 | **People per country** | Yes: each country has its own people and resources; links carry both (see Countries) | **Decided, in the prototype** |
 | 2 | **Object catalogue** | Every building, level and population threshold, kept as rows in one data table | **Draft v1 written**; housing ladder in the prototype |
-| 3 | **Production chains** | Processing buildings (e.g. iron → steel, fuel) needed before rockets | To do |
-| 4 | **Energy** | Many sources, including **solar**. Candidates to consider: burning wood/coal, wind, hydro, solar, **geothermal** (Vulcan?), nuclear fission, and late-game fusion (helium-3 from the Moon or gas giants?) | To do |
+| 3 | **Production chains** | **No crafting chains**; only a few conversion steps that create real decisions (e.g. ice → hydrogen). Deposits need a **collector**: people early, powered machines later | **Decided, in the prototype** |
+| 4 | **Energy** | **The central system.** Per-country power budget, brownouts when short. Wood burner → solar → nuclear → geothermal → fusion. No wind, no compute | **Decided**; burner, solar, mining rig in the prototype |
 | 5 | **AI nations and combat** | AI countries that play like you but differently: build houses, expand, and **launch weapons at you**. Needs a full **military tech tree** | To do |
 | 6 | **Goal** | **Fly into the black hole at the centre of the galaxy.** Eventually a whole galaxy of seeded solar systems; for now, just one system | **Decided** (galaxy later) |
 | 7 | **Losing and damage** | Part of combat: losing territory, damaged buildings | To do (with combat) |
@@ -487,7 +525,7 @@ Everything the design still has to work out, with where each stands after the 20
 **Suggested work order:** each step builds on the one before.
 1. ~~The **people-per-country model** in the prototype~~ **done**
 2. ~~The **object catalogue**~~ **draft v1 written** (see Object catalogue) and ~~the **E build menu** with population unlocks~~ **done**
-3. **Production chains** and **energy**
+3. ~~**Production chains** and **energy**~~ **decided, in the prototype**
 4. **AI nations**, then **combat**, losing and damage
 5. **Space**: rockets, orbit, other planets, the planetary tech tree
 6. The **galaxy** (1,000 seeded stars), **telescopes**, and the black hole
@@ -512,26 +550,23 @@ Resources: **wood, stone, iron**
 |---|---|---|---|---|---|---|
 | **House** | Housing | L1 of the housing ladder | 0 | 10 wood, 10 stone | +10 capacity | ✅ |
 | **Apartment** | Housing | L2 (upgrade a house) | 300 | 20 wood, 10 iron | +30 capacity | ✅ |
-| **City block** | Housing | L3 (upgrade an apartment) | 1,000 | 40 wood, 40 stone, 30 iron | +80 capacity | ✅ |
+| **City block** | Housing | L3 (upgrade an apartment) | 1,000 | 40 wood, 40 stone, 30 iron | +80 capacity; uses 3 MW (holds only 30 without power) | ✅ |
 | **Rail station** | Transport | L1–L3 (faster, more cargo) | 150 | 15 wood, 10 stone + track | links countries by land | ✅ (L1) |
 | **Port** | Transport | L1–L2 (bigger ships) | 200 | 20 wood, 10 stone | links countries by sea | ✅ (L1) |
-| **Lumber camp / Quarry / Mine** | Extraction | L1–L3 | 250 | wood, stone | ×2 output of one deposit per level | |
+| **Wood burner** | Energy | - | 400 | 10 wood, 20 stone | +8 MW, burns up to 0.25 wood/s | ✅ |
+| **Logger's cabin** | Extraction | L1 (people) | 0 | 5 wood, 10 stone | makes a forest produce; employs 5 people | ✅ |
+| **Miner's camp** | Extraction | L1 (people) | 0 | 15 wood, 5 stone | makes stone or iron produce; employs 5 people | ✅ |
+| **Mining rig** | Extraction | L2 (upgrade a cabin or camp) | 500 | 20 wood, 10 stone, 10 iron | ×3 output, no workers; uses 4 MW, no power = no output | ✅ |
+| **Solar panel** | Energy | - | 700 | 10 stone, 5 iron | +1.5 MW, takes one tile | ✅ |
 | **Road** | Transport | - | 100 | stone per tile | faster pushes and expeditions over land | |
 
 ### Era 2: Industry (~1,000 → ~10,000)
-New resources: **coal, oil** (deposits), **planks, bricks, steel, concrete, fuel** (made), **power**
+New resources: **coal** (maybe, as burner fuel). No processed goods (crafting chains were cut, see Energy and production).
 
 | Object | Category | Levels | Unlock | Does |
 |---|---|---|---|---|
-| **Sawmill** | Processing | L1–L2 | 1,200 | wood → planks |
-| **Kiln** | Processing | L1–L2 | 1,200 | stone → bricks / concrete |
-| **Smelter** | Processing | L1–L3 | 1,500 | iron + coal → steel |
-| **Refinery** | Processing | L1–L2 | 3,000 | oil → fuel |
-| **Wood burner → Coal plant** | Energy | ladder | 1,000 → 2,000 | burns fuel for power |
-| **Wind turbine** | Energy | - | 2,500 | free power, small |
-| **Solar farm** | Energy | L1–L3 | 5,000 | free power by day (the Sun is real in this game) |
 | **Shipyard** | Transport | - | 4,000 | ocean-going ships: cross deep oceans, carry much more |
-| **Tower block** | Housing | L4 of the housing ladder | 6,000 | +250 capacity, needs steel + power |
+| **Tower block** | Housing | L4 of the housing ladder | 6,000 | +250 capacity, uses a lot of power |
 
 ### Era 3: The edge of the world (~10,000 → ~50,000)
 New resources: **water** (ice), **hydrogen**, **uranium**
@@ -542,7 +577,8 @@ New resources: **water** (ice), **hydrogen**, **uranium**
 | **Electrolysis plant** | Processing | 12,000 | water + power → hydrogen (rocket fuel) |
 | **Nuclear plant** | Energy | 20,000 | uranium → lots of power |
 | **Launch site** | Transport | 25,000 | must sit on the ice wall; builds and launches rockets |
-| **Telescope** | Science | 15,000 | resolves stars in the galaxy over time |
+| **Telescope** | Science | 15,000 | resolves stars in the galaxy over time (uses power) |
+| **Geothermal plant** | Energy | (space) | power from lava; on Vulcan or any lava world |
 
 ### Era 4: Orbit
 | Object | Category | Does |
@@ -580,12 +616,12 @@ New resources: **helium-3** (gas giants), **heavy metals, sulfur** (Vulcan), **m
 
 These came up earlier. They don't fit cleanly with the current rules yet, so they're parked until the core works.
 
-### Factories
+### Factories (superseded 2026-11-21: no crafting chains, see Energy and production)
 - Turn raw resources into **goods** that unlock better buildings. This is the "Factorio" part.
 - Example chains: wood → planks → better houses; iron → parts → drills, more factories.
 - Open: now that people don't work deposits, do factories need people? That could be a second use for people besides expanding.
 
-### Drills (reworked)
+### Drills (reworked; became the **mining rig**, in the prototype)
 - Since deposits now produce automatically, drills can't "replace workers" anymore.
 - New role: build a drill on a deposit to **boost its output** (e.g. ×2). Costs iron, so it's another reason to go get iron.
 
@@ -672,6 +708,8 @@ python art/generate_art.py
 - **v1:** people were assigned to deposits as workers (0.1/sec each), and drills replaced workers. Food was an open question.
 - **v2 (2026-11-20):** deposits inside your border produce on their own. People are spent to claim land and to send expeditions, and regrow toward house capacity. Food is built into land fertility. Drills and factories are parked.
 - **Disk world (2026-11-20):** the map became a round disk in outer space, with an ice wall around the rim.
+- **v7 (2026-11-21):** collectors (logger's cabin, miner's camp) worked by people; mining rig as their powered upgrade; power stays inside each territory (no power lines); click or Tab to fly to a country.
+- **v6 (2026-11-21):** energy decided as the central system (no crafting chains, no compute, no wind); the prototype gets per-country power, wood burners, solar panels, mining rigs and powered city blocks. Resource collection left open.
 - **v5 (2026-11-21), in the prototype:** the object catalogue (draft v1) and the housing ladder: House → Apartment → City block, upgraded in place; keys 1–5.
 - **v4 (2026-11-21), in the prototype:** territories became countries with their own people, houses and stockpiles; expeditions found new countries with a supply kit; links move people and cargo between countries; countries merge when they touch; the E build menu with population unlocks (send % moved to [ ]).
 - **Progression decisions (2026-11-21):** population unlocks the tech tree; build menu on E; territories are countries with their own people and resources, linked by transport that moves both; the end goal is the black hole at the centre of the galaxy.

@@ -19,6 +19,8 @@
       <div><div class="lbl">STONE <span class="rate" id="rate-stone"></span></div><div class="val" id="val-stone">0</div></div></div>
     <div class="res"><span class="ic" data-icon="ore"></span>
       <div><div class="lbl">IRON <span class="rate" id="rate-iron"></span></div><div class="val" id="val-iron">0</div></div></div>
+    <div class="res"><span class="ic" data-icon="bolt"></span>
+      <div><div class="lbl">POWER <span class="rate zero" id="rate-power"></span></div><div class="val small" id="val-power">-</div></div></div>
     <div class="res"><span class="terr-swatch"></span>
       <div><div class="lbl">TERRITORY</div><div class="val" id="val-terr">0%</div></div></div>
     <div class="spacer"></div>
@@ -39,7 +41,7 @@
         </div>
         <div class="bar-wrap">
           <div class="bar"><div class="fill" id="people-fill"></div><div class="mid"></div></div>
-          <div class="bar-note">regrows fastest at half full</div>
+          <div class="bar-note" id="bar-note">regrows fastest at half full</div>
         </div>
         <div class="rate" id="people-rate"></div>
       </div>
@@ -52,10 +54,10 @@
 
     <div id="help" class="panel">
       <div class="lbl">CONTROLS</div>
-      <div class="help-row"><b>Click</b> near your border: expand · <b>Click</b> inside a country: view it</div>
+      <div class="help-row"><b>Click</b> near your border: expand · <b>Click</b> a country: view it (zoomed out: fly to it)</div>
       <div class="help-row"><b>Right-click</b> far away: send an expedition (founds a new country)</div>
       <div class="help-row"><b>Drag</b> a box over houses: select · <b>C</b> paste a copy at the cursor</div>
-      <div class="help-row"><b>E</b> build menu · <b>1–5</b> build · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>M</b> map / orbit · <b>N</b> new map</div>
+      <div class="help-row"><b>E</b> build menu · <b>1–9, 0</b> build · <b>Tab</b> next country · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>M</b> map / orbit · <b>N</b> new map</div>
       <div class="help-row"><b>Scroll</b> zoom · <b>Right-drag</b> or <b>WASD</b> pan · <b>Click</b> any planet, moon or the Sun to lock on</div>
       <div class="help-row">Lock-on keys: <b>L</b> Moon · <b>V</b> Vulcan · <b>R</b> Aries · <b>Z</b> Zeus · <b>P</b> Poseidon · <b>G</b> seed world · <b>U</b> Sun</div>
       <div class="hover" id="hover-info">&nbsp;</div>
