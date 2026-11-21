@@ -1,6 +1,6 @@
 # Map Factory
 
-A Factorio-style growth game played entirely from a **map view**, in the spirit of openfront.io. Your territory is a border line that grows across a seeded **disk world floating in space**. People are the currency: houses set how many you can have, you spend people to claim land, and the land you own produces the resources that build more houses.
+A Factorio-style growth game played entirely from a **map view**, in the spirit of openfront.io. Your territory is a border line that grows across a seeded **disk world floating in space**. People are the currency: the land you own, within reach of a settlement, sets how many you can have; you spend people to claim land, and the land you own produces the resources that build more settlements.
 
 **▶ Play it in your browser:** https://yclen.github.io/map-factory/
 
@@ -13,30 +13,32 @@ Add `?seed=123` to the address to play a specific map (this starts that map, and
 ## What's in the prototype
 
 - **A generated disk world:** 1000 × 1000 tiles of continents, islands, grassland, desert and snowy mountains, ringed by an ice wall, floating in a starfield.
-- **The core loop:** people regrow toward house capacity; click to push your border; deposits inside your territory produce wood, stone and iron; build houses to grow.
-- **Countries:** every territory is a named country with its own people and stockpile. Right-click far away to found a new one with an expedition, then link your countries with **rail stations** (they lay their own track) or **ports** (ships sail the route) to move people and cargo between them. Linked countries share their output by population (at least a quarter each way), and the goods physically ride the trains and ships, so far colonies get their share late. Countries merge when their borders touch, and their names grow with them: *the Colony of Gorethus* → *Gorethus Harbor* → *the Free State of Gorethus* → … → *the United States of Gorethus*.
-- **Population unlocks:** press **E** for the build menu (grouped by category; put any building on your 10-slot bar with hover + a number key); stations, ports and the housing ladder (House → Apartment → City block, upgraded in place) unlock as your empire grows.
-- **AI nations and missiles:** static nations in their own colours share the disk. Push into their land to conquer it and take their houses, or soften them up first with missiles from a missile silo.
+- **The core loop:** people regrow toward the capacity of your land; click to push your border; deposits inside your territory produce wood, stone and iron; found settlements to house the land you've claimed.
+- **Settlements:** the one housing building. Each houses what the land within 12 tiles can support and grows by itself from hamlet to city as your border moves out around it. A tile only counts once, for its nearest settlement, so spreading them out beats packing them in.
+- **Countries:** every territory is a named country with its own people and stockpile. Right-click outside your border to send an expedition, drive it to a spot you like (a truck over land, a boat over water) and settle there to found a new one, then link your countries with **rail stations** (they lay their own track) or **ports** (ships sail the route) to move people and cargo between them. Linked countries share their output by population (at least a quarter each way), and the goods physically ride the trains and ships, so far colonies get their share late. Countries merge when their borders touch, and their names grow with them: *the Colony of Gorethus* → *Gorethus Harbor* → *the Free State of Gorethus* → … → *the United States of Gorethus*.
+- **Population unlocks:** press **E** for the build menu (grouped by category; put any building on your 10-slot bar with hover + a number key); power, mining rigs, solar and missiles unlock as your empire grows.
+- **AI nations that fight back:** nations in their own colours share the disk; they claim land, found settlements and arm themselves. Their mortars shell anything of yours that comes within range, and once you attack them (or they run out of room) their missile silos join in and they start taking your land. Push into their land to conquer it and take their settlements, or soften them up first with your own **mortars** (short range, quick, cheap) and **missile silos** (long range, slow, powered).
 - **Collectors:** deposits only produce once something works them: a logger's cabin or miner's camp (each employs 5 people) early on, powered mining rigs later.
-- **Energy:** every country has a power budget. Wood burners and solar panels make power; mining rigs and city blocks use it. Power stays inside a territory. Short on power, everything slows down evenly.
-- **Copy and paste:** drag a box over houses, press **C** to paste the layout elsewhere.
+- **Energy:** every country has a power budget. Wood burners and solar panels make power; mining rigs and settlements that grow past a town use it. Power stays inside a territory. Short on power, everything slows down evenly.
+- **Copy and paste:** drag a box over solar panels or burners, press **C** to paste the layout elsewhere.
 - **A whole solar system:** the Moon (with phases), the Sun, lava world Vulcan, red planet Aries, gas giants Zeus and Poseidon with their moons, and a **seed world**: a planet generated entirely from the map seed.
-- **Zoom from a single house out to the whole solar system**, and click any body to lock the camera onto it.
+- **Zoom from a single settlement out to the whole solar system**, and click any body to lock the camera onto it.
 
 ## Controls
 
 | Input | Action |
 |---|---|
 | Click near your border | Expand toward that spot (into an AI nation: conquer it) |
-| Right-click far away | Send an expedition from the country you're viewing: a truck over land, a boat over water, carrying people and supplies for the new colony |
+| Right-click outside your border | Send an expedition from the country you're viewing, carrying people and supplies for a new colony: a truck, or a boat where your border or a port touches water |
+| Arrow keys or WASD (while driving) | Steer the expedition · **Space** settle here · **Esc** let go of the wheel · **X** take it again |
 | E | Build menu (everything, including what's still locked) |
 | 1 – 9, 0 | Build whatever is on that slot of your build bar · Esc cancels |
 | In the E menu: hover + 1 – 0 | Put that building on that key (right-click a building to add / remove it) |
-| F, then click | Fire a missile from your nearest silo in range |
-| Apartment or City block, then click a house | Upgrade it in place (cheaper than building fresh) |
+| F, then click | Fire at that spot: a mortar if one is in range and loaded, otherwise a missile silo |
+| Settlement tool, then hover | Shows the land a new settlement would add (green) and land already served (grey) |
 | Click inside one of your countries | View that country in the top bar (zoomed out: fly the camera to it) |
 | Tab · Shift+Tab | Fly to your next / previous country |
-| Drag a box · C | Select houses · paste a copy at the cursor |
+| Drag a box · C | Select solar panels or burners · paste a copy at the cursor |
 | [ / ] | People sent per click (10 / 25 / 50 / 100 %) |
 | Scroll · right-drag or WASD | Zoom · pan |
 | M | Cycle views: whole disk → Moon orbit → solar system → back |

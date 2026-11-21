@@ -13,39 +13,56 @@ updated: 2026-11-21
 
 A Factorio-style growth game played entirely from a **map view**, like openfront.io. You own a territory with a border line that grows across the map. You never control individual units or machines. You place **houses, rail stations, and ports**, click to push your border toward the resources you want, and run the whole economy from above.
 
-**People are the currency.** Houses decide how many people you can have. You spend people to claim land, and the land you own produces resources. Resources build more houses.
+**People are the currency.** The land you own decides how many people you can have, as long as a settlement is close enough to house them. You spend people to claim land, and the land you own produces resources. Resources build more settlements.
 
 ---
 
-## How the game works now (prototype v10)
+## How the game works now (prototype v17)
 
 The rules as they are in the playable prototype ([`prototype/`](prototype/), or [play it online](https://yclen.github.io/map-factory/)). Everything below is current; older versions are in the Archive at the end. All numbers live in `CFG` at the top of `prototype/game.js` and are placeholders until playtesting.
 
 **The world.** A seeded 1000 × 1000 disk floating in space, ringed by an ice wall: continents, islands, grassland, desert and mountains. Same seed (`?seed=42`), same world. Above it is a whole solar system (the Moon, the Sun, lava world Vulcan, red Aries, gas giants Zeus and Poseidon with their moons, and a seed world generated from the map seed); zoom from one house out to the solar system, and click any body to lock on.
 
-**The start.** A home town of 10 houses (100 people) near the centre of the disk, a logger's cabin and a miner's camp on its home forest and stone (about 1.8 wood and 1.4 stone a second), 50 wood and 50 stone.
+**The start.** One settlement (a village of about 100 people) near the centre of the disk, a logger's cabin and a miner's camp on its home forest and stone (about 1.8 wood and 1.4 stone a second), 50 wood and 50 stone.
 
-**People.** Every country has its own people. They regrow toward its **housing capacity** (an S-curve, fastest at half full) and are spent to expand and to send expeditions. People working a collector can't be sent.
+**People.** Every country has its own people. They regrow toward its **capacity** (an S-curve, fastest at half full) and are spent to expand, to found settlements and to send expeditions. People working a collector can't be sent. If capacity drops below the people a country has (lost land, a destroyed settlement), the extra people die off slowly.
 
 **Expanding.** Click near your border to push it toward that spot with a share of the nearest country's free people (10 / 25 / 50 / 100 %, `[ ]`). Land costs people per tile: grassland 0.5, desert 1.5, mountains 2.5. Pushing into an **AI nation** costs extra (see below).
 
-**Countries.** Every separate piece of your territory is a **country** with its own people, stockpile and power. **Right-click** far away to send an expedition from the **country you're viewing** (the one in the top bar; click a country to select it): a **truck** over land, a **boat** over water (boats leave from your nearest port if you have one). It carries the same share of the country's stockpile as of its people (the send %), and at least 40 wood and 40 stone if home has them: enough for the colony to build a station with track, or a cabin and a camp, straight away. The settlers live there until you build houses. Countries **merge** when their borders touch. **Names grow with housing**: *the Colony of Gorethus* → *Gorethus Harbor / Hold / Oasis / Vale* (50) → *the Free State of Gorethus* (200) → *the Federation of Gorethus* (1,000) → *the United States of Gorethus* (5,000). Click a country from far out (or press Tab) to fly to it.
+**Countries.** Every separate piece of your territory is a **country** with its own people, stockpile and power. **Right-click** outside your border to send an expedition from the **country you're viewing** (the one in the top bar; click a country to select it), and **drive it yourself**: a **truck** over land, or a **boat** if your border (or a port) touches water in that direction. **Arrow keys or WASD** steer and the camera rides along. A truck grips the ground and slows down in desert and mountains (about 11 / 7.5 / 4 tiles a second); a boat drifts and turns wide. Neither can leave its element, so the coast is a real barrier. It has **90 seconds of supplies**, after which it loses a person a second. **Space** settles: a truck where it stands, a boat on free land within 2 tiles (the circle shows the land the colony starts with). **Esc** lets go of the wheel and **X** takes it again. It carries the same share of the country's stockpile as of its people (the send %), and at least 40 wood and 40 stone if home has them: enough for the colony to build a station with track, or a cabin and a camp, straight away. On arrival the settlers found a **settlement**, which grows as the colony claims the land around it. Countries **merge** when their borders touch. **Names grow with capacity**: *the Colony of Gorethus* → *Gorethus Harbor / Hold / Oasis / Vale* (50) → *the Free State of Gorethus* (200) → *the Federation of Gorethus* (1,000) → *the United States of Gorethus* (5,000). Click a country from far out (or press Tab) to fly to it.
 
 **Resources: wood, stone, iron.** A deposit produces only when something works it:
 - **Logger's cabin** (forest) / **Miner's camp** (stone, iron): employ 5 people each.
 - **Mining rig** (500 people): the upgrade of either; 3× output, no workers, uses 4 MW, nothing without power.
 
-**Housing ladder** (upgrade in place: pick the higher level and click the lower one; you pay only the steps in between): **House** 10 → **Apartment** 30 (300 people) → **City block** 80 (1,000 people; uses 3 MW, holds only 30 without power).
+**Settlements: the land holds the capacity.** There is one housing building, the **settlement** (40 wood, 40 stone and 20 people).
+- Every land tile you own can support people: grassland 0.5, desert 0.2, mountains 0.1.
+- A tile only counts if a settlement is within **12 tiles** of it, and it counts for its **nearest** settlement. Two settlements side by side share the same land, so spreading them out is what pays; packing them in adds only the land the others didn't reach.
+- A settlement's capacity is the sum of its tiles, and its level is read off that number: **Hamlet** → **Village** (50) → **Town** (110) → **City** (175). You never upgrade one by hand: push your border out around it and it grows.
+- Capacity above 170 needs power: a settlement that big uses 2 MW, and without it stays a Town.
+- With the Settlement tool selected, the map shows the land a new one would add in green and land that's already served in grey, with the capacity it would add. Point at a settlement to see its reach.
+- Up close a settlement draws its own houses around it (more, and bigger, as it grows). Zoomed out it is one badge: larger per level, ringed in its owner's colour, with a gold arc for how full its country is.
 
-**Energy.** Each country has a power budget (top bar: MW used / available). **Wood burner** (400): 8 MW, burns up to 0.25 wood/s, only what's needed. **Solar panel** (700): 1.5 MW per tile, free, used first. Short on power, every user slows down evenly. Power never leaves a territory: no power lines.
+**Energy.** Each country has a power budget (top bar: MW used / available). **Wood burner** (200): 8 MW, burns up to 0.25 wood/s, only what's needed. **Solar panel** (700): 1.5 MW per tile, free, used first. Short on power, every user slows down evenly. Power never leaves a territory: no power lines.
 
 **Transport.** **Rail stations** (from the start) lay track to your nearest station (up to 120 tiles; track costs 0.15 wood + 0.15 stone per tile); **ports** (from the start) open a sea route to your nearest port. Linked countries **share their output, not their stockpiles**: each country's new production is split with the countries it's linked to by **population**, and each end gets at least **25%** of the other's output however small it is (a country with several links divides that between them). So a new colony keeps its kit and gets a quarter of home's income; a mining colony sends most of its iron home. The share waits at the station until a train or ship picks it up (30 goods and 12 people a trip by train, 40 and 10 by ship), so long routes deliver slowly and late. The top bar shows each country's income after sharing, and goods on their way in gold. People move too, toward the end with more room in its houses.
 
-**AI nations.** 7 static nations in their own colours, each with houses, collectors and a population that regrows. **Conquest works like openfront:** push into their land; each tile costs 0.5 + 2.5 × (their people per tile) extra and kills defenders, and their buildings become yours. A nation with no land left is conquered.
+**AI nations.** 7 nations in their own colours, and they play the game: every couple of seconds each one may claim free land next to its border (while it is at least three-quarters full, up to 5,000 tiles), found a settlement where its land has none in reach, and build weapons as it grows (up to 4 mortars and 3 silos). Each starts with a settlement or more, a mortar and a missile silo. **Conquest works like openfront:** push into their land; each tile costs 0.5 + 2.5 × (their people per tile) extra and kills defenders, and their buildings become yours. A nation with no land left is conquered.
 
-**Missiles.** A **missile silo** (600) fires short-range missiles: press **F**, click a target within 60 tiles. Each costs 10 wood + 10 iron, reloads in 6 s, and the blast (radius 3) destroys every building and kills 3 people per tile, yours included.
+**Their weapons.** A nation's **mortars fire at anything of yours within 22 tiles** (expeditions first, then buildings, then any of your land), so driving or settling next to a nation gets you shelled. Its **silos stay quiet until you attack it** (take a tile, or land a shell on it); from then on it is **at war** with you and its missiles hit your buildings from up to 110 tiles away. AI weapons reload slower than yours (mortar 4 s, silo 30 s).
 
-**Unlocks and building.** Buildings unlock by your empire's **peak population**. **E** opens the build menu, grouped by category (Housing, Resources, Energy, Transport, Military). The bottom bar is a **hotbar** on keys 1–9, 0: new unlocks fill empty slots; in the E menu, hover any building and press a number to put it on that key, or right-click to add / remove it. Drag a box over houses and press **C** to paste copies.
+**They take your land.** A nation at war pushes into your territory from its border, the same way you push into theirs: each of your tiles costs it the land price plus 0.5 + 2.5 × (your people per tile), and kills some of your people. Whatever stands on a tile it takes becomes its own, settlements included. A nation that has **no free land left to claim** and borders you declares war by itself. A country that loses its last tile **falls**; lose them all and the game is over (N starts a new map). To hold a border: keep your country crowded, shell their settlements (fewer people means a weaker push), or push back in.
+
+**Your weapons.** Press **F**, then click a target; the lightest loaded weapon in range fires. A reload bar shows under any weapon that is reloading.
+
+| Weapon | Unlock | Build cost | Range | Reload | Blast | Each shot | Power |
+|---|---|---|---|---|---|---|---|
+| **Mortar** | 300 people | 20 wood, 20 stone | 22 tiles | 2.5 s | radius 1.5, kills 1 per tile | 3 wood, 3 stone | none |
+| **Missile silo** | 600 people | 30 stone, 20 iron | 110 tiles | 10 s | radius 3, kills 3 per tile | 10 wood, 10 iron | 3 MW; reloads slower when short |
+
+Any blast destroys every building in it, yours included, kills people on the land it hits, and destroys an expedition caught in it.
+
+**Unlocks and building.** Buildings unlock by your empire's **peak population**. **E** opens the build menu, grouped by category (Housing, Resources, Energy, Transport, Military). The bottom bar is a **hotbar** on keys 1–9, 0: new unlocks fill empty slots; in the E menu, hover any building and press a number to put it on that key, or right-click to add / remove it. Drag a box over solar panels or burners and press **C** to paste copies.
 
 **Saving.** The game **autosaves to your browser** every 10 seconds (and when you leave the page). Opening the game without `?seed=` resumes it; **N** starts a new map and deletes the save. Opening a link with a different `?seed=` starts that map, and its autosave replaces the old one. After an update, a save that no longer fits the game (say, a building was renamed) is dropped and a fresh map starts.
 
@@ -219,6 +236,17 @@ There will be many items, each with properties to track. Proposal: keep every it
 - Which resources exist only off-world?
 - How does the detailed small-scale world connect to large-scale planning (see `notes.md`)?
 
+### Hands-on first, then automated (direction set 2026-11-21)
+Brainstormed alongside v14; none of it is in the prototype yet.
+- **A small toolbox that levels up.** The player only ever places a handful of things (settlement, collector, power plant, link, weapon, one landmark per era); progress makes the same things better instead of adding items.
+- **Every link is pioneered by hand, then automated by a building.** Drive the first truck to a new site, then a station runs the route; sail the first boat, then a port; fly the first rocket to orbit, then a spaceport. Vehicles cost resources; the building gives a continuous stream of them.
+- **Real-time control with one physics model.** Truck, boat and rocket share the same steering and a fuel or supplies bar; only the surroundings change (terrain friction, drift, gravity). Rockets fly real orbits in the map plane: gravity pulls toward the centre of the disk, you launch from the ice wall, and a predicted path shows when the arc closes into an orbit.
+- **A vehicle is a chassis plus a load:** cargo (supply truck), settlers (expedition) or a gun (tank, firing shells on a trajectory). The tank waits until AI nations fight back.
+- **Rocket fuel is the one conversion step:** ice plus a lot of power makes fuel.
+- **Two more resources, each with one job:** **copper** for anything electric, **rare earths** for advanced tech (solar, missiles, rockets, telescopes), each found one barrier further out.
+- **Open:** how to speed up time on long flights.
+- **Build order:** ~~v15 steerable expedition truck and boat~~ (done); then loads, copper and rare earths, the driven path becoming the rail route, hidden deposits, the tank, rockets.
+
 ### Zoom levels: what you see at each scale (direction set 2026-11-21)
 - **Up close:** detailed, interesting models of buildings, trees, deposits.
 - **Zooming out:** details simply **stop being drawn** once they'd be too small to see.
@@ -294,12 +322,10 @@ Resources: **wood, stone, iron**
 
 | Object | Category | Levels | Unlock | Cost (draft) | Does | In game |
 |---|---|---|---|---|---|---|
-| **House** | Housing | L1 of the housing ladder | 0 | 10 wood, 10 stone | +10 capacity | ✅ |
-| **Apartment** | Housing | L2 (upgrade a house) | 300 | 20 wood, 10 iron | +30 capacity | ✅ |
-| **City block** | Housing | L3 (upgrade an apartment) | 1,000 | 40 wood, 40 stone, 30 iron | +80 capacity; uses 3 MW (holds only 30 without power) | ✅ |
+| **Settlement** | Housing | grows by itself: Hamlet → Village → Town → City | 0 | 40 wood, 40 stone, 20 people | houses what the land within 12 tiles can support; above 170 it uses 2 MW | ✅ |
 | **Rail station** | Transport | L1–L3 (faster, more cargo) | 0 | 15 wood, 10 stone + track | links countries by land | ✅ (L1) |
 | **Port** | Transport | L1–L2 (bigger ships) | 0 | 20 wood, 10 stone | links countries by sea | ✅ (L1) |
-| **Wood burner** | Energy | - | 400 | 10 wood, 20 stone | +8 MW, burns up to 0.25 wood/s | ✅ |
+| **Wood burner** | Energy | - | 200 | 10 wood, 20 stone | +8 MW, burns up to 0.25 wood/s | ✅ |
 | **Logger's cabin** | Extraction | L1 (people) | 0 | 5 wood, 10 stone | makes a forest produce; employs 5 people | ✅ |
 | **Miner's camp** | Extraction | L1 (people) | 0 | 15 wood, 5 stone | makes stone or iron produce; employs 5 people | ✅ |
 | **Mining rig** | Extraction | L2 (upgrade a cabin or camp) | 500 | 20 wood, 10 stone, 10 iron | ×3 output, no workers; uses 4 MW, no power = no output | ✅ |
@@ -417,6 +443,24 @@ A simple AI ([`prototype/bot.js`](prototype/bot.js); watch it with `?bot`, or ru
 5. Colonies merge into home as the empire grows, so the rail link stops mattering.
 6. Power did become a real limit late (4,000 MW needed), mostly met by wood burners; solar barely got used.
 
+### Playtest 2: the bot on settlements (2026-11-21)
+The same bot on the same seed, after v14. It founds a settlement wherever a good patch of its land has none in reach. Its choices are partly random, so numbers move a little between runs.
+
+| Milestone | Houses (playtest 1) | Settlements (v14) |
+|---|---|---|
+| 150 people | 0:28 | 1:35 |
+| 300 people | 2:37 | 3:24 |
+| 1,000 people | 6:25 | 6:55 |
+| 2,000 / 5,000 people | 9:01 / 12:13 | 8:43 / 13:14 |
+| 30:00 | 89,000 people, 107,000 tiles | room for about 25,000 people, 70,000 tiles (18% of all land) |
+
+**What it shows:**
+1. **The first 10 minutes keep their pace**, except the very start: with one settlement there is nothing to build until you have pushed out some land, so 150 people takes a minute longer.
+2. **Growth is about a third of what it was at 30 minutes, but it still compounds.** People now track land (about 0.35 per tile), and land is still cheap at any size. Capping growth for real needs land to cost more far from settlements, or AI nations that push back.
+3. **Stockpiles still pile up** (480,000 wood, 83,000 stone, 90,000 iron at 30:00): settlements are cheap and nothing else consumes resources. Settlements using up a trickle of what they need is the obvious next step.
+4. **Almost nothing becomes a City** (settlements by level at 30:00: 18 / 84 / 124 / 2 hamlets / villages / towns / cities). The bot packs settlements closer than 24 tiles apart, so few serve the 350 tiles a City needs. A human spacing them out would get more.
+5. **Mountain and desert colonies stay tiny.** The iron colony's settlement holds about 10 people, enough to staff its camp but not to expand on its own.
+
 ### Smaller things still to decide
 - The regrowth curve: keep the S-curve, or a flat rate per house?
 - Do deposits run out? More resources and biomes (coal as burner fuel, oil, uranium for nuclear)?
@@ -492,17 +536,17 @@ Across 200 seeds the rolls come out about half gas and half rocky; about half th
 ## Tuning (the dials)
 
 Settings to adjust in playtesting. All of them are in `CFG` at the top of `prototype/game.js`:
-- **House cost vs. resource rate.** At 1 wood/s, a 1 wood + 1 stone house would mean a new house every second, which is too fast. The mockups use 10 + 10 (about 10 seconds per house at the start). Real costs will likely land around 10–20× the per-second rate.
+- **Settlements** (`landCap`, `settlement.reach`, `settlement.levels`, `settlement.powerAbove`, `settlement.shrink`, and the cost in `buildings.settlement`): people per tile by terrain, how far a settlement reaches, the level thresholds, where power starts to matter, how fast overcrowding kills.
 - **People regrowth rate** (`rate` in the formula)
 - **People per tile** for each terrain
-- **Expedition travel speed** and kit (`expeditionSpeed`, `expeditionKit`)
+- **Driving** (`drive`: acceleration, turning and drag per vehicle and terrain, seconds of supplies, how close a boat must be to land) and the expedition kit (`expeditionKit`)
 - **Station, port, and track costs**, and how much more track costs through mountains and desert
 - **How rich** far-away deposits are compared to the ones near the start
 - **Unlock thresholds** for every building (`buildings.*.unlock`)
 - **Vehicle loads and the shipping reserve** (`vehicles`, `shipReserve`)
 - **Power** (`buildings.burner.gen`, `buildings.solar.gen`, `power.burnerWood`, `power.rigMult`)
-- **AI nations**: count, size, how hard they defend (`ai.*`)
-- **Missiles**: range, cost, blast radius, kills (`buildings.silo.range`, `missile.*`)
+- **AI nations**: count, size, how hard they defend, how fast they expand and arm, how slowly they reload (`ai.*`)
+- **Weapons**: range, reload, blast radius, kills, cost per shot (`weapons.shell`, `weapons.missile`)
 
 ---
 
@@ -558,6 +602,10 @@ python art/generate_art.py
 ---
 
 ## Design history
+- **v17 (2026-11-21), invasion:** nations at war take your land tile by tile, and what's built on it; a boxed-in nation declares war by itself; countries can fall and the game can be lost.
+- **v16 (2026-11-21), nations fight back:** AI nations expand, found settlements and arm themselves; their mortars shell anything of yours in range and their silos join in once you attack them. New **mortar** (short range, fast, no iron, no power); the **missile silo** reaches 110 tiles (was 60), reloads in 10 s (was 6) and uses 3 MW. Reload bars; rockets with a flame, smoke trail and ground shadow; explosions with a flash, fireball, shockwave, sparks, smoke and a scorch mark; new silo and mortar art.
+- **v15 (2026-11-21), driving:** expeditions are vehicles you steer (arrow keys or WASD, Space to settle, Esc / X to let go and take the wheel). One physics model: thrust along the heading and drag from what's underneath; trucks stay on land, boats on water. Supplies last 90 seconds. The trail you drove is drawn behind you (not yet used for rail). Also new close-up art: forests are mixed trees with stands of conifers, deposits are boulders, rubble and flecked ore on stained ground, thinner at the edges.
+- **v14 (2026-11-21), settlements:** houses, apartments and city blocks are gone. The land holds the capacity and a settlement unlocks what is within 12 tiles of it, each tile counting once for its nearest settlement. Settlements level up by themselves as the border grows around them, cost 20 people to found, and expeditions found one on arrival. AI nations use the same rule. People above capacity die off slowly. The wood burner unlocks at 200 people (was 400), since a settlement past 170 needs power. Older saves are dropped.
 - **v1:** people were assigned to deposits as workers (0.1/sec each), and drills replaced workers. Food was an open question.
 - **v2 (2026-11-20):** deposits inside your border produce on their own. People are spent to claim land and to send expeditions, and regrow toward house capacity. Food is built into land fertility. Drills and factories are parked.
 - **Disk world (2026-11-20):** the map became a round disk in outer space, with an ice wall around the rim.

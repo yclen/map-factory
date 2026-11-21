@@ -2,8 +2,8 @@
 /*
  * Map Factory — playable prototype of the core loop (design v3).
  *
- *   houses -> people capacity -> people regrow -> spend people to claim land
- *   -> deposits inside CONNECTED territory produce -> resources build houses
+ *   land you own near a settlement -> people capacity -> people regrow -> spend people to claim land
+ *   -> deposits inside your territory produce -> resources build settlements
  *
  * Every separate piece of your territory is a country with its own people,
  * stockpile and power. Expeditions found new countries; links move people and
@@ -26,7 +26,15 @@ const CFG = {
   mountainShare: 0.13,         // top X% of land by height becomes mountains
   desertShare: 0.24,           // driest X% of land becomes desert
 
-  startPeople: 100, startHouses: 10, startRadius: 8,
+  startPeople: 100, startRadius: 8,
+  // Land holds the capacity: every owned land tile can support this many people...
+  landCap: { grass: 0.5, desert: 0.2, mountain: 0.1 },
+  // ...but only if a settlement is within `reach` tiles of it. Each tile counts for its nearest settlement,
+  // so settlements packed together share the same land. A settlement's level is read off the capacity it serves.
+  // Capacity above `powerAbove` only counts with power (`cityUse` MW per settlement that big).
+  // People above a country's capacity die off slowly (`shrink` = share of the excess per second).
+  settlement: { reach: 12, powerAbove: 170, cityUse: 2, shrink: 0.01,
+                levels: [{ name: 'Hamlet', cap: 0 }, { name: 'Village', cap: 50 }, { name: 'Town', cap: 110 }, { name: 'City', cap: 175 }] },
   startResources: { wood: 50, stone: 50, iron: 0 },
   // An expedition takes the same share of its country's stockpile as of its people (the send %),
   // and at least this much if home has it: enough for a station with some track, or a cabin and a camp.
@@ -47,21 +55,15 @@ const CFG = {
 
   // unlock = how many people your whole empire must reach (at its peak) before you can build it
   buildings: {
-    // the housing ladder: each level is built by upgrading the one below it in place (`from`).
-    // Clicking a lower level pays only the steps in between; clicking clear land pays the whole ladder.
-    house:   { cat: 'Housing', name: 'House',      cap: 10, unlock: 0,    cost: { wood: 10, stone: 10 },
-               desc: 'Holds 10 people in the country you build it in.' },
-    house2:  { cat: 'Housing', name: 'Apartment',  cap: 30, unlock: 300,  cost: { wood: 20, iron: 10 }, from: 'house',
-               desc: 'Click one of your houses to upgrade it: holds 30 people. Needs iron, which is never near the start.' },
-    house3:  { cat: 'Housing', name: 'City block', cap: 80, unlock: 1000, cost: { wood: 40, stone: 40, iron: 30 }, from: 'house2',
-               use: 3, capPowered: 50,
-               desc: 'Click an apartment to upgrade it: holds 80 people, but uses 3 MW. Without power it holds only 30.' },
+    // the one housing building. It has no capacity of its own: it unlocks the capacity of the land around it.
+    settlement: { cat: 'Housing', name: 'Settlement', unlock: 0, cost: { wood: 40, stone: 40 }, people: 20,
+               desc: 'Houses the people the land within 12 tiles can support, and grows from hamlet to city as you own more of it. Costs 20 settlers. Spread them out: land is only counted once.' },
     station: { cat: 'Transport', name: 'Station', cap: 0,  unlock: 0, cost: { wood: 15, stone: 10 },
                desc: 'Lays its own rail to your nearest station. Trains carry people and cargo between your countries.' },
     port:    { cat: 'Transport', name: 'Port',    cap: 0,  unlock: 0, cost: { wood: 20, stone: 10 },
                desc: 'On the coast. Opens a sea route to your nearest port. Ships carry people and cargo.' },
     // energy: every country has its own power budget (supply from plants, demand from machines)
-    burner:  { cat: 'Energy', name: 'Wood burner', cap: 0, unlock: 400, cost: { wood: 10, stone: 20 }, gen: 8,
+    burner:  { cat: 'Energy', name: 'Wood burner', cap: 0, unlock: 200, cost: { wood: 10, stone: 20 }, gen: 8,
                desc: 'Burns wood for 8 MW of power, up to 0.25 wood/s. It only burns what your country needs.' },
     rig:     { cat: 'Resources', name: 'Mining rig',  cap: 0, unlock: 500, cost: { wood: 20, stone: 10, iron: 10 }, use: 4,
                from: ['cabin', 'camp'],
@@ -74,14 +76,29 @@ const CFG = {
     camp:    { cat: 'Resources', name: "Miner's camp",   cap: 0, unlock: 0, cost: { wood: 15, stone: 5 }, workers: 5, on: ['stone', 'iron'],
                desc: 'Build it on stone or iron so it produces. Employs 5 of the country\'s people, who can\'t be sent anywhere.' },
     // weapons
-    silo:    { cat: 'Military', name: 'Missile silo', cap: 0, unlock: 600, cost: { stone: 30, iron: 20 }, range: 60,
-               desc: 'Press F, then click a target up to 60 tiles away. Each missile costs 10 wood and 10 iron, destroys buildings and kills people where it lands.' },
+    mortar:  { cat: 'Military', name: 'Mortar', cap: 0, unlock: 300, cost: { wood: 20, stone: 20 }, weapon: 'shell',
+               desc: 'Press F, then click a target up to 22 tiles away. Shells cost 3 wood and 3 stone, land in a small blast and reload in under 3 seconds. Needs no iron and no power.' },
+    silo:    { cat: 'Military', name: 'Missile silo', cap: 0, unlock: 600, cost: { stone: 30, iron: 20 }, use: 3, weapon: 'missile',
+               desc: 'Press F, then click a target up to 110 tiles away. Each missile costs 10 wood and 10 iron and flattens everything in a wide blast. Uses 3 MW; short on power, it reloads slower.' },
   },
   power: { burnerWood: 0.25, rigMult: 3 },
   // AI nations (v1: static). Taking a tile of theirs costs extra people: defenseBase + defensePerDensity x (their people per tile)
-  ai: { count: 7, minDist: 75, radius: [8, 14], houses: [8, 24], fill: [0.6, 0.9], growth: 0.5,
-        defenseBase: 0.5, defensePerDensity: 2.5, killShare: 0.6 },
-  missile: { cost: { wood: 10, iron: 10 }, speed: 30, radius: 3, reload: 6, killPerTile: 3 },   // wood/s a burner eats at full output; output multiplier of a powered rig
+  ai: { count: 7, minDist: 75, radius: [8, 14], tilesPerSettlement: 300, fill: [0.6, 0.9], growth: 0.5,
+        defenseBase: 0.5, defensePerDensity: 2.5, killShare: 0.6,
+        // v2: nations play the game. Every `think` seconds each one may build a weapon, found a settlement and claim land.
+        think: 2, expandAt: 0.75, expandShare: 0.05, maxTiles: 5000, settleGain: 40,
+        tilesPerMortar: 500, maxMortars: 4, tilesPerSilo: 1200, maxSilos: 3,
+        // Their mortars fire at anything of yours in range; their silos only once you've attacked them. AI weapons reload slower.
+        reloadMult: { shell: 1.6, missile: 3 },
+        // A nation at war pushes into your land: every think it spends `attackShare` of its people (while at least
+        // `attackAt` full). Your tiles cost it extra the more crowded your country is, exactly as theirs cost you.
+        // A nation with no free land left to claim for `boxedThinks` thinks in a row declares war by itself.
+        attackAt: 0.6, attackShare: 0.008, boxedThinks: 8 },
+  // weapons: range in tiles, reload in seconds, blast radius in tiles, people killed per tile hit, flight speed, how high the arc is
+  weapons: {
+    shell:   { name: 'Mortar shell', range: 22, reload: 2.5, radius: 1.5, kill: 1, speed: 24, arc: 0.75, cost: { wood: 3, stone: 3 } },
+    missile: { name: 'Missile', range: 110, reload: 10, radius: 3, kill: 3, speed: 36, arc: 0.3, cost: { wood: 10, iron: 10 } },
+  },
 
   // rail: a new station links itself to the nearest station by the cheapest land route
   trackCostPerTile: { wood: 0.15, stone: 0.15 },
@@ -90,8 +107,17 @@ const CFG = {
   seaMaxLength: 500,           // max sea route length (tiles)
   trainSpeed: 12, shipSpeed: 9,
 
-  expeditionSpeed: 18,         // tiles per second
-  outpostRadius: 3,            // land claimed on arrival
+  expeditionSpeed: 18,         // tiles per second (autopilot only: the playtest bot's expeditions)
+  // Expeditions are vehicles you drive: a truck over land, a boat over water. One physics model for both:
+  // thrust along the heading, drag from whatever is underneath. Top speed = accel / drag (tiles per second).
+  drive: {
+    truck: { accel: 26, turn: 2.8, drag: { grass: 2.4, desert: 3.4, mountain: 6.5 } },   // about 11 / 7.5 / 4 tiles a second
+    boat: { accel: 9, turn: 1.6, drag: 0.9 },                                            // about 10, and it drifts
+    supplies: 90,              // seconds of supplies on board
+    starve: 1,                 // people lost per second once they run out
+    landReach: 2,              // a boat can put settlers ashore on free land this close
+  },
+  outpostRadius: 5,            // land claimed on arrival
 
   // the moon: a smaller world orbiting the disk (visual only, for now)
   // orbit 30 = half the real Earth–Moon distance (the real Moon is ~60 Earth radii away)
@@ -208,7 +234,63 @@ class MinHeap {
 // ======================================================================
 // sprites (same item models as the concept art)
 // ======================================================================
+// little front-on buildings, reused to draw settlements at each level
+const cot = (x, y, w, roof = '#c9553a', wall = '#e8d3a8') => {
+  const h = w * 0.7;
+  return `<rect x="${x - w / 2}" y="${y - h}" width="${w}" height="${h}" fill="${wall}" stroke="#6b4a2b" stroke-width="0.9"/>
+    <path d="M${x - w / 2 - 1.5} ${y - h} L${x} ${y - h - w * 0.6} L${x + w / 2 + 1.5} ${y - h} Z" fill="${roof}" stroke="#6b2b1b" stroke-width="0.9" stroke-linejoin="round"/>`;
+};
+const blk = (x, w, h, fill) => {
+  let win = '';
+  for (let y = 9 - h + 3; y < 8; y += 3.5) win += `M${x - w / 2 + 1.5} ${y} H${x + w / 2 - 1.5} `;
+  return `<rect x="${x - w / 2}" y="${10 - h}" width="${w}" height="${h}" fill="${fill}" stroke="#2b323d" stroke-width="0.9"/><path d="${win}" stroke="#f2d98a" stroke-width="1.1"/>`;
+};
+const SHADOW = '<ellipse cx="0" cy="10" rx="13" ry="3" fill="#000" opacity="0.2"/>';
+const SETTLE_ART = [
+  SHADOW + cot(0, 9, 13),
+  SHADOW + cot(-7, 5, 8) + cot(7, 5, 8) + cot(0, 10, 10),
+  SHADOW + cot(-9, 6, 8) + cot(9, 6, 8) + `<rect x="-4" y="-9" width="8" height="19" fill="#d9c7a0" stroke="#6b4a2b" stroke-width="0.9"/>
+    <path d="M-5.5 -9 L0 -15 L5.5 -9 Z" fill="#4d6f96" stroke="#2c4260" stroke-width="0.9" stroke-linejoin="round"/>
+    <path d="M-1.5 -5 H1.5 M-1.5 -1 H1.5" stroke="#6b4a2b" stroke-width="1.2"/>` + cot(-6, 11, 7) + cot(6, 11, 7),
+  SHADOW + blk(-9, 6, 12, '#7c8fa4') + blk(9, 6, 15, '#8fa3b8') + blk(-3, 7, 20, '#5f6b7d') + blk(4, 6, 24, '#6f7d92') + cot(-11, 11, 5) + cot(11, 11, 5),
+];
+// Trees, boulders and ore, seen from above. Several variants of each, built from a few helpers,
+// so a forest or a deposit can be drawn as many different pieces instead of one stamp per tile.
+const ring = (n, R, r, fill, ox = 0, oy = 0, rot = 0) => Array.from({ length: n }, (_, k) => {
+  const a = rot + k / n * Math.PI * 2;
+  return `<circle cx="${(ox + Math.cos(a) * R).toFixed(1)}" cy="${(oy + Math.sin(a) * R).toFixed(1)}" r="${r}" fill="${fill}"/>`;
+}).join('');
+const star = (n, R, r, fill, rot = 0) => `<polygon fill="${fill}" points="${Array.from({ length: n * 2 }, (_, k) => {
+  const a = rot + k / (n * 2) * Math.PI * 2, q = k % 2 ? r : R;
+  return (Math.cos(a) * q).toFixed(1) + ',' + (Math.sin(a) * q).toFixed(1);
+}).join(' ')}"/>`;
+const TSHADOW = '<ellipse cx="2.5" cy="3.5" rx="10" ry="8" fill="#000" opacity="0.22"/>';
+// a leafy canopy: a lobed dark base, then smaller, lighter clumps climbing towards the light (top left)
+const broadleaf = (dark, mid, light, hi) => TSHADOW + ring(7, 6.2, 4.4, dark) + `<circle r="7" fill="${dark}"/>` +
+  ring(6, 3.8, 3.6, mid, -0.8, -0.8, 0.4) + ring(4, 2.2, 2.6, light, -1.8, -1.8, 0.9) + ring(3, 1.2, 1.3, hi, -3, -3, 0.2);
+// a faceted lump of rock: a base, a lit top, and three sides in different shades
+const chunk = p => `<ellipse cx="1.5" cy="5.5" rx="10" ry="4.5" fill="#000" opacity="0.22"/>
+  <path d="M-9 3 L-7 -4 L-2 -8 L5 -7 L9 -1 L8 5 L2 8 L-5 7 Z" fill="${p[0]}"/>
+  <path d="M-7 -4 L-2 -8 L5 -7 L3 -2 L-3 -1 Z" fill="${p[1]}"/>
+  <path d="M-9 3 L-7 -4 L-3 -1 L-4 4 Z" fill="${p[2]}"/>
+  <path d="M3 -2 L5 -7 L9 -1 L8 5 L4 3 Z" fill="${p[3]}"/>
+  <path d="M-3 -1 L3 -2 L4 3 L-4 4 Z" fill="${p[4]}"/>`;
+const at = (x, y, s, inner) => `<g transform="translate(${x} ${y}) scale(${s})">${inner}</g>`;
+const fleck = (x, y, s) => `<path d="M${x} ${y - s} L${x + s * 0.6} ${y} L${x} ${y + s} L${x - s * 0.6} ${y} Z" fill="#e3edf4"/>`;
+const GREY = ['#7b8289', '#c2c8cd', '#9aa1a8', '#5f666d', '#878e95'], PALE = ['#8a8f8c', '#d2d5cf', '#a9ada8', '#6b706d', '#969a96'];
+const RUST = ['#7a4a38', '#bd7b56', '#96604a', '#4f2f25', '#85523f'], DEEP = ['#6a3d33', '#a8654a', '#84503f', '#43261f', '#74463a'];
 const SHAPES = {
+  treeA: broadleaf('#2f5a2b', '#3f7a35', '#56963f', '#7bb85a'),
+  treeB: broadleaf('#264d2f', '#33663a', '#447c44', '#5c9652'),
+  treeD: broadleaf('#566f2a', '#718f33', '#90ad43', '#b6cc68'),
+  treeC: TSHADOW + star(9, 11, 6, '#1c4030') + star(9, 8.2, 4.4, '#28573c', 0.35) + star(8, 5.4, 2.8, '#35704a', 0.7) + star(6, 2.8, 1.4, '#4d8f5f', 0.2),
+  rockA: chunk(GREY),
+  rockB: at(-4, 1, 0.62, chunk(PALE)) + at(5, -3, 0.5, chunk(GREY)) + at(4, 6, 0.4, chunk(GREY)),
+  rockC: at(-5, -3, 0.36, chunk(GREY)) + at(4, -5, 0.3, chunk(PALE)) + at(0, 3, 0.46, chunk(PALE)) + at(8, 4, 0.28, chunk(GREY)) + at(-8, 5, 0.25, chunk(GREY)),
+  oreA: chunk(RUST) + fleck(-2, -4.5, 1.7) + fleck(4.5, -1, 1.3) + fleck(-5.5, 2, 1.1),
+  oreB: at(-4, 1, 0.62, chunk(DEEP)) + at(5, -3, 0.5, chunk(RUST)) + at(4, 6, 0.4, chunk(RUST)) + fleck(-5, -1, 1.3) + fleck(5, -4.5, 1.1) + fleck(4, 5.5, 0.9),
+  oreC: at(-5, -3, 0.36, chunk(RUST)) + at(4, -5, 0.3, chunk(DEEP)) + at(0, 3, 0.46, chunk(RUST)) + at(8, 4, 0.28, chunk(DEEP)) + at(-8, 5, 0.25, chunk(RUST)) + fleck(0, 1.5, 1.1) + fleck(-5, -4, 0.8),
+  settle1: SETTLE_ART[0], settle2: SETTLE_ART[1], settle3: SETTLE_ART[2], settle4: SETTLE_ART[3], settlement: SETTLE_ART[1],
   person: `<circle cx="0" cy="-4.5" r="3" fill="#f2c14e" stroke="#5a4310" stroke-width="0.8"/>
     <path d="M-4.5 5 C-4.5 0 -2.5 -0.8 0 -0.8 C2.5 -0.8 4.5 0 4.5 5 Z" fill="#f2c14e" stroke="#5a4310" stroke-width="0.8"/>`,
   house: `<rect x="-7" y="-6" width="18" height="16" fill="#000" opacity="0.22"/>
@@ -249,11 +331,17 @@ const SHAPES = {
     <path d="M-3 -9 V11" stroke="#5a4310" stroke-width="0.9"/><path d="M-6 11 L-3 3 L0 11 Z" fill="#4a3a28"/>
     <path d="M5 -10 L12 -3 M8 -12 L4 -6 L10 -8" stroke="#8d969e" stroke-width="2" stroke-linecap="round"/>
     <path d="M6 -8 L13 1" stroke="#7a4a2a" stroke-width="1.6" stroke-linecap="round"/>`,
-  silo: `<rect x="-9" y="-8" width="22" height="21" fill="#000" opacity="0.22"/>
-    <rect x="-12" y="-11" width="24" height="22" rx="2" fill="#6c7480" stroke="#2b3038" stroke-width="1"/>
-    <circle cx="0" cy="0" r="7" fill="#3a4049" stroke="#1d2126" stroke-width="1"/>
-    <path d="M0 -6 L2.6 -1 V5 H-2.6 V-1 Z" fill="#e8ecef" stroke="#59616b" stroke-width="0.7"/><path d="M-2.6 2 H2.6" stroke="#d64045" stroke-width="1.4"/>
-    <path d="M-12 -11 L-8 -7 M12 -11 L8 -7 M-12 11 L-8 7 M12 11 L8 7" stroke="#f2c14e" stroke-width="1.4"/>`,
+  silo: `<rect x="-11" y="-10" width="26" height="25" fill="#000" opacity="0.22"/>
+    <rect x="-13" y="-13" width="26" height="26" rx="2" fill="#7d858f" stroke="#2b3038" stroke-width="1"/>
+    <rect x="-11.5" y="-11.5" width="23" height="23" rx="1.5" fill="none" stroke="#f2c14e" stroke-width="1.6" stroke-dasharray="3 2.5"/>
+    <rect x="-13" y="-4" width="5" height="8" fill="#5a626c" stroke="#2b3038" stroke-width="0.8"/><rect x="8" y="-4" width="5" height="8" fill="#5a626c" stroke="#2b3038" stroke-width="0.8"/>
+    <circle r="8" fill="#22262c" stroke="#14171b" stroke-width="1.2"/><circle r="6.2" fill="none" stroke="#454c55" stroke-width="0.9"/>
+    <path d="M-5.5 -5.5 L5.5 5.5 M5.5 -5.5 L-5.5 5.5" stroke="#b9c0c6" stroke-width="1.8"/>
+    <circle r="4.2" fill="#e8ecef" stroke="#8d969e" stroke-width="0.8"/><circle r="2.5" fill="#f6f8f9"/><circle r="1.5" fill="#d64045"/>`,
+  mortar: `<ellipse cx="1.5" cy="3" rx="12" ry="10" fill="#000" opacity="0.2"/>` + ring(9, 8.6, 3.3, '#8f7a52') + ring(9, 8.6, 2.6, '#bfa674', -0.4, -0.5) +
+    `<circle r="6.4" fill="#4a4034"/><circle r="4.2" fill="#6b6f74" stroke="#2b3038" stroke-width="0.9"/>
+    <rect x="-2.2" y="-12" width="4.4" height="13" rx="1.6" fill="#3a4049" stroke="#1d2126" stroke-width="0.8" transform="rotate(38)"/>
+    <circle cx="6.6" cy="-8.4" r="1.5" fill="#111417"/>`,
   truck: `<ellipse cx="0" cy="8" rx="12" ry="2.5" fill="#000" opacity="0.2"/>
     <rect x="-12" y="-6" width="15" height="11" rx="1" fill="#c9a66b" stroke="#5a4310" stroke-width="1"/>
     <path d="M-12 -2 H3" stroke="#a6844c" stroke-width="0.9"/>
@@ -293,11 +381,9 @@ for (const [name, inner] of Object.entries(SHAPES)) {
 const DEP_SPRITE = { forest: 'tree', stone: 'rock', iron: 'ore' };
 const DEP_RES = { forest: 'wood', stone: 'stone', iron: 'iron' };
 const DEP_COLOR = { forest: '#3f7a35', stone: '#a7adb3', iron: '#a8654a' };
-const BLD_CODE = { house: 1, house2: 2, station: 3, port: 4, house3: 5, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10, silo: 11 };
-const BLD_COLOR = { house: '#cf5c3e', house2: '#5d84b0', house3: '#7c8fa4', station: '#8f979f', port: '#a67c52',
-  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b', silo: '#6c7480' };
-// housing ladder helpers
-const LEVEL = { house: 1, house2: 2, house3: 3 };
+const BLD_CODE = { settlement: 1, station: 3, port: 4, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10, silo: 11, mortar: 12 };
+const BLD_COLOR = { settlement: '#de6d4c', station: '#8f979f', port: '#a67c52',
+  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b', silo: '#6c7480', mortar: '#8f7a52' };
 const buildingAt = i => (building[i] ? game.buildings.find(b => b.i === i) : null);
 // the steps from `have` (or clear land) up to `type`, or null if `have` isn't below `type` on its ladder
 function ladderSteps(type, have) {
@@ -323,7 +409,8 @@ const BIOME_KEY = [null, 'grass', 'desert', 'mountain', null, null];
 const params = new URLSearchParams(location.search);
 // autosave lives in this browser (localStorage). Opening the game without ?seed= resumes it.
 const SAVE_KEY = 'map-factory-save-v1';
-const SAVED = (() => { try { const v = JSON.parse(localStorage.getItem(SAVE_KEY)); return v && v.v === 1 ? v : null; } catch (e) { return null; } })();
+const SAVE_V = 2;                               // v2: settlements replaced houses
+const SAVED = (() => { try { const v = JSON.parse(localStorage.getItem(SAVE_KEY)); return v && v.v === SAVE_V ? v : null; } catch (e) { return null; } })();
 const SEED = params.has('seed') ? (parseInt(params.get('seed'), 10) || 1) : SAVED ? SAVED.seed : ((Math.random() * 1e6) | 0);
 const RESUME = SAVED && SAVED.seed === SEED ? SAVED : null;
 const W = CFG.mapW, H = CFG.mapH, N = W * H;
@@ -359,8 +446,9 @@ const game = {
   pushes: [], expeditions: [], floats: [],
   sendPct: 25, tool: null, netDirty: true,
   nations: [],                     // AI nations
-  hotbar: ['house', 'cabin', 'camp', null, null, null, null, null, null, null],   // the build bar: keys 1-9, 0
-  missiles: [], blasts: [], aiming: false,
+  hotbar: ['settlement', 'cabin', 'camp', null, null, null, null, null, null, null],   // the build bar: keys 1-9, 0
+  missiles: [], blasts: [], scorch: [], aiming: false,
+  driving: null,                   // the expedition you're steering right now
   selection: [],   // tiles of selected buildings (box-select with left-drag)
 };
 const frontier = new Set();   // unowned land tiles touching our territory
@@ -508,16 +596,14 @@ function generateWorld() {
   const d2 = i => ((i % W) - spawn.x) ** 2 + (((i / W) | 0) - spawn.y) ** 2;
   const R = CFG.startRadius;
 
-  // starting town: the closest grass tiles to the spawn point
-  const near = [];
+  // your first settlement: the grass tile closest to the spawn point
+  let capD = Infinity;
+  capitalTile = idx(spawn.x, spawn.y);
   for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
     const i = idx(spawn.x + dx, spawn.y + dy);
-    if (biome[i] === GRASS) near.push({ i, d: dx * dx + dy * dy + hash2(dx, dy, SEED) * 0.5 });
+    if (biome[i] === GRASS && dx * dx + dy * dy < capD) { capD = dx * dx + dy * dy; capitalTile = i; }
   }
-  near.sort((a, b) => a.d - b.d);
-  const townTiles = near.slice(0, CFG.startHouses).map(o => o.i);
-  const reserved = new Set(townTiles);
-  capitalTile = townTiles[0];
+  const reserved = new Set([capitalTile]);
 
   // guaranteed starting forest + stone, fully inside the start circle
   const okStart = i => biome[i] === GRASS && depositOf[i] < 0 && !reserved.has(i) && d2(i) <= (R - 1) ** 2;
@@ -545,14 +631,14 @@ function generateWorld() {
     }
   }
 
-  // your home country: claim the start circle, place the start town
+  // your home country: claim the start circle, place the first settlement
   const home = newCountry({ res: { ...CFG.startResources } });
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     if (dx * dx + dy * dy > R * R) continue;
     const x = spawn.x + dx, y = spawn.y + dy;
     if (inb(x, y) && biome[idx(x, y)] !== OCEAN) claim(idx(x, y), home.id);
   }
-  for (const i of townTiles) placeBuilding(i, 'house');
+  placeBuilding(capitalTile, 'settlement');
   spawnNations();
   for (const id of startDeps) {
     const d = deposits[id];
@@ -632,10 +718,12 @@ function claim(i, cid, conquer = false) {
     n.tiles--; n.sx -= x; n.sy -= y;
     if (n.tiles) { n.lx = n.sx / n.tiles + 0.5; n.ly = n.sy / n.tiles + 0.5; }
     aiOf[i] = 0;                                   // their buildings on this tile are now yours
+    provoke(n);
     game.bldDirty = true;
   }
   owner[i] = 1;
   countryOf[i] = cid;
+  game.landDirty = true;                           // the settlement in reach of this tile now holds more
   game.ownedCount++;
   frontier.delete(i);
   paintTerr(i);
@@ -647,7 +735,7 @@ function claim(i, cid, conquer = false) {
     if (!inb(nx, ny)) continue;
     const n = idx(nx, ny);
     if (owner[n]) { paintTerr(n); if (liveCountry(countryOf[n]) !== me) game.netDirty = true; }   // touching another country: merge
-    else { if (aiOf[n]) paintTerr(n); if (isLand(n)) frontier.add(n); }
+    else { if (aiOf[n]) { paintTerr(n); const foe = game.nations[aiOf[n] - 1]; if (foe.warFront) foe.warFront.add(i); } if (isLand(n)) frontier.add(n); }
   }
   return true;
 }
@@ -737,11 +825,18 @@ function spawnNations() {
     game.nations.push({ id: k, ...nationName(k), col, hex: `rgb(${col.join(',')})`, people: 0, cap: 0, tiles: 0,
       lx: x + 0.5, ly: y + 0.5, alive: true, growth: 0 });
     for (const i of tiles) aiOf[i] = k + 1;
-    // their town: houses round the centre (the biggest ones in the middle), collectors on their deposits
-    const spots = tiles.filter(i => depositOf[i] < 0 && (biome[i] === GRASS || biome[i] === DESERT))
-      .map(i => ({ i, d: (i % W - x) ** 2 + (((i / W) | 0) - y) ** 2 + r() * 3 })).sort((a, b) => a.d - b.d);
-    const nh = A.houses[0] + ((r() * (A.houses[1] - A.houses[0])) | 0);
-    spots.slice(0, nh).forEach((o, j) => placeBuilding(o.i, j < nh * 0.3 && r() < 0.7 ? 'house2' : 'house'));
+    // their settlements: one at the centre, more (spread as far apart as they'll go) in bigger nations
+    const spots = tiles.filter(i => depositOf[i] < 0 && (biome[i] === GRASS || biome[i] === DESERT));
+    const d2c = (i, px, py) => (i % W - px) ** 2 + (((i / W) | 0) - py) ** 2;
+    const towns = [spots.reduce((a, b) => (d2c(a, x, y) <= d2c(b, x, y) ? a : b))];
+    const want = clamp(Math.round(tiles.length / A.tilesPerSettlement), 1, 3);
+    while (towns.length < want) {
+      const far = i => Math.min(...towns.map(t => d2c(i, t % W, (t / W) | 0)));
+      towns.push(spots.reduce((a, b) => (far(a) >= far(b) ? a : b)));
+    }
+    for (const i of towns) if (!building[i]) placeBuilding(i, 'settlement');
+    // they start armed: a mortar and a missile silo by the first settlement
+    for (const w of ['mortar', 'silo']) { const sp = aiSpot(game.nations[k], towns[0] % W, (towns[0] / W) | 0, 5, r); if (sp >= 0) placeBuilding(sp, w); }
     const seen = new Set();
     for (const i of tiles) {
       const d = depositOf[i];
@@ -752,7 +847,8 @@ function spawnNations() {
     centers.push({ x, y });
   }
   scanNationTiles();
-  recomputeNations();
+  buildFronts();
+  recomputeBuildings();
   for (const n of game.nations) n.people = Math.round(n.cap * (A.fill[0] + r() * (A.fill[1] - A.fill[0])));
   for (let i = 0; i < N; i++) if (aiOf[i]) paintTerr(i);
 }
@@ -766,15 +862,172 @@ function scanNationTiles() {
 }
 function recomputeNations() {
   for (const n of game.nations) n.cap = 0;
-  for (const b of game.buildings) if (aiOf[b.i]) game.nations[aiOf[b.i] - 1].cap += CFG.buildings[b.type].cap || 0;
+  for (const b of game.buildings) if (b.type === 'settlement' && aiOf[b.i]) game.nations[aiOf[b.i] - 1].cap += b.base || 0;
   for (const n of game.nations) {
     if (n.tiles) { n.lx = n.sx / n.tiles + 0.5; n.ly = n.sy / n.tiles + 0.5; }
-    n.people = Math.min(n.people, n.cap);          // lost houses: the people who lived there are gone
+    n.people = Math.min(n.people, n.cap);          // lost land or settlements: the people who lived there are gone
     if (n.alive && !n.tiles) { n.alive = false; n.people = 0; toast(`You conquered ${n.full}!`); }
   }
-  clustersDirty = true;
 }
 const nationAt = i => (aiOf[i] ? game.nations[aiOf[i] - 1] : null);
+
+// ---------- AI nations, v2: they claim land, found settlements, arm themselves and guard their borders ----------
+const freeLand = i => isLand(i) && !owner[i] && !aiOf[i];
+// each nation's front: the free land touching its border (entries are re-checked when used, so stale ones are harmless)
+function buildFronts() {
+  for (const n of game.nations) { n.front = new Set(); n.warFront = new Set(); }   // warFront: your tiles touching its border
+  for (let i = 0; i < N; i++) {
+    if (!aiOf[i]) continue;
+    const x = i % W, y = (i / W) | 0, f = game.nations[aiOf[i] - 1].front;
+    for (const [dx, dy] of DIRS4) {
+      if (!inb(x + dx, y + dy)) continue;
+      const nb = idx(x + dx, y + dy);
+      if (freeLand(nb)) f.add(nb); else if (owner[nb]) game.nations[aiOf[i] - 1].warFront.add(nb);
+    }
+  }
+}
+function aiClaim(n, i) {
+  const x = i % W, y = (i / W) | 0;
+  aiOf[i] = n.id + 1; n.tiles++; n.sx += x; n.sy += y;
+  n.front.delete(i);
+  paintTerr(i);
+  for (const [dx, dy] of DIRS4) {
+    if (!inb(x + dx, y + dy)) continue;
+    const nb = idx(x + dx, y + dy);
+    if (aiOf[nb]) paintTerr(nb); else if (freeLand(nb)) n.front.add(nb); else if (owner[nb]) n.warFront.add(nb);
+  }
+  game.landDirty = true;
+}
+// what one of your tiles costs a nation, beyond the land itself: the more crowded your country, the harder it fights
+const yourDefense = c => CFG.ai.defenseBase + CFG.ai.defensePerDensity * (c ? c.people / Math.max(1, c.tiles) : 0);
+// a nation takes one of your tiles: the land, and anything built on it, is now theirs
+function aiTake(n, i) {
+  const x = i % W, y = (i / W) | 0;
+  owner[i] = 0; countryOf[i] = -1; game.ownedCount--;
+  aiOf[i] = n.id + 1; n.tiles++; n.sx += x; n.sy += y;
+  n.warFront.delete(i);
+  paintTerr(i);
+  for (const [dx, dy] of DIRS4) {
+    if (!inb(x + dx, y + dy)) continue;
+    const nb = idx(x + dx, y + dy);
+    if (owner[nb]) { paintTerr(nb); n.warFront.add(nb); frontier.add(i); }   // still next to your land: you can push back in
+    else if (aiOf[nb]) paintTerr(nb);
+    else if (freeLand(nb)) n.front.add(nb);
+  }
+  game.netDirty = game.landDirty = game.bldDirty = true;   // your country may have shrunk, split or fallen
+}
+// a clear tile of this nation's within `rad` of a point (or -1)
+function aiSpot(n, px, py, rad, rnd = Math.random) {
+  for (let k = 0; k < 40; k++) {
+    const x = Math.round(px + (rnd() - 0.5) * 2 * rad), y = Math.round(py + (rnd() - 0.5) * 2 * rad);
+    if (!inb(x, y)) continue;
+    const i = idx(x, y);
+    if (aiOf[i] === n.id + 1 && !building[i] && depositOf[i] < 0) return i;
+  }
+  return -1;
+}
+// attacking a nation (taking its land, shelling it) puts it at war with you: from then on its silos fire too
+function provoke(n) {
+  if (!n || n.hostile || !n.alive) return;
+  n.hostile = true;
+  if (game.started) toast(`${n.full} is now at war with you: its missile silos will fire on your buildings.`);
+}
+function aiThink(n) {
+  if (!n.alive || !n.tiles) return;
+  const A = CFG.ai, mine = game.buildings.filter(b => aiOf[b.i] === n.id + 1);
+  const count = t => mine.reduce((a, b) => a + (b.type === t ? 1 : 0), 0);
+  // 1) arm: more weapons as the nation grows, placed by one of its settlements
+  const towns = mine.filter(b => b.type === 'settlement');
+  const base = towns.length ? towns[(Math.random() * towns.length) | 0].i : idx(Math.floor(n.lx), Math.floor(n.ly));
+  const want = count('mortar') < Math.min(A.maxMortars, 1 + Math.floor(n.tiles / A.tilesPerMortar)) ? 'mortar'
+    : count('silo') < Math.min(A.maxSilos, 1 + Math.floor(n.tiles / A.tilesPerSilo)) ? 'silo' : null;
+  if (want) { const sp = aiSpot(n, base % W, (base / W) | 0, 6); if (sp >= 0) { placeBuilding(sp, want); game.bldDirty = true; } }
+  // 2) settle: a new settlement where a good patch of its land has none in reach
+  const front = [...n.front];
+  for (let k = 0; k < 6 && front.length; k++) {
+    const f = front[(Math.random() * front.length) | 0], x = f % W, y = (f / W) | 0;
+    let c = -1;
+    for (const [dx, dy] of DIRS4) { const nb = idx(x + dx * 3, y + dy * 3); if (inb(x + dx * 3, y + dy * 3) && aiOf[nb] === n.id + 1) c = nb; }
+    if (c < 0 || isServed(c) || building[c] || depositOf[c] >= 0) continue;
+    if (settlementGain(c).gain >= A.settleGain) { placeBuilding(c, 'settlement'); game.bldDirty = true; break; }
+  }
+  // 3) expand: spend people on the free land nearest its centre, like a slow, steady push
+  if (n.people >= n.cap * A.expandAt && n.tiles < A.maxTiles && front.length) {
+    let budget = n.people * A.expandShare, spent = 0;
+    const cands = [];
+    for (let k = 0; k < 50; k++) {
+      const f = front[(Math.random() * front.length) | 0];
+      if (!freeLand(f)) { n.front.delete(f); continue; }
+      cands.push({ f, d: Math.hypot(f % W - n.lx, ((f / W) | 0) - n.ly) + Math.random() * 5 });
+    }
+    n.stuck = cands.length ? 0 : (n.stuck || 0) + 1;
+    cands.sort((a, b) => a.d - b.d);
+    for (const c of cands) {
+      const cost = tileCost(c.f);
+      if (!freeLand(c.f) || cost > budget - spent) continue;
+      spent += cost; aiClaim(n, c.f);
+    }
+    n.people -= spent;
+  } else if (!front.length) n.stuck = (n.stuck || 0) + 1;
+  // 4) war: boxed in with you next door, it declares war; at war, it pushes into your land
+  if (!n.hostile && n.warFront.size && (n.stuck || 0) >= A.boxedThinks) {
+    n.hostile = true;
+    toast(`${n.full} has run out of room and declared war on you!`);
+  }
+  if (n.hostile && n.warFront.size && n.people >= n.cap * A.attackAt) {
+    let budget = n.people * A.attackShare, spent = 0, took = 0, where = -1;
+    const cands = [];
+    for (const f of n.warFront) {
+      const x = f % W, y = (f / W) | 0;
+      let touching = false;
+      for (const [dx, dy] of DIRS4) if (inb(x + dx, y + dy) && aiOf[idx(x + dx, y + dy)] === n.id + 1) touching = true;
+      if (!owner[f] || !touching) { n.warFront.delete(f); continue; }
+      cands.push({ f, d: Math.hypot(x - n.lx, y - n.ly) + Math.random() * 6 });
+    }
+    cands.sort((a, b) => a.d - b.d);
+    for (const c of cands) {
+      const C = countryAt(c.f), def = yourDefense(C), cost = tileCost(c.f) + def;
+      if (cost > budget - spent) break;
+      spent += cost; took++; where = c.f;
+      if (C) C.people = Math.max(0, C.people - def * A.killShare);
+      aiTake(n, c.f);
+    }
+    n.people -= spent;
+    if (took && game.time - (n.lastWarn || -99) > 25) {
+      n.lastWarn = game.time;
+      toast(`${n.full} is taking your land! Push back, or hit its settlements.`);
+      floatText(where % W + 0.5, ((where / W) | 0) - 1, `${n.short} invades`, '#ff7a6b');
+    }
+  }
+}
+// their weapons: mortars shoot at anything of yours in range; silos join in once the nation is at war with you
+function aiFire() {
+  const A = CFG.ai;
+  let yours = null;
+  for (const b of game.buildings) {
+    const k = aiOf[b.i], def = CFG.buildings[b.type];
+    if (!k || !def.weapon || (b.ready || 0) > game.time) continue;
+    const n = game.nations[k - 1], Wp = CFG.weapons[def.weapon];
+    if (!n.alive || (def.weapon === 'missile' && !n.hostile)) continue;
+    const bx = b.i % W + 0.5, by = ((b.i / W) | 0) + 0.5;
+    let tgt = null, bd = Wp.range;
+    for (const e of game.expeditions) { const d = Math.hypot(e.x - bx, e.y - by); if (!e.done && d < bd) { bd = d; tgt = [e.x, e.y]; } }
+    if (!tgt) {
+      yours = yours || game.buildings.filter(q => owner[q.i]);
+      for (const q of yours) { const d = tileDist(q.i, bx, by); if (d < bd) { bd = d; tgt = tileCenter(q.i); } }
+    }
+    if (!tgt && def.weapon === 'shell') {             // nothing built in range: any of your land will do
+      for (let j = 0; j < 10 && !tgt; j++) {
+        const a = Math.random() * Math.PI * 2, d = Math.random() * Wp.range, x = Math.floor(bx + Math.cos(a) * d), y = Math.floor(by + Math.sin(a) * d);
+        if (inb(x, y) && owner[idx(x, y)]) tgt = [x + 0.5, y + 0.5];
+      }
+    }
+    if (!tgt) continue;
+    launchShot(b, tgt[0], tgt[1], def.weapon, n);
+    b.rd = Wp.reload * A.reloadMult[def.weapon]; b.ready = game.time + b.rd;
+    if (!n.warned) { n.warned = true; toast(`${n.full} is firing on you! Keep out of range of its mortars, or knock them out.`); }
+  }
+}
 // extra people it costs to take one tile of a nation's land: the more crowded they are, the harder they fight
 const defenseAt = i => {
   const n = nationAt(i);
@@ -854,17 +1107,92 @@ function recomputeNetwork() {
     addTileStats(c, i);
   }
   game.netDirty = false;
+  if (game.started) for (const c of game.countries) {
+    if (!c.alive || c.tiles) continue;               // every tile of it was taken
+    c.alive = false; c.people = 0;
+    toast(`${c.full} has fallen!`);
+  }
+  if (game.started && !game.over && !game.countries.some(c => c.alive)) {
+    game.over = true; game.driving = null; game.aiming = false;
+    $('toast').classList.add('show'); clearTimeout(toastTimer);
+    $('toast').textContent = 'Your last country has fallen. Press N to start a new map.';
+  }
   recomputeBuildings();
 }
 
 // everything that depends on buildings (housing, power, workers, collectors, titles, nation housing).
 // Only loops the buildings and deposits, so it's cheap enough to run whenever something changes.
+// ---------- settlements: the land holds the capacity, a settlement unlocks what's in its reach ----------
+const servStamp = new Int32Array(N), servD = new Uint16Array(N), servBy = new Int32Array(N);
+let servN = 0;
+const sideOf = i => (owner[i] ? countryOf[i] + 1 : -aiOf[i]);        // whose land a tile is: +country, -nation, 0 nobody
+const landCapAt = i => CFG.landCap[BIOME_KEY[biome[i]]] || 0;
+const isServed = i => servStamp[i] === servN;
+function eachInReach(i, fn) {                                        // every tile within a settlement's reach of tile i
+  const R = CFG.settlement.reach, cx = i % W, cy = (i / W) | 0;
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= R * R && inb(cx + dx, cy + dy)) fn(idx(cx + dx, cy + dy), d2);
+  }
+}
+// Each owned land tile goes to the nearest settlement of the same country (or nation) within reach;
+// a settlement's `base` is the capacity of the land it ends up with.
+function recomputeLand() {
+  servN++;
+  const S = game.buildings.filter(b => b.type === 'settlement');
+  S.forEach((b, k) => {
+    const side = sideOf(b.i);
+    b.base = 0; b.tiles = 0; b._n = -1;
+    if (side) eachInReach(b.i, (t, d2) => {
+      if (sideOf(t) !== side || !isLand(t)) return;
+      if (servStamp[t] !== servN || d2 < servD[t]) { servStamp[t] = servN; servD[t] = d2; servBy[t] = k; }
+    });
+  });
+  S.forEach((b, k) => {
+    if (sideOf(b.i)) eachInReach(b.i, t => { if (servStamp[t] === servN && servBy[t] === k) { b.base += landCapAt(t); b.tiles++; } });
+  });
+  game.landDirty = false;
+}
+// what a settlement holds right now: the part above `powerAbove` only counts as far as its country has power
+function settlementCap(b) {
+  const T = CFG.settlement.powerAbove, base = b.base || 0;
+  if (base <= T || !owner[b.i]) return base;
+  const c = countryAt(b.i);
+  return T + (base - T) * (c ? c.sat : 1);
+}
+function settlementLevel(b) {
+  const L = CFG.settlement.levels, cap = settlementCap(b);
+  let k = 0;
+  while (k + 1 < L.length && cap >= L[k + 1].cap) k++;
+  return k;
+}
+// what a new settlement on tile i would add: the land in reach that nothing serves yet (and how much is already taken)
+function settlementGain(i) {
+  const side = sideOf(i);
+  let gain = 0, fresh = 0, shared = 0;
+  if (side) eachInReach(i, t => {
+    if (sideOf(t) !== side || !isLand(t)) return;
+    if (isServed(t)) shared++; else { fresh++; gain += landCapAt(t); }
+  });
+  return { gain, fresh, shared };
+}
+
 function recomputeBuildings() {
+  recomputeLand();
   for (const c of game.countries) { c.capBase = 0; c.ownedDep = { forest: 0, stone: 0, iron: 0 }; c.pw = newPower(); c.geo.port = 0; }
   for (const b of game.buildings) {
     if (!owner[b.i]) continue;                    // an AI nation's building
     const def = CFG.buildings[b.type], c = game.countries[countryOf[b.i]];
-    if (def.cap) { c.capBase += def.cap - (def.capPowered || 0); c.pw.capPow += def.capPowered || 0; }
+    if (b.type === 'settlement') {
+      const T = CFG.settlement.powerAbove;
+      c.capBase += Math.min(b.base, T); c.pw.capPow += Math.max(0, b.base - T);
+      if (b.base > T) c.pw.need += CFG.settlement.cityUse;
+      const lvl = settlementLevel(b);              // tell the player when one grows up (not on the first look, and never twice)
+      if (b.peak !== undefined && lvl > b.peak && game.started) {
+        floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, `Now a ${CFG.settlement.levels[lvl].name}`, '#f2c14e');
+      }
+      b.peak = Math.max(b.peak ?? lvl, lvl);
+    }
     if (def.use) c.pw.need += def.use;
     if (b.type === 'burner') c.pw.burners++;
     if (b.type === 'solar') c.pw.solar++;
@@ -880,14 +1208,13 @@ function recomputeBuildings() {
   for (const d of deposits) for (const t of d.tiles) if (owner[t]) game.countries[countryOf[t]].ownedDep[d.type]++;
   recomputeNations();
   game.bldDirty = false;
-  clustersDirty = true;
 }
 
 // Links: each country's new OUTPUT (not its stockpile) is split with the countries it's linked to, by
 // population (each end gets at least CFG.minShare of the other's output). The share waits at the station
 // (L.out) until a train or ship picks it up, then rides the vehicle: long routes deliver slower and later.
 // Stockpiles stay where they are, so a new colony keeps its kit. People move too: toward the country with
-// more room in its houses.
+// more room.
 const CARGO_RES = ['wood', 'stone', 'iron'];
 function unloadAt(L, C) {
   if (L.cargo && C) {
@@ -911,7 +1238,7 @@ function loadAt(L, src, dst, end) {
   for (const r of CARGO_RES) total += Math.floor(box[r]);
   const k = total > V.cargo ? V.cargo / total : 1; // a full load is split across what's waiting
   for (const r of CARGO_RES) { cargo[r] = Math.floor(Math.floor(box[r]) * k); box[r] -= cargo[r]; }
-  const full = c => (c.cap > 0 ? c.people / c.cap : 0);   // settlers in a country with no houses yet stay put, waiting for houses
+  const full = c => (c.cap > 0 ? c.people / c.cap : 0);   // people in a country with no settlement stay put
   if (full(src) > full(dst) + 0.05) {
     cargo.people = Math.floor(Math.min(V.people, Math.max(0, dst.cap - dst.people), freePeople(src) * 0.5));
     src.people -= cargo.people;
@@ -1102,10 +1429,7 @@ function canBuild(i, type) {
   } else if (depositOf[i] >= 0) return "Can't build on a resource deposit";
   if (building[i]) {
     const have = buildingAt(i).type;
-    if (!ladderSteps(type, have)) {
-      if (LEVEL[have] && LEVEL[type]) return LEVEL[have] >= LEVEL[type] ? `Already ${/^[AEIOU]/.test(CFG.buildings[have].name) ? 'an' : 'a'} ${CFG.buildings[have].name}` : 'Something is already built here';
-      return 'Something is already built here';
-    }
+    if (!ladderSteps(type, have)) return 'Something is already built here';
   }
   if (type === 'port' && !isCoastal(i)) return 'Ports must be on the coast';
   return null;
@@ -1127,7 +1451,7 @@ function missingFor(cost, C = activeCountry()) {
 const empireCap = () => game.countries.reduce((a, c) => a + (c.alive ? c.cap : 0), 0);
 function placeBuilding(i, type) {
   const old = buildingAt(i);
-  if (old) { old.type = type; building[i] = BLD_CODE[type]; clustersDirty = true; return; }   // upgrade in place
+  if (old) { old.type = type; building[i] = BLD_CODE[type]; return; }   // upgrade in place
   building[i] = BLD_CODE[type];
   game.buildings.push({ i, type });
   if (type === 'station') game.stations.push(i);
@@ -1142,6 +1466,9 @@ function tryBuild(i, type) {
   const cost = totalCost(type, plan, i);
   const miss = missingFor(cost, C);
   if (miss) return toast(`${C.short} doesn't have enough ${miss}`);
+  const settlers = CFG.buildings[type].people || 0;   // a settlement is founded by people, like an expedition
+  if (freePeople(C) < settlers) return toast(`${C.short} needs ${settlers} free people to found a settlement`);
+  C.people -= settlers;
   for (const [r, n] of Object.entries(cost)) C.res[r] -= n;
   const before = empireCap();
   placeBuilding(i, type);
@@ -1151,7 +1478,7 @@ function tryBuild(i, type) {
   }
   recomputeBuildings();
   const gained = empireCap() - before;
-  if (gained > 0) floatText(i % W + 0.5, ((i / W) | 0) - 1, `+${gained} capacity in ${C.short}`, '#7bd389');
+  if (gained >= 1) floatText(i % W + 0.5, ((i / W) | 0) - 1, `+${Math.round(gained)} capacity in ${C.short}`, '#7bd389');
 }
 
 // ======================================================================
@@ -1235,16 +1562,43 @@ function borderTileOf(C, tx, ty) {
   }
   return best >= 0 ? best : idx(Math.floor(C.lx), Math.floor(C.ly));
 }
-function launchExpedition(tx, ty) {
+// Right-click sends an expedition out of the country you're viewing, from its border nearest the click.
+// You drive it yourself (see driveStep); `auto` is the old straight-line trip, kept for the playtest bot.
+function launchExpedition(tx, ty, { auto = false } = {}) {
   const t = idx(tx, ty);
-  if (!isLand(t)) return toast('Pick a land tile for the expedition');
-  if (owner[t]) return toast('That land is already yours. Left-click to expand instead.');
-  if (aiOf[t]) return toast(`That's ${nationAt(t).full}. Take it by pushing in from your border (left-click), or hit it with missiles.`);
-  // expeditions leave from the country you're viewing (the one in the top bar), from its border nearest the target
+  if (owner[t]) return toast('That land is already yours. Right-click outside your border to send an expedition that way.');
+  if (auto) {
+    if (!isLand(t)) return toast('Pick a land tile for the expedition');
+    if (aiOf[t]) return toast(`That's ${nationAt(t).full}. Take it by pushing in from your border (left-click), or shell it first.`);
+  }
   const src = activeCountry() || nearestCountryTo(tx, ty).country;
   const tile = borderTileOf(src, tx, ty);
   const n = sendFrom(src);
   if (n < 2) return toast(`${src.short} doesn't have enough people for an expedition`);
+  let [sx, sy] = [tile % W + 0.5, ((tile / W) | 0) + 0.5];
+  const crossesWater = (ax, ay) => {
+    const d = Math.hypot(tx - ax, ty - ay), steps = Math.ceil(d);
+    for (let k = 1; k < steps; k++) if (biome[idx(Math.floor(ax + (tx - ax) * k / steps), Math.floor(ay + (ty - ay) * k / steps))] === OCEAN) return true;
+    return false;
+  };
+  const bySea = biome[t] === OCEAN || crossesWater(sx, sy);
+  if (bySea) {                                     // boats leave from your nearest port, if you have one
+    const ports = game.ports.filter(pt => countryAt(pt) === src);
+    if (ports.length) {
+      const pt = ports.reduce((a, b) => (Math.hypot(a % W - tx, ((a / W) | 0) - ty) <= Math.hypot(b % W - tx, ((b / W) | 0) - ty) ? a : b));
+      [sx, sy] = [pt % W + 0.5, ((pt / W) | 0) + 0.5];
+    }
+  }
+  let kind = 'truck';
+  if (bySea && !auto) {                            // a boat needs water to start on: the sea tile nearest the launch spot
+    let best = -1, bd = Infinity;
+    for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+      const x = Math.floor(sx) + dx, y = Math.floor(sy) + dy, d = dx * dx + dy * dy;
+      if (d < bd && inb(x, y) && biome[idx(x, y)] === OCEAN) { bd = d; best = idx(x, y); }
+    }
+    if (best >= 0) { kind = 'boat'; sx = best % W + 0.5; sy = ((best / W) | 0) + 0.5; }
+    else toast('No water at your border there, so this one is a truck. Boats launch from your coast or a port.');
+  }
   src.people -= n;
   const kit = {};                                  // supplies to get the colony started, if home can spare them
   for (const r of CARGO_RES) {
@@ -1252,27 +1606,94 @@ function launchExpedition(tx, ty) {
     kit[r] = Math.floor(Math.min(want, src.res[r]));
     src.res[r] -= kit[r];
   }
-  let [sx, sy] = [tile % W + 0.5, ((tile / W) | 0) + 0.5];
-  const crossesWater = (ax, ay) => {
-    const d = Math.hypot(tx - ax, ty - ay), steps = Math.ceil(d);
-    for (let k = 1; k < steps; k++) if (biome[idx(Math.floor(ax + (tx - ax) * k / steps), Math.floor(ay + (ty - ay) * k / steps))] === OCEAN) return true;
-    return false;
-  };
-  if (crossesWater(sx, sy)) {
-    const ports = game.ports.filter(pt => countryAt(pt) === src);
-    if (ports.length) {
-      const pt = ports.reduce((a, b) => (Math.hypot(a % W - tx, ((a / W) | 0) - ty) <= Math.hypot(b % W - tx, ((b / W) | 0) - ty) ? a : b));
-      [sx, sy] = [pt % W + 0.5, ((pt / W) | 0) + 0.5];
-    }
+  const e = { x: sx, y: sy, tx: tx + 0.5, ty: ty + 0.5, n, kit, from: src.id, auto };
+  if (!auto) {
+    Object.assign(e, { kind, vx: 0, vy: 0, a: Math.atan2(ty + 0.5 - sy, tx + 0.5 - sx), supplies: CFG.drive.supplies, trail: [[sx, sy]] });
+    takeWheel(e);
+    if (kind === 'boat' || !bySea) toast(`${kind === 'boat' ? 'Boat' : 'Truck'} ready with ${n} people. Arrow keys or WASD to drive, Space to settle, Esc to let go.`);
   }
-  game.expeditions.push({ x: sx, y: sy, tx: tx + 0.5, ty: ty + 0.5, n, kit, from: src.id });
+  game.expeditions.push(e);
 }
+function takeWheel(e) {
+  stopFollow(); cam.anim = null;
+  game.driving = e;
+  if (e) { setTool(null); setAiming(false); cam.zoom = Math.max(cam.zoom, 9); }
+}
+// X: hop into the next expedition that's waiting for a driver
+function nextVehicle() {
+  const list = game.expeditions.filter(e => !e.auto && !e.done);
+  if (!list.length) return toast('No expedition is out. Right-click outside your border to send one.');
+  takeWheel(list[(list.indexOf(game.driving) + 1) % list.length]);
+}
+const canDriveOn = (e, x, y) => inb(Math.floor(x), Math.floor(y)) &&
+  (e.kind === 'boat' ? biome[idx(Math.floor(x), Math.floor(y))] === OCEAN : isLand(idx(Math.floor(x), Math.floor(y))));
 
 function stepExpedition(e, dt) {
+  if (!e.auto) return driveStep(e, dt);
   const dx = e.tx - e.x, dy = e.ty - e.y, d = Math.hypot(dx, dy);
   const step = CFG.expeditionSpeed * dt;
   if (d <= step) { e.x = e.tx; e.y = e.ty; e.done = true; arrive(e); return; }
   e.x += dx / d * step; e.y += dy / d * step;
+}
+// One physics model for every vehicle: thrust along the heading, drag from what's underneath.
+// A truck grips (no sideways slide) and crawls through desert and mountains; a boat drifts and turns wide.
+function driveStep(e, dt) {
+  const D = CFG.drive, V = D[e.kind], on = game.driving === e && !menuOpen;
+  const key = (...ks) => on && ks.some(k => keys.has(k));
+  const thr = key('arrowup', 'w') ? 1 : key('arrowdown', 's') ? -0.5 : 0;
+  const turn = (key('arrowright', 'd') ? 1 : 0) - (key('arrowleft', 'a') ? 1 : 0);
+  e.a += turn * V.turn * dt;
+  const hx = Math.cos(e.a), hy = Math.sin(e.a);
+  const drag = e.kind === 'boat' ? V.drag : V.drag[BIOME_KEY[biome[idx(Math.floor(e.x), Math.floor(e.y))]]] || 3;
+  e.vx += (hx * thr * V.accel - e.vx * drag) * dt;
+  e.vy += (hy * thr * V.accel - e.vy * drag) * dt;
+  if (e.kind === 'truck') {                        // wheels: kill the sideways part of the motion quickly
+    const f = e.vx * hx + e.vy * hy, k = Math.exp(-10 * dt);
+    e.vx = f * hx + (e.vx - f * hx) * k; e.vy = f * hy + (e.vy - f * hy) * k;
+  }
+  const nx = e.x + e.vx * dt, ny = e.y + e.vy * dt;
+  if (canDriveOn(e, nx, e.y)) e.x = nx; else e.vx = 0;      // blocked (coast, ice wall): slide along it
+  if (canDriveOn(e, e.x, ny)) e.y = ny; else e.vy = 0;
+  const last = e.trail[e.trail.length - 1];
+  if (Math.hypot(e.x - last[0], e.y - last[1]) > 1.5) { e.trail.push([e.x, e.y]); if (e.trail.length > 600) e.trail.shift(); }
+  e.supplies -= dt;
+  if (e.supplies < 0) {
+    e.n -= D.starve * dt;
+    if (e.n < 1) {
+      e.done = true;
+      if (game.driving === e) game.driving = null;
+      toast('The expedition ran out of supplies and was lost.');
+    }
+  }
+}
+// where this expedition would settle right now: under a truck, or the nearest shore for a boat.
+// { i, how: 'found' | 'join' } or null when there's nowhere (deep water, an AI nation's land)
+function settleSite(e) {
+  const cx = Math.floor(e.x), cy = Math.floor(e.y), R = e.kind === 'boat' ? CFG.drive.landReach : 0;
+  let best = null, bd = Infinity;
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    const x = cx + dx, y = cy + dy;
+    if (!inb(x, y)) continue;
+    const i = idx(x, y);
+    if (!isLand(i) || aiOf[i]) continue;
+    const d = dx * dx + dy * dy + (owner[i] ? 100 : 0);        // free land first; your own land only if that's all there is
+    if (d < bd) { bd = d; best = { i, how: owner[i] ? 'join' : 'found' }; }
+  }
+  return best;
+}
+function settleExpedition(e) {
+  const site = settleSite(e);
+  if (!site) {
+    const here = idx(Math.floor(e.x), Math.floor(e.y));
+    return toast(aiOf[here] ? `This is ${nationAt(here).full}. Drive on to free land.` : 'Bring the boat alongside free land first.');
+  }
+  e.tx = site.i % W + 0.5; e.ty = ((site.i / W) | 0) + 0.5;
+  e.n = Math.floor(e.n);
+  e.done = true;
+  game.driving = null;
+  arrive(e);
+  const c = countryAt(site.i);
+  if (c) game.active = c.id;
 }
 
 // an expedition that lands on free land founds a new country (a colony) with its own people and stockpile
@@ -1292,18 +1713,27 @@ function arrive(e) {
     const x = cx + dx, y = cy + dy;
     if (inb(x, y)) claim(idx(x, y), col.id);
   }
+  // the settlers found a settlement: on the landing spot, or the nearest clear tile if that's a deposit
+  let site = -1, sd = Infinity;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    const x = cx + dx, y = cy + dy, d = dx * dx + dy * dy;
+    if (d >= sd || !inb(x, y)) continue;
+    const t = idx(x, y);
+    if (owner[t] && countryOf[t] === col.id && depositOf[t] < 0 && !building[t]) { site = t; sd = d; }
+  }
+  if (site >= 0) placeBuilding(site, 'settlement');
   recomputeNetwork();
   const live = liveCountry(col.id);
   if (live !== col) { toast(`The settlers joined ${live.full}`); return; }
   const kitTxt = Object.entries(e.kit).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing';
-  toast(`Founded ${col.full}! It has its own stockpile (${kitTxt}). Build houses there so its people can grow, and link it home to share people and cargo.`);
+  toast(`Founded ${col.full}! Its settlement grows as you claim the land around it. It has its own stockpile (${kitTxt}); link it home to share people and cargo.`);
 }
 
 
 // ======================================================================
-// select + copy/paste (left-drag a box over houses, press C to paste at the cursor)
+// select + copy/paste (left-drag a box over solar panels or burners, press C to paste at the cursor)
 // ======================================================================
-const COPYABLE = { house: true, house2: true, house3: true, solar: true, burner: true };   // collectors and rigs belong to one deposit   // stations/ports aren't copied (they'd all try to link)
+const COPYABLE = { solar: true, burner: true };   // collectors and rigs belong to one deposit   // stations/ports aren't copied (they'd all try to link)
 let blueprint = null;                              // { items: [{dx, dy, type}] } relative to the selection's centre
 
 function finishSelection(ax, ay, bx, by) {
@@ -1314,7 +1744,7 @@ function finishSelection(ax, ay, bx, by) {
     return x >= x0 && x <= x1 && y >= y0 && y <= y1;
   };
   const sel = game.buildings.filter(b => inBox(b) && COPYABLE[b.type] && owner[b.i]);
-  if (!sel.length) { clearSelection(); return toast('No houses in that box'); }
+  if (!sel.length) { clearSelection(); return toast('Nothing to copy in that box (solar panels and burners can be copied)'); }
   setTool(null);
   game.selection = sel.map(b => b.i);
   let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
@@ -1325,7 +1755,7 @@ function finishSelection(ax, ay, bx, by) {
   const cx = Math.floor((mnx + mxx) / 2), cy = Math.floor((mny + mxy) / 2);
   blueprint = { items: sel.map(b => ({ dx: b.i % W - cx, dy: ((b.i / W) | 0) - cy, type: b.type })) };
   const skipped = game.buildings.filter(b => inBox(b) && !COPYABLE[b.type]).length;
-  toast(`Selected ${sel.length} house${sel.length > 1 ? 's' : ''}${skipped ? ` (${skipped} station/port skipped)` : ''}. Move the mouse and press C to paste.`);
+  toast(`Selected ${sel.length} building${sel.length > 1 ? 's' : ''}${skipped ? ` (${skipped} skipped)` : ''}. Move the mouse and press C to paste.`);
 }
 
 function clearSelection() { game.selection = []; blueprint = null; }
@@ -1343,7 +1773,7 @@ function pastePlan(tx, ty) {
 }
 
 function pasteAt(tx, ty) {
-  if (!blueprint) return toast('Select some houses first: hold left click and drag a box over them');
+  if (!blueprint) return toast('Select some solar panels or burners first: hold left click and drag a box over them');
   const plan = pastePlan(tx, ty);
   const before = empireCap();
   let placed = 0, short = null;
@@ -1363,19 +1793,20 @@ function pasteAt(tx, ty) {
   toast(msg);
   if (placed) {
     const gained = empireCap() - before;
-    floatText(tx + 0.5, ty - 1, `+${gained} capacity`, '#7bd389');
+    if (gained >= 1) floatText(tx + 0.5, ty - 1, `+${Math.round(gained)} capacity`, '#7bd389');
   }
 }
 
 // ======================================================================
 // simulation tick
 // ======================================================================
-let netTimer = 0;
+let netTimer = 0, landTimer = 0, aiTimer = 0, aiFireTimer = 0;
 function tick(dt) {
   game.time += dt;
   netTimer += dt;
-  if (game.netDirty && netTimer > 0.25) { recomputeNetwork(); netTimer = 0; }   // only when countries merge
-  else if (game.bldDirty) recomputeBuildings();
+  landTimer += dt;
+  if (game.netDirty && netTimer > 0.25) { recomputeNetwork(); netTimer = 0; landTimer = 0; }   // only when countries merge
+  else if (game.bldDirty || (game.landDirty && landTimer > 0.3)) { recomputeBuildings(); landTimer = 0; }   // the border moved: settlements hold more (or less)
 
   // every country produces into its own stockpile and regrows its own people
   let pop = 0;
@@ -1401,6 +1832,9 @@ function tick(dt) {
     if (c.cap > 0 && c.people < c.cap) {
       c.growth = CFG.growthRate * c.people * (1 - c.people / c.cap) + CFG.growthBase;
       c.people = Math.min(c.cap, c.people + c.growth * dt);
+    } else if (c.people > c.cap + 0.5) {           // more people than the land in reach of its settlements can hold
+      c.growth = -(c.people - c.cap) * CFG.settlement.shrink - 0.05;
+      c.people = Math.max(c.cap, c.people + c.growth * dt);
     } else c.growth = 0;
     pop += c.people;
   }
@@ -1412,11 +1846,16 @@ function tick(dt) {
   game.pushes = game.pushes.filter(p => !p.done);
   for (const e of game.expeditions) stepExpedition(e, dt);
   game.expeditions = game.expeditions.filter(e => !e.done);
-  for (const m of game.missiles) { m.t += dt / m.dur; if (m.t >= 1) { m.done = true; explode(m.x1, m.y1); } }
+  for (const m of game.missiles) { m.t += dt / m.dur; if (m.t >= 1) { m.done = true; explode(m.x1, m.y1, m); } }
   game.missiles = game.missiles.filter(m => !m.done);
-  for (const b of game.blasts) b.t += dt / 0.9;
+  for (const b of game.blasts) b.t += dt / b.life;
   game.blasts = game.blasts.filter(b => b.t < 1);
-  // AI nations regrow toward their houses' capacity
+  for (const sc of game.scorch) sc.t += dt / 45;
+  game.scorch = game.scorch.filter(sc => sc.t < 1);
+  aiTimer += dt; aiFireTimer += dt;
+  if (aiFireTimer > 0.5) { aiFireTimer = 0; aiFire(); }
+  if (aiTimer > CFG.ai.think) { aiTimer = 0; for (const n of game.nations) aiThink(n); }
+  // AI nations regrow toward their capacity
   for (const n of game.nations) {
     if (!n.alive || n.people >= n.cap) { n.growth = 0; continue; }
     n.growth = (CFG.growthRate * n.people * (1 - n.people / n.cap) + CFG.growthBase) * CFG.ai.growth;
@@ -1472,11 +1911,11 @@ function saveGame() {
     for (const q of game.pushes) { const c = liveCountry(q.country); if (c) back[c.id].people += q.budget; }
     for (const e of game.expeditions) { const c = liveCountry(e.from); if (c) { back[c.id].people += e.n; for (const r in e.kit) back[c.id][r] += e.kit[r]; } }
     const data = {
-      v: 1, seed: SEED, savedAt: Date.now(), time: game.time, active: game.active, peakPop: game.peakPop,
+      v: SAVE_V, seed: SEED, savedAt: Date.now(), time: game.time, active: game.active, peakPop: game.peakPop,
       sendPct: game.sendPct, unlocked: [...game.unlocked], hotbar: game.hotbar,
       countries: game.countries.map(c => ({ short: c.short, full: c.full, tier: c.tier, alive: c.alive, mergedInto: c.mergedInto,
         people: c.people + back[c.id].people, res: { wood: c.res.wood + back[c.id].wood, stone: c.res.stone + back[c.id].stone, iron: c.res.iron + back[c.id].iron } })),
-      nations: game.nations.map(n => ({ people: n.people, alive: n.alive })),
+      nations: game.nations.map(n => ({ people: n.people, alive: n.alive, hostile: !!n.hostile })),
       buildings: game.buildings.map(b => [b.i, b.type, b.ready || 0]),
       links: game.links.map(L => ({ kind: L.kind, a: L.a, b: L.b, path: L.path, t: L.t, dir: L.dir, cargo: L.cargo || null, to: L.to ?? -1, out: L.out || null })),
       runs, cam: { x: cam.x, y: cam.y, zoom: cam.zoom },
@@ -1497,7 +1936,7 @@ function loadGame(sv) {
     const c = newCountry({ people: sc.people, res: sc.res });
     Object.assign(c, { short: sc.short, full: sc.full, tier: sc.tier, alive: sc.alive, mergedInto: sc.mergedInto });
   }
-  game.nations.forEach((n, k) => { const sn = sv.nations[k]; if (sn) { n.people = sn.people; n.alive = sn.alive; } });
+  game.nations.forEach((n, k) => { const sn = sv.nations[k]; if (sn) { n.people = sn.people; n.alive = sn.alive; n.hostile = !!sn.hostile; } });
   let i = 0;
   for (let k = 0; k < sv.runs.length; k += 2) {
     const v = sv.runs[k], n = sv.runs[k + 1];
@@ -1519,6 +1958,7 @@ function loadGame(sv) {
   Object.assign(game, { time: sv.time, active: sv.active, peakPop: sv.peakPop, sendPct: sv.sendPct, unlocked: new Set(sv.unlocked) });
   if (sv.hotbar) game.hotbar = sv.hotbar;
   scanNationTiles();
+  buildFronts();
   recomputeNetwork();
   fillLayer.img.data.fill(0); borderLayer.img.data.fill(0);
   for (let t = 0; t < N; t++) if (owner[t] || aiOf[t]) paintTerr(t);
@@ -1533,26 +1973,36 @@ function newGame() {
   location.search = '';
 }
 
-// ---------- missiles ----------
-const silosOf = () => game.buildings.filter(b => b.type === 'silo' && owner[b.i]);
+// ---------- weapons: mortars (short range, quick) and missile silos (long range, slow, powered) ----------
+const weaponOf = b => CFG.weapons[CFG.buildings[b.type].weapon];
+const weaponsOf = () => game.buildings.filter(b => owner[b.i] && CFG.buildings[b.type].weapon);
 const tileDist = (i, x, y) => Math.hypot(i % W - x, ((i / W) | 0) - y);
 function setAiming(on) {
-  if (on && !silosOf().length) return toast(isUnlocked('silo') ? 'Build a missile silo first (Q)' : `Missiles need a missile silo, which unlocks at ${CFG.buildings.silo.unlock} people`);
+  if (on && !weaponsOf().length) return toast(isUnlocked('mortar') ? 'Build a mortar or a missile silo first' : `Weapons start with the mortar, which unlocks at ${CFG.buildings.mortar.unlock} people`);
   game.aiming = on;
   if (on) { setTool(null); clearSelection(); toast('Aiming: click a target in range · F or Esc to stop'); }
 }
+// which of your weapons would fire at a spot: the lightest one in range that's loaded
+function pickWeapon(tx, ty) {
+  const inR = weaponsOf().map(b => ({ b, Wp: weaponOf(b), d: tileDist(b.i, tx, ty) })).filter(o => o.d <= o.Wp.range)
+    .sort((p, q) => p.Wp.range - q.Wp.range || p.d - q.d);
+  return { inR, ready: inR.find(o => (o.b.ready || 0) <= game.time) };
+}
+function launchShot(b, x1, y1, w, nation = null) {
+  const Wp = CFG.weapons[w], [x0, y0] = tileCenter(b.i);
+  game.missiles.push({ x0, y0, x1, y1, t: 0, dur: Math.max(0.6, Math.hypot(x1 - x0, y1 - y0) / Wp.speed), w, ai: nation ? nation.id : -1 });
+}
 function fireMissile(tx, ty) {
-  const R = CFG.buildings.silo.range;
-  const inRange = silosOf().filter(b => tileDist(b.i, tx, ty) <= R).sort((a, b) => tileDist(a.i, tx, ty) - tileDist(b.i, tx, ty));
-  if (!inRange.length) return toast(`Out of range: short-range missiles reach ${R} tiles from a silo`);
-  const s = inRange.find(b => (b.ready || 0) <= game.time);
-  if (!s) return toast(`Reloading: ${Math.ceil(Math.min(...inRange.map(b => b.ready)) - game.time)}s`);
-  const C = countryAt(s.i), miss = missingFor(CFG.missile.cost, C);
-  if (miss) return toast(`${C.short} doesn't have enough ${miss} for a missile`);
-  for (const [r, n] of Object.entries(CFG.missile.cost)) C.res[r] -= n;
-  s.ready = game.time + CFG.missile.reload;
-  const [x0, y0] = tileCenter(s.i);
-  game.missiles.push({ x0, y0, x1: tx + 0.5, y1: ty + 0.5, t: 0, dur: Math.max(0.7, tileDist(s.i, tx, ty) / CFG.missile.speed) });
+  const { inR, ready } = pickWeapon(tx, ty);
+  if (!inR.length) return toast(`Out of range: mortars reach ${CFG.weapons.shell.range} tiles, missile silos ${CFG.weapons.missile.range}`);
+  if (!ready) return toast(`Reloading: ${Math.ceil(Math.min(...inR.map(o => o.b.ready)) - game.time)}s`);
+  const s = ready.b, Wp = ready.Wp, C = countryAt(s.i), miss = missingFor(Wp.cost, C);
+  if (miss) return toast(`${C.short} doesn't have enough ${miss} for a ${Wp.name.toLowerCase()}`);
+  for (const [r, n] of Object.entries(Wp.cost)) C.res[r] -= n;
+  // a powered weapon reloads slower when its country is short of power
+  s.rd = Wp.reload / (CFG.buildings[s.type].use ? Math.max(0.25, C.sat) : 1);
+  s.ready = game.time + s.rd;
+  launchShot(s, tx + 0.5, ty + 0.5, CFG.buildings[s.type].weapon);
 }
 function removeBuilding(i) {
   const b = buildingAt(i);
@@ -1561,25 +2011,36 @@ function removeBuilding(i) {
   game.buildings.splice(game.buildings.indexOf(b), 1);
   for (const arr of [game.stations, game.ports, game.selection]) { const k = arr.indexOf(i); if (k >= 0) arr.splice(k, 1); }
   game.links = game.links.filter(L => L.a !== i && L.b !== i);
-  clustersDirty = true;
 }
 const everyone = () => game.countries.reduce((a, c) => a + (c.alive ? c.people : 0), 0) + game.nations.reduce((a, n) => a + n.people, 0);
-function explode(x, y) {
-  const R = CFG.missile.radius, cx = Math.floor(x), cy = Math.floor(y), before = everyone();
+function explode(x, y, m) {
+  const Wp = CFG.weapons[m.w], R = Wp.radius, cx = Math.floor(x), cy = Math.floor(y), before = everyone();
+  const foe = m.ai >= 0 ? game.nations[m.ai] : null;
   const hit = new Map();                           // nation or country -> tiles hit
   let wrecked = 0;
-  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+  for (let dy = -Math.ceil(R); dy <= Math.ceil(R); dy++) for (let dx = -Math.ceil(R); dx <= Math.ceil(R); dx++) {
     if (dx * dx + dy * dy > R * R + 0.5 || !inb(cx + dx, cy + dy)) continue;
     const i = idx(cx + dx, cy + dy);
     if (building[i]) { removeBuilding(i); wrecked++; }
     const who = nationAt(i) || countryAt(i);
     if (who) hit.set(who, (hit.get(who) || 0) + 1);
   }
-  for (const [who, n] of hit) who.people = Math.max(0, who.people - n * CFG.missile.killPerTile);
-  recomputeBuildings();                            // lost houses: nations lose the people who lived in them
-  const killed = Math.round(before - everyone());
-  game.blasts.push({ x, y, t: 0 });
-  floatText(x, y - R - 1.5, `${killed} killed · ${wrecked} building${wrecked === 1 ? '' : 's'} destroyed`, '#ff7a6b');
+  for (const [who, n] of hit) {
+    who.people = Math.max(0, who.people - n * Wp.kill);
+    if (!foe && who.col) provoke(who);             // you shelled a nation: that's war
+  }
+  let lost = 0;                                    // expeditions caught in the blast are gone
+  for (const e of game.expeditions) {
+    if (e.done || Math.hypot(e.x - x, e.y - y) > R + 0.8) continue;
+    e.done = true; lost += Math.floor(e.n);
+    if (game.driving === e) game.driving = null;
+    toast(foe ? `Your expedition was destroyed by ${foe.full}!` : 'Your expedition was caught in the blast.');
+  }
+  recomputeBuildings();                            // lost settlements: nations lose the people who lived there
+  const killed = Math.round(before - everyone()) + lost;
+  game.blasts.push({ x, y, t: 0, R, life: m.w === 'missile' ? 1.7 : 1.1, big: m.w === 'missile', seed: (x * 31 + y * 17) | 0 });
+  game.scorch.push({ x, y, R, t: 0 });
+  if (killed || wrecked) floatText(x, y - R - 1.5, `${killed} killed${wrecked ? ` · ${wrecked} building${wrecked === 1 ? '' : 's'} destroyed` : ''}`, '#ff7a6b');
 }
 
 function floatText(x, y, text, color) { game.floats.push({ x, y, text, color, t: 0 }); }
@@ -1668,22 +2129,6 @@ function drawWorldImage(img) {
 }
 const tileCenter = i => [i % W + 0.5, ((i / W) | 0) + 0.5];
 const fitZoom = () => Math.min(cw / W, (ch - 200) / H) * 0.96;
-
-let clusters = [], clustersDirty = true;
-function computeClusters() {
-  const B = 9, map = new Map();
-  for (const b of game.buildings) {
-    if (!CFG.buildings[b.type].cap) continue;
-    if (!owner[b.i] && !aiOf[b.i]) continue;
-    const x = b.i % W, y = (b.i / W) | 0, k = aiOf[b.i] + ':' + ((x / B) | 0) + ',' + ((y / B) | 0);
-    let c = map.get(k);
-    if (!c) map.set(k, c = { x: 0, y: 0, n: 0, top: 'house', cut: 0, ai: aiOf[b.i] });
-    c.x += x + 0.5; c.y += y + 0.5; c.n++;
-    if (LEVEL[b.type] > LEVEL[c.top]) c.top = b.type;
-  }
-  clusters = [...map.values()].map(c => ({ x: c.x / c.n, y: c.y / c.n, n: c.n, top: c.top, ai: c.ai }));
-  clustersDirty = false;
-}
 
 function pill(x, y, text, { bg = 'rgba(20,26,37,0.9)', fg = '#eef2f8', border = null, dot = null, size = 12, bold = 700 } = {}) {
   ctx.font = `${bold} ${size}px 'Segoe UI', Inter, Arial, sans-serif`;
@@ -2995,29 +3440,27 @@ function render() {
 
   if (z >= CFG.detailZoom) {
     // detail view: every deposit tile and building as a sprite
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-      const i = idx(x, y), dep = depositOf[i];
-      if (dep >= 0) {
-        const t = deposits[dep].type;
-        const jx = (hash2(x, y, 11) - 0.5) * 0.3, jy = (hash2(x, y, 12) - 0.5) * 0.3;
-        drawSprite(DEP_SPRITE[t], x + 0.5 + jx, y + 0.5 + jy, z * (t === 'forest' ? 2.3 : 1.9));
-      }
+    drawDepositsDetail(x0, y0, x1, y1, z);
+    for (const b of game.buildings) {
+      const x = b.i % W, y = (b.i / W) | 0;
+      if (b.type === 'settlement' && x >= x0 - 9 && x <= x1 + 9 && y >= y0 - 9 && y <= y1 + 9) drawSettlementDetail(b, z);
     }
     for (const b of game.buildings) {
       const x = b.i % W, y = (b.i / W) | 0;
-      if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'house' ? 1.45 : b.type === 'house3' || b.type === 'solar' ? 1.15 : 1.25));
+      if (b.type === 'settlement' || x < x0 || x > x1 || y < y0 || y > y1) continue;
+      drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'solar' ? 1.15 : 1.25));
     }
   } else if (z >= CFG.cityZoom) {
     // middle view: buildings as solid squares
     for (const b of game.buildings) {
+      if (b.type === 'settlement') continue;
       const [sx, sy] = toScreen(b.i % W, (b.i / W) | 0);
       ctx.fillStyle = BLD_COLOR[b.type];
       ctx.fillRect(sx + z * 0.12, sy + z * 0.12, z * 0.76, z * 0.76);
     }
+    drawSettlementBadges(z);
   } else {
-    // map view: city icons, station/port icons, deposit markers
-    if (clustersDirty) computeClusters();
+    // map view: settlement badges, station/port icons, deposit markers
     for (const d of deposits) {
       if (d.type === 'forest') continue;   // forests already show as dark green patches
       if (z < 1.6 && d.type === 'stone') continue;   // very far out: only iron, to avoid clutter
@@ -3034,23 +3477,12 @@ function render() {
       ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill();
       if (SPR[b.type].complete) ctx.drawImage(SPR[b.type], sx - 8, sy - 8, 16, 16);
     }
-    for (const c of clusters) {
-      if (z < 0.15) break;   // from orbit distance the whole disk is only a few pixels: no icons
-      const [sx, sy] = toScreen(c.x, c.y);
-      ctx.beginPath(); ctx.arc(sx, sy, 10, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill();
-      ctx.strokeStyle = c.ai ? game.nations[c.ai - 1].hex : { house: '#de6d4c', house2: '#7099c4', house3: '#c9d3df' }[c.top]; ctx.lineWidth = 2; ctx.stroke();
-      if (SPR[c.top].complete) ctx.drawImage(SPR[c.top], sx - 9, sy - 9, 18, 18);
-      if (c.n > 1) {
-        ctx.font = "700 10px 'Segoe UI', Arial, sans-serif"; ctx.textBaseline = 'middle';
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,26,37,0.9)';
-        ctx.strokeText(c.n, sx + 9, sy + 9); ctx.fillStyle = '#fff'; ctx.fillText(c.n, sx + 9, sy + 9);
-      }
-    }
+    drawSettlementBadges(z);
   }
 
   drawVehicles(z);
   drawBuildPreview(z);
+  drawReachHover(z);
   drawMissiles(z);
   drawSelection(z);
   drawDiskLabel(z);
@@ -3071,6 +3503,7 @@ function render() {
 
   // expeditions
   for (const e of game.expeditions) {
+    if (!e.auto) { drawVehicle(e, z); continue; }
     const [sx, sy] = toScreen(e.x, e.y), [tx, ty] = toScreen(e.tx, e.ty);
     ctx.setLineDash([2, 9]); ctx.lineCap = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#f2c14e';
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
@@ -3082,8 +3515,7 @@ function render() {
     const spr = overWater ? SPR.boat : SPR.truck;
     if (spr.complete) ctx.drawImage(spr, sx - 13, sy - 13, 26, 26);
     const eta = Math.hypot(e.tx - e.x, e.ty - e.y) / CFG.expeditionSpeed;
-    const load = Object.entries(e.kit).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(' · ');
-    pill(sx, sy + 30, `${overWater ? 'Boat' : 'Truck'} · ${e.n} people${load ? ' · ' + load : ''} · ${eta.toFixed(0)}s`, { dot: '#f2c14e', size: 11 });
+    pill(sx, sy + 30, `${e.n} people · ${eta.toFixed(0)}s`, { dot: '#f2c14e', size: 11 });
   }
 
   // floating texts
@@ -3095,8 +3527,173 @@ function render() {
   }
 }
 
+// Forests and deposits up close. Each tile gets a patch of ground (forest floor, gravel, rust-stained earth)
+// and one to three pieces picked by the tile's own hash: mixed trees with stands of conifers, boulders and
+// rubble, ore chunks with bright flecks. Thick in the middle of a deposit, thinner and smaller at its edge.
+const GROUND = { forest: 'rgba(32,62,30,0.36)', stone: 'rgba(118,122,126,0.38)', iron: 'rgba(120,66,44,0.42)' };
+const ROCKS = { stone: ['rockA', 'rockB', 'rockC'], iron: ['oreA', 'oreB', 'oreC'] };
+function drawDepositsDetail(x0, y0, x1, y1, z) {
+  const ground = { forest: new Path2D(), stone: new Path2D(), iron: new Path2D() };
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const dep = depositOf[idx(x, y)];
+    if (dep < 0) continue;
+    const [sx, sy] = toScreen(x + 0.5 + (hash2(x, y, 31) - 0.5) * 0.3, y + 0.5 + (hash2(x, y, 32) - 0.5) * 0.3);
+    const r = z * (0.62 + hash2(x, y, 33) * 0.2), g = ground[deposits[dep].type];
+    g.moveTo(sx + r, sy); g.arc(sx, sy, r, 0, Math.PI * 2);
+  }
+  for (const t in ground) { ctx.fillStyle = GROUND[t]; ctx.fill(ground[t]); }
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {     // row by row, so nearer rows overlap the ones behind
+    const i = idx(x, y), dep = depositOf[i];
+    if (dep < 0 || building[i]) continue;
+    const t = deposits[dep].type;
+    let same = 0;
+    for (const [dx, dy] of DIRS4) if (inb(x + dx, y + dy) && depositOf[idx(x + dx, y + dy)] === dep) same++;
+    const inner = same === 4, n = inner ? (t === 'forest' ? 2 : 2 + (hash2(x, y, 41) < 0.35 ? 1 : 0)) : 1;
+    const pine = t === 'forest' && vnoise(x / 7, y / 7, 99) > 0.56;   // conifers come in stands
+    for (let k = 0; k < n; k++) {
+      const h1 = hash2(x + k * 17, y, 21), h2 = hash2(x, y + k * 17, 22), h3 = hash2(x + k * 5, y + k * 3, 23);
+      const wx = x + 0.5 + (h1 - 0.5) * 0.85, wy = y + 0.5 + (h2 - 0.5) * 0.6 + (k - (n - 1) / 2) * 0.3;
+      if (t === 'forest') {
+        const name = pine ? (h3 < 0.78 ? 'treeC' : 'treeB') : h3 < 0.42 ? 'treeA' : h3 < 0.76 ? 'treeB' : h3 < 0.92 ? 'treeD' : 'treeC';
+        drawSprite(name, wx, wy, z * (1.75 + h1 * 0.9) * (inner ? 1 : 0.78));
+      } else {
+        const big = inner && k === 0, name = ROCKS[t][big ? (h3 < 0.6 ? 0 : 1) : h3 < 0.3 ? 0 : h3 < 0.65 ? 1 : 2];
+        drawSprite(name, wx, wy, z * (big ? 2.1 + h1 * 0.6 : 1.35 + h1 * 0.7));
+      }
+    }
+  }
+}
+
+// The houses around a settlement are drawn, not built: more of them (and bigger ones) as it grows.
+// Always the same spots for the same settlement, skipping water, deposits and real buildings.
+function sprawlOf(b) {
+  const lvl = settlementLevel(b), n = Math.min(26, Math.floor(settlementCap(b) / 8));
+  if (b._n === n && b._lvl === lvl) return b.sprawl;
+  const side = sideOf(b.i), cx = b.i % W, cy = (b.i / W) | 0, out = [], used = new Set([b.i]);
+  for (let k = 0; k < 90 && out.length < n; k++) {
+    const a = hash2(b.i % 9973, k, 71) * Math.PI * 2, rad = 1.7 + hash2(b.i % 9973, k, 72) * (1.2 + Math.sqrt(k) * 0.55);
+    const x = Math.round(cx + Math.cos(a) * rad), y = Math.round(cy + Math.sin(a) * rad);
+    if (!inb(x, y)) continue;
+    const t = idx(x, y);
+    if (used.has(t) || !isLand(t) || sideOf(t) !== side || building[t] || depositOf[t] >= 0) continue;
+    used.add(t);
+    out.push({ x, y, type: lvl >= 3 && rad < 3.2 ? 'house3' : lvl >= 2 && rad < 3.8 ? 'house2' : 'house' });
+  }
+  out.sort((p, q) => p.y - q.y);
+  b._n = n; b._lvl = lvl; b.sprawl = out;
+  return out;
+}
+const OWN_HEX = '#2f7de1';
+function drawSettlementDetail(b, z) {
+  const x = b.i % W, y = (b.i / W) | 0, lvl = settlementLevel(b);
+  for (const h of sprawlOf(b)) drawSprite(h.type, h.x + 0.5, h.y + 0.5, z * (h.type === 'house' ? 1.2 : 1.0));
+  drawSprite('settle' + (lvl + 1), x + 0.5, y + 0.3, z * (2.5 + lvl * 0.35));
+  const foe = nationAt(b.i), [sx, sy] = toScreen(x + 0.5, y + 0.5);
+  pill(sx, sy + z * (1.5 + lvl * 0.18) + 10, `${CFG.settlement.levels[lvl].name} · ${Math.round(settlementCap(b))}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
+}
+// Zoomed out, a settlement is one badge: bigger with each level, ringed in its owner's colour,
+// with a gold arc for how full its country is.
+function drawSettlementBadges(z) {
+  if (z < 0.15) return;                            // from orbit the whole disk is only a few pixels: no icons
+  for (const b of game.buildings) {
+    if (b.type !== 'settlement') continue;
+    const [sx, sy] = toScreen(...tileCenter(b.i));
+    if (sx < -30 || sy < -30 || sx > cw + 30 || sy > ch + 30) continue;
+    const lvl = settlementLevel(b), foe = nationAt(b.i), who = foe || countryAt(b.i), col = foe ? foe.hex : OWN_HEX;
+    if (z < 1.2) {                                 // whole-disk view: just a dot, bigger for bigger places
+      ctx.beginPath(); ctx.arc(sx, sy, 2.2 + lvl * 0.9, 0, Math.PI * 2);
+      ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(20,26,37,0.9)'; ctx.stroke();
+      continue;
+    }
+    const r = 11 + lvl * 3, spr = SPR['settle' + (lvl + 1)];
+    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(20,26,37,0.88)'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.stroke();
+    if (spr.complete) ctx.drawImage(spr, sx - r * 0.85, sy - r * 0.85, r * 1.7, r * 1.7);
+    const full = who && who.cap > 0 ? clamp(who.people / who.cap, 0, 1) : 0;
+    if (full > 0.01) {
+      ctx.beginPath(); ctx.arc(sx, sy, r + 3.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * full);
+      ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.stroke(); ctx.lineCap = 'butt';
+    }
+    if (z >= 2.5) {
+      const txt = String(Math.round(settlementCap(b)));
+      ctx.font = "700 10px 'Segoe UI', Arial, sans-serif"; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,26,37,0.9)';
+      ctx.strokeText(txt, sx, sy + r + 6); ctx.fillStyle = '#fff'; ctx.fillText(txt, sx, sy + r + 6);
+      ctx.textAlign = 'left';
+    }
+  }
+}
+function reachRing(i, color, z, dash = [7, 6]) {
+  const [sx, sy] = toScreen(...tileCenter(i));
+  ctx.beginPath(); ctx.arc(sx, sy, CFG.settlement.reach * z, 0, Math.PI * 2);
+  ctx.setLineDash(dash); ctx.lineWidth = 1.8; ctx.strokeStyle = color; ctx.stroke(); ctx.setLineDash([]);
+}
+// placing a settlement: the land it would add in green, land another settlement already serves in grey
+function drawReachPreview(i, z) {
+  for (const b of game.buildings) if (b.type === 'settlement' && owner[b.i]) reachRing(b.i, 'rgba(255,255,255,0.28)', z, [3, 7]);
+  const side = sideOf(i);
+  if (side > 0 && z >= 1.5) {
+    eachInReach(i, t => {
+      if (sideOf(t) !== side || !isLand(t)) return;
+      const [sx, sy] = toScreen(t % W, (t / W) | 0);
+      ctx.fillStyle = isServed(t) ? 'rgba(150,158,170,0.30)' : 'rgba(123,211,137,0.30)';
+      ctx.fillRect(sx, sy, z + 0.5, z + 0.5);
+    });
+  }
+  reachRing(i, '#7bd389', z);
+}
+// pointing at a settlement (with nothing else selected) shows the land it reaches
+function drawReachHover(z) {
+  if (game.tool || game.aiming || blueprint || !mouse.in) return;
+  const t = hoverTile();
+  if (t && building[t.i] === BLD_CODE.settlement) reachRing(t.i, '#f2c14e', z);
+}
+
+// a vehicle you drive: the trail it has left, where it would settle, the vehicle itself, and its supplies
+function drawVehicle(e, z) {
+  const mine = game.driving === e, [sx, sy] = toScreen(e.x, e.y);
+  if (e.trail.length > 1) {
+    ctx.beginPath();
+    e.trail.forEach((p, k) => { const [x, y] = toScreen(p[0], p[1]); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.lineTo(sx, sy);
+    ctx.setLineDash([2, 8]); ctx.lineCap = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(242,193,78,0.75)'; ctx.stroke();
+    ctx.setLineDash([]); ctx.lineCap = 'butt';
+  }
+  if (mine) {                                      // the land a settlement here would start with
+    const site = settleSite(e);
+    if (site) {
+      const [cx, cy] = toScreen(...tileCenter(site.i)), ok = site.how === 'found';
+      ctx.beginPath(); ctx.arc(cx, cy, (CFG.outpostRadius + 0.5) * z, 0, Math.PI * 2);
+      ctx.fillStyle = ok ? 'rgba(123,211,137,0.14)' : 'rgba(47,125,225,0.14)'; ctx.fill();
+      ctx.setLineDash([6, 5]); ctx.lineWidth = 1.8; ctx.strokeStyle = ok ? '#7bd389' : OWN_HEX; ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  const size = clamp(z * 2.6, 26, 60), spr = e.kind === 'boat' ? SPR.boat : SPR.truck, left = Math.cos(e.a) < 0;
+  ctx.save();
+  ctx.translate(sx, sy);
+  if (mine) { ctx.beginPath(); ctx.arc(0, 0, size * 0.62, 0, Math.PI * 2); ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.stroke(); }
+  // a small arrow for the heading, then the vehicle (a truck turns with it; a boat just faces left or right)
+  ctx.save(); ctx.rotate(e.a);
+  ctx.beginPath(); ctx.moveTo(size * 0.82, 0); ctx.lineTo(size * 0.62, -size * 0.13); ctx.lineTo(size * 0.62, size * 0.13); ctx.closePath();
+  ctx.fillStyle = '#f2c14e'; ctx.fill();
+  ctx.restore();
+  if (e.kind === 'truck') { ctx.rotate(e.a); if (left) ctx.scale(1, -1); } else if (left) ctx.scale(-1, 1);
+  if (spr.complete) ctx.drawImage(spr, -size / 2, -size / 2, size, size);
+  ctx.restore();
+  // supplies bar and what's on board
+  const S = clamp(e.supplies / CFG.drive.supplies, 0, 1), bw = 64, by = sy + size * 0.62 + 6;
+  ctx.fillStyle = 'rgba(20,26,37,0.9)'; ctx.fillRect(sx - bw / 2 - 2, by - 2, bw + 4, 9);
+  ctx.fillStyle = S > 0.25 ? '#f2c14e' : '#ff7a6b'; ctx.fillRect(sx - bw / 2, by, bw * S, 5);
+  const load = Object.entries(e.kit).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(' · ');
+  pill(sx, by + 20, e.supplies > 0 ? `${Math.floor(e.n)} people${load ? ' · ' + load : ''} · supplies ${Math.ceil(e.supplies)}s`
+    : `${Math.floor(e.n)} people · out of supplies!`, { dot: e.supplies > 0 ? '#f2c14e' : '#ff7a6b', fg: e.supplies > 0 ? '#eef2f8' : '#ff7a6b', size: 11 });
+  if (mine) pill(sx, by + 42, 'Arrows / WASD drive · Space settle here · Esc let go', { size: 11, fg: '#aab4c4' });
+  else pill(sx, by + 42, 'Parked · X to drive', { size: 11, fg: '#aab4c4' });
+}
+
 function drawSelection(z) {
-  // selected houses: gold outline
+  // selected buildings: gold outline
   if (game.selection.length) {
     const s = Math.max(z, 3);
     ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2;
@@ -3114,7 +3711,7 @@ function drawSelection(z) {
         const [sx, sy] = toScreen(o.x, o.y);
         ctx.fillStyle = o.ok ? 'rgba(123,211,137,0.32)' : 'rgba(255,122,107,0.32)';
         ctx.fillRect(sx, sy, z, z);
-        if (z >= CFG.cityZoom) drawSprite(o.type, o.x + 0.5, o.y + 0.5, z * (o.type === 'house' ? 1.45 : 1.25), 0.55);
+        if (z >= CFG.cityZoom) drawSprite(o.type, o.x + 0.5, o.y + 0.5, z * 1.25, 0.55);
       }
     }
   }
@@ -3224,6 +3821,7 @@ window.addEventListener('mouseup', e => {
   }
   const t = hoverTile();
   if (!t) return;
+  if (game.over) return toast('Your last country has fallen. Press N to start a new map.');
   if (btn === 0) {
     if (game.tool) tryBuild(t.i, game.tool);
     else if (blueprint) clearSelection();          // with a selection, a click just deselects
@@ -3267,7 +3865,13 @@ window.addEventListener('keydown', e => {
     if (menuOpen && menuHover) pinToBar(menuHover, slot);          // in the E menu: put the hovered building on that key
     else if (game.hotbar[slot]) setTool(game.tool === game.hotbar[slot] ? null : game.hotbar[slot]);
   }
-  if (k === 'escape') { setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false); }
+  if (k === 'escape') {
+    if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast('Parked. Press X to take the wheel again.'); }
+    setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false);
+  }
+  if (k === ' ' && game.driving) { e.preventDefault(); if (!e.repeat) settleExpedition(game.driving); }
+  if (k === 'x' && !e.repeat) nextVehicle();
+  if (k.startsWith('arrow') && game.driving) e.preventDefault();
   if (k === 'f' && !e.repeat) setAiming(!game.aiming);
   if (k === 'e' && !e.repeat) toggleBuildMenu();
   if (k === 'c' && !e.repeat) {
@@ -3285,7 +3889,7 @@ window.addEventListener('keydown', e => {
     if (en.key !== k) continue;
     if (cam.follow === en.id) { stopFollow(); toast(`Let go of ${en.name}`); } else followBody(en.id);
   }
-  if (k === 'h') { stopFollow(); cam.anim = null; cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
+  if (k === 'h') { game.driving = null; stopFollow(); cam.anim = null; cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
   if (k === 'tab') {
     e.preventDefault();
     const alive = game.countries.filter(c => c.alive && c.tiles);
@@ -3308,6 +3912,7 @@ let mapStage = 0;
 const orbitZoom = () => clamp(Math.min(cw, ch - 200) / (2 * (MOON.orbitR + MOON.r)) * 0.96, CFG.zoomMin, CFG.zoomMax);
 const systemZoom = () => clamp(Math.min(cw, ch - 200) / (2 * (BODY.seedworld.orbit + BODY.seedworld.r * 2.5)) * 0.96, CFG.zoomMin, CFG.zoomMax);
 function toggleMapView() {
+  game.driving = null;
   stopFollow();
   if (mapStage === 0) {
     savedView = { ...cam }; mapStage = 1;
@@ -3324,6 +3929,11 @@ function toggleMapView() {
   }
 }
 function panKeys(dt) {
+  if (game.driving) {                              // at the wheel: the keys drive, and the camera rides along
+    const e = game.driving, k = Math.min(1, dt * 7);
+    cam.x += (e.x - cam.x) * k; cam.y += (e.y - cam.y) * k;
+    return;
+  }
   const s = 600 / cam.zoom * dt;
   let dx = 0, dy = 0;
   if (keys.has('arrowleft') || keys.has('a')) dx -= s;
@@ -3340,6 +3950,7 @@ function panKeys(dt) {
 // giants the camera just rides along, so you can watch things orbit around them.
 function followBody(id, { zoom, quiet, keepView } = {}) {
   const e = LOCK[id];
+  game.driving = null;
   cam.follow = id;
   setCamRot(0);
   cam.a0 = e.frame === 'rotating' ? e.pos()[2] : 0;     // the body's spin angle at the moment you lock on
@@ -3365,6 +3976,7 @@ function lockWorld() {
 function flyToCountry(c) {
   if (!c) return;
   game.active = c.id;
+  game.driving = null;
   stopFollow();
   const [x0, y0, x1, y1] = c.box;
   const z = clamp(Math.min(cw / (x1 - x0 + 16), (ch - 230) / (y1 - y0 + 16)), 1.2, 24);
@@ -3507,7 +4119,7 @@ function renderBuildMenu() {
       <div class="bm-body"><div class="bm-name">${b.name}${slot >= 0 ? ` <span class="bm-key" title="on your bar">${SLOT_KEYS[slot]}</span>` : ''}</div>
       <div class="bm-desc">${b.desc || ''}</div>
       <div class="bm-foot"><div class="cost">${cost}</div>
-      <div class="bm-status">${open ? (b.cap ? `+${b.cap} capacity` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : `🔒 unlocks at ${b.unlock} people`}</div></div></div>`;
+      <div class="bm-status">${open ? (type === 'settlement' ? `capacity from land · ${b.people} people` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : `🔒 unlocks at ${b.unlock} people`}</div></div></div>`;
     if (open) el.addEventListener('click', () => { setTool(type); toggleBuildMenu(false); });
     el.addEventListener('mouseenter', () => { menuHover = type; });
     el.addEventListener('mouseleave', () => { if (menuHover === type) menuHover = null; });
@@ -3538,6 +4150,7 @@ function toast(msg) {
 
 function updateHud() {
   const C = activeCountry();
+  if (!C) return;                                  // game over: nothing left to show
   const alive = game.countries.filter(c => c.alive).length;
   $('val-country').textContent = C.full;
   $('country-count').textContent = alive > 1 ? `${game.countries.filter(c => c.alive).indexOf(C) + 1} of ${alive}` : '';
@@ -3564,7 +4177,7 @@ function updateHud() {
   $('people-lbl').textContent = alive > 1 ? `PEOPLE · EMPIRE ${fmtNum(game.population)}` : 'PEOPLE';
   $('val-people').textContent = `${fmtNum(C.people)} / ${fmtNum(C.cap)}`;
   $('people-fill').style.width = (C.cap ? clamp(C.people / C.cap, 0, 1) * 100 : 0) + '%';
-  $('people-rate').innerHTML = (inc.people >= 1 ? `<span class="incoming">+${fmtNum(inc.people)} arriving</span> ` : '') + (C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : (C.people >= C.cap - 0.5 ? 'Full' : ''));
+  $('people-rate').innerHTML = (inc.people >= 1 ? `<span class="incoming">+${fmtNum(inc.people)} arriving</span> ` : '') + (C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : C.growth < 0 ? `<span style="color:var(--bad)">Overcrowded: ${C.growth.toFixed(1)} / sec</span>` : (C.people >= C.cap - 0.5 ? 'Full' : ''));
   $('send-n').textContent = `= ${sendFrom(C)} people`;
   $('bar-note').textContent = C.pw.workers
     ? `${fmtNum(Math.min(C.people, C.pw.workers))} at work${C.staff < 0.999 ? ` (need ${C.pw.workers})` : ''} · regrows fastest at half full`
@@ -3602,7 +4215,10 @@ function updateHover() {
     info += foe ? ` · ${foe.full} (AI) · ${fmtNum(foe.people)} people · ${(tileCost(t.i) + defenseAt(t.i)).toFixed(1)} people/tile to take`
       : ` · ${tileCost(t.i)} people/tile`;
     if (depositOf[t.i] >= 0) info += ` · ${deposits[depositOf[t.i]].type}`;
-    if (building[t.i]) info += ` · ${CFG.buildings[buildingAt(t.i).type].name}`;
+    if (building[t.i] === BLD_CODE.settlement) {
+      const sb = buildingAt(t.i), dark = owner[t.i] && sb.base > CFG.settlement.powerAbove && countryAt(t.i).sat < 0.999;
+      info += ` · ${CFG.settlement.levels[settlementLevel(sb)].name} · holds ${Math.round(settlementCap(sb))} people from ${sb.tiles} tiles in reach${dark ? ' (short of power: could hold ' + Math.round(sb.base) + ')' : ''}`;
+    } else if (building[t.i]) info += ` · ${CFG.buildings[buildingAt(t.i).type].name}`;
     else if (depositOf[t.i] >= 0 && !deposits[depositOf[t.i]].tiles.some(k => building[k]))
       info += ` · nobody works it yet: build a ${deposits[depositOf[t.i]].type === 'forest' ? "logger's cabin" : "miner's camp"}`;
     if (owner[t.i]) { const c = countryAt(t.i); if (c) info += ` · ${c.full}`; }
@@ -3618,20 +4234,20 @@ function updateHover() {
   };
 
   if (game.aiming) {
-    const R = CFG.buildings.silo.range, ds = silosOf().map(b => tileDist(b.i, t.x, t.y)), d = Math.min(...ds), ok = d <= R;
-    const foe = nationAt(t.i), mine = countryAt(t.i);
-    placeTip(`<div class="t">Fire a missile: click</div>
-      <div class="${ok ? 'g' : 'r'}">${ok ? `${Math.round(d)} tiles from your nearest silo` : `Out of range (${R} tiles from a silo)`}</div>
-      ${foe ? `<div class="d">Target: ${foe.full} · ${fmtNum(foe.people)} people</div>` : mine ? `<div class="r">That's your own land!</div>` : ''}
-      <div class="d">Cost: 10 wood · 10 iron · blast radius ${CFG.missile.radius}</div>
-      <div class="d">F or Esc to stop aiming</div>`, !ok);
+    const { inR, ready } = pickWeapon(t.x, t.y), o = ready || inR[0], foe = nationAt(t.i), mine = countryAt(t.i);
+    const cost = o ? Object.entries(o.Wp.cost).map(([r, n]) => `${n} ${r}`).join(' · ') : '';
+    placeTip(`<div class="t">${o ? 'Fire a ' + o.Wp.name.toLowerCase() : 'Fire'}: click</div>
+      <div class="${ready ? 'g' : 'r'}">${ready ? `${Math.round(o.d)} tiles from your ${CFG.buildings[o.b.type].name.toLowerCase()}` : o ? `Reloading: ${Math.ceil(o.b.ready - game.time)}s` : `Out of range (mortar ${CFG.weapons.shell.range} tiles, silo ${CFG.weapons.missile.range})`}</div>
+      ${foe ? `<div class="d">Target: ${foe.full} · ${fmtNum(foe.people)} people${foe.hostile ? '' : ' · not at war with you yet'}</div>` : mine ? `<div class="r">That's your own land!</div>` : ''}
+      ${o ? `<div class="d">Cost: ${cost} · blast radius ${o.Wp.radius}</div>` : ''}
+      <div class="d">F or Esc to stop aiming</div>`, !ready);
     return;
   }
   if (!game.tool && blueprint) {
     const plan = pastePlan(t.x, t.y), n = blueprint.items.length;
     const costTxt = Object.entries(plan.cost).map(([r, v]) => `${v} ${r}`).join(' · ') || 'nothing';
     const miss = missingFor(plan.cost, countryAt(t.i) || activeCountry());
-    placeTip(`<div class="t">Paste ${n} house${n > 1 ? 's' : ''}: press C</div>
+    placeTip(`<div class="t">Paste ${n} building${n > 1 ? 's' : ''}: press C</div>
       <div class="${plan.fit === n ? 'g' : 'r'}">${plan.fit} of ${n} fit here</div>
       <div class="d">Cost: ${costTxt}</div>
       ${miss ? `<div class="r">Not enough ${miss} for all of them</div>` : ''}
@@ -3649,10 +4265,11 @@ function updateHover() {
   const costTxt = Object.entries(cost).map(([r, n]) => `${n} ${r}`).join(' · ');
   const have = !why && building[t.i] ? buildingAt(t.i).type : null;
   let html = `<div class="t">${have ? `Upgrade ${CFG.buildings[have].name} → ${bdef.name}` : `Place ${bdef.name}`}</div>`;
-  if (bdef.cap) {
-    html += `<div class="g">+${bdef.cap - (have ? CFG.buildings[have].cap : 0)} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
-    if (!have && bdef.from) html += `<div class="d">Cheaper: click a ${CFG.buildings[bdef.from].name} to upgrade it</div>`;
-    if (bdef.use) html += `<div class="d">Uses ${bdef.use} MW; without power it holds ${bdef.cap - bdef.capPowered}</div>`;
+  if (type === 'settlement') {
+    const g = owner[t.i] ? settlementGain(t.i) : { gain: 0, fresh: 0, shared: 0 }, S = CFG.settlement;
+    html += `<div class="${g.gain >= 1 ? 'g' : 'r'}">+${Math.round(g.gain)} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
+    html += `<div class="d">${g.fresh} new tiles in reach${g.shared ? ` · ${g.shared} already served by another settlement` : ''}</div>`;
+    html += `<div class="d">Grows as you claim more land within ${S.reach} tiles. Above ${S.powerAbove} it needs ${S.cityUse} MW.</div>`;
   } else if (plan) {
     if (plan.path) {
       html += type === 'station'
@@ -3670,11 +4287,16 @@ function updateHover() {
     } else html += `<div class="d">Must go on ${type === 'rig' ? 'a resource deposit' : bdef.on.join(' or ')}</div>`;
     html += type === 'rig' ? `<div class="d">Uses ${bdef.use} MW and frees the workers; no power, no output</div>`
       : `<div class="d">Employs ${bdef.workers} people</div>`;
+  } else if (bdef.weapon) {
+    const Wp = CFG.weapons[bdef.weapon];
+    html += `<div class="g">Reaches ${Wp.range} tiles · reloads in ${Wp.reload}s · blast radius ${Wp.radius}</div>`;
+    html += `<div class="d">Each shot costs ${Object.entries(Wp.cost).map(([r, n]) => `${n} ${r}`).join(' and ')}${bdef.use ? ` · uses ${bdef.use} MW` : ''}. Press F to aim.</div>`;
   } else if (type === 'port') html += `<div class="d">Must be on the coast. Links to your other ports by sea.</div>`;
   else html += `<div class="d">Links to your nearest station by rail.</div>`;
-  html += `<div class="d">Cost: ${costTxt}${plan && plan.extra ? ' (incl. track)' : ''}${TC ? ', paid by ' + TC.short : ''}</div>`;
+  html += `<div class="d">Cost: ${costTxt}${bdef.people ? ` · ${bdef.people} people` : ''}${plan && plan.extra ? ' (incl. track)' : ''}${TC ? ', paid by ' + TC.short : ''}</div>`;
   if (why) html += `<div class="r">${why}</div>`;
   else if (miss) html += `<div class="r">Not enough ${miss}</div>`;
+  else if (bdef.people && TC && freePeople(TC) < bdef.people) html += `<div class="r">Needs ${bdef.people} free people</div>`;
   tip.innerHTML = html;
   tip.classList.toggle('bad', !!(why || miss));
   tip.style.display = 'block';
@@ -3682,46 +4304,105 @@ function updateHover() {
   tip.style.top = Math.min(mouse.y + 18, ch - 120) + 'px';
 }
 
+const WEAPON_RING = { shell: 'rgba(255,170,70,0.9)', missile: 'rgba(255,122,107,0.85)' };
 function drawMissiles(z) {
+  // burnt ground where something landed, fading over time
+  for (const sc of game.scorch) {
+    const [sx, sy] = toScreen(sc.x, sc.y), r = Math.max(5, sc.R * z * 0.95);
+    ctx.beginPath(); ctx.ellipse(sx, sy, r, r * 0.8, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(22,18,16,${0.42 * (1 - sc.t)})`; ctx.fill();
+  }
+  // reload bars under every weapon that's reloading (yours and theirs)
+  if (z >= CFG.cityZoom) for (const b of game.buildings) {
+    if (!CFG.buildings[b.type].weapon || (b.ready || 0) <= game.time || !b.rd) continue;
+    const [sx, sy] = toScreen(...tileCenter(b.i)), w = Math.max(20, z * 1.5), f = clamp(1 - (b.ready - game.time) / b.rd, 0, 1);
+    ctx.fillStyle = 'rgba(20,26,37,0.9)'; ctx.fillRect(sx - w / 2 - 1, sy + z * 0.75 - 1, w + 2, 6);
+    ctx.fillStyle = owner[b.i] ? '#7bd389' : '#ff7a6b'; ctx.fillRect(sx - w / 2, sy + z * 0.75, w * f, 4);
+  }
   if (game.aiming) {
-    const R = CFG.buildings.silo.range;
-    for (const b of silosOf()) {
-      const [sx, sy] = toScreen(...tileCenter(b.i));
-      ctx.beginPath(); ctx.arc(sx, sy, R * z, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,122,107,0.06)'; ctx.fill();
-      ctx.setLineDash([8, 6]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,122,107,0.85)'; ctx.stroke(); ctx.setLineDash([]);
+    for (const b of weaponsOf()) {
+      const [sx, sy] = toScreen(...tileCenter(b.i)), kind = CFG.buildings[b.type].weapon;
+      ctx.beginPath(); ctx.arc(sx, sy, CFG.weapons[kind].range * z, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,122,107,0.05)'; ctx.fill();
+      ctx.setLineDash(kind === 'shell' ? [4, 5] : [8, 6]); ctx.lineWidth = 2; ctx.strokeStyle = WEAPON_RING[kind]; ctx.stroke(); ctx.setLineDash([]);
     }
     const t = mouse.in ? hoverTile() : null;
     if (t) {
-      const [sx, sy] = toScreen(t.x + 0.5, t.y + 0.5), r = Math.max(10, (CFG.missile.radius + 0.5) * z);
-      ctx.lineWidth = 2; ctx.strokeStyle = '#ff7a6b';
+      const { inR, ready } = pickWeapon(t.x, t.y), o = ready || inR[0];
+      const [sx, sy] = toScreen(t.x + 0.5, t.y + 0.5), r = Math.max(8, ((o ? o.Wp.radius : 1.5) + 0.5) * z);
+      ctx.lineWidth = 2; ctx.strokeStyle = ready ? '#ff7a6b' : 'rgba(255,122,107,0.45)';
       ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(sx - r - 6, sy); ctx.lineTo(sx + r + 6, sy); ctx.moveTo(sx, sy - r - 6); ctx.lineTo(sx, sy + r + 6); ctx.stroke();
     }
   }
   for (const m of game.missiles) {
-    const dist = Math.hypot(m.x1 - m.x0, m.y1 - m.y0);
-    const at = e => {                              // a ballistic arc, lifted towards the top of the screen
-      const [sx, sy] = toScreen(lerp(m.x0, m.x1, e), lerp(m.y0, m.y1, e));
-      return [sx, sy - Math.sin(Math.PI * e) * Math.max(30, dist * z * 0.35)];
-    };
-    ctx.beginPath();
-    for (let k = 0; k <= 16; k++) { const [x, y] = at(m.t * k / 16); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(255,235,200,0.55)'; ctx.stroke();
-    const [hx, hy] = at(m.t);
-    ctx.beginPath(); ctx.arc(hx, hy, 6, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,150,60,0.45)'; ctx.fill();
-    ctx.beginPath(); ctx.arc(hx, hy, 3, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    const Wp = CFG.weapons[m.w], dist = Math.hypot(m.x1 - m.x0, m.y1 - m.y0), lift = Math.max(26, dist * z * Wp.arc);
+    const ground = e => toScreen(lerp(m.x0, m.x1, e), lerp(m.y0, m.y1, e));
+    const at = e => { const [sx, sy] = ground(e); return [sx, sy - Math.sin(Math.PI * e) * lift]; };   // a ballistic arc, lifted towards the top of the screen
+    const big = m.w === 'missile', k = clamp(z / 9, 0.75, 2.4) * (big ? 1 : 0.8);
+    const [hx, hy] = at(m.t), [px, py] = at(Math.max(0, m.t - 0.02)), ang = Math.atan2(hy - py, hx - px);
+    // where it will land, and its shadow racing along the ground
     const [tx, ty] = toScreen(m.x1, m.y1);
-    ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,122,107,0.8)';
-    ctx.beginPath(); ctx.arc(tx, ty, Math.max(8, CFG.missile.radius * z), 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = m.ai >= 0 ? 'rgba(255,90,70,0.95)' : 'rgba(255,122,107,0.7)';
+    ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(tx, ty, Math.max(7, Wp.radius * z), 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    const [gx, gy] = ground(m.t);
+    ctx.beginPath(); ctx.ellipse(gx, gy, 5 * k, 2.5 * k, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();
+    // smoke trail: puffs left along the arc, older ones bigger and fainter
+    const puffs = big ? 22 : 9, span = big ? 0.5 : 0.22;
+    for (let j = 1; j <= puffs; j++) {
+      const e = m.t - j / puffs * span;
+      if (e < 0) break;
+      const [qx, qy] = at(e), age = j / puffs;
+      ctx.beginPath(); ctx.arc(qx + Math.sin(j * 2.3 + m.x0) * 2 * k * age, qy, (1.6 + age * (big ? 5 : 2.5)) * k, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${big ? '225,225,225' : '150,150,150'},${0.5 * (1 - age)})`; ctx.fill();
+    }
+    ctx.save(); ctx.translate(hx, hy); ctx.rotate(ang); ctx.scale(k, k);
+    if (big) {
+      const fl = 7 + Math.random() * 6;               // the flame flickers
+      ctx.beginPath(); ctx.moveTo(-8, -2.6); ctx.lineTo(-8 - fl, 0); ctx.lineTo(-8, 2.6); ctx.closePath(); ctx.fillStyle = '#ff9a3c'; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-8, -1.4); ctx.lineTo(-8 - fl * 0.55, 0); ctx.lineTo(-8, 1.4); ctx.closePath(); ctx.fillStyle = '#fff3b0'; ctx.fill();
+      ctx.fillStyle = '#59616b';                       // fins
+      ctx.beginPath(); ctx.moveTo(-8, -2.4); ctx.lineTo(-10.5, -5.5); ctx.lineTo(-4.5, -2.4); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-8, 2.4); ctx.lineTo(-10.5, 5.5); ctx.lineTo(-4.5, 2.4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#eef1f3'; ctx.fillRect(-8, -2.4, 13, 4.8);
+      ctx.fillStyle = m.ai >= 0 ? game.nations[m.ai].hex : '#2f7de1'; ctx.fillRect(-3, -2.4, 3, 4.8);   // a band in its owner's colour
+      ctx.beginPath(); ctx.moveTo(5, -2.4); ctx.quadraticCurveTo(10.5, -1.6, 11.5, 0); ctx.quadraticCurveTo(10.5, 1.6, 5, 2.4); ctx.closePath(); ctx.fillStyle = '#d64045'; ctx.fill();
+      ctx.strokeStyle = 'rgba(30,36,44,0.7)'; ctx.lineWidth = 0.6; ctx.strokeRect(-8, -2.4, 13, 4.8);
+    } else {
+      ctx.beginPath(); ctx.ellipse(0, 0, 4.2, 2.8, 0, 0, Math.PI * 2); ctx.fillStyle = '#2b3038'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(1, -0.9, 1.8, 0.9, 0, 0, Math.PI * 2); ctx.fillStyle = '#8d969e'; ctx.fill();
+    }
+    ctx.restore();
   }
+  // explosions: a flash, a fireball, a shockwave ring, sparks, then smoke that hangs and rises
   for (const b of game.blasts) {
-    const [sx, sy] = toScreen(b.x, b.y), r = Math.max(14, (CFG.missile.radius + 1) * z) * (0.5 + b.t);
-    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
-    g.addColorStop(0, `rgba(255,245,200,${0.95 * (1 - b.t)})`);
-    g.addColorStop(0.4, `rgba(255,140,40,${0.8 * (1 - b.t)})`);
-    g.addColorStop(1, 'rgba(120,30,10,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill();
+    const [sx, sy] = toScreen(b.x, b.y), r0 = Math.max(b.big ? 16 : 9, (b.R + 1) * z);
+    const tf = Math.min(1, b.t * 2.2), ease = 1 - (1 - tf) * (1 - tf);     // the fire is over in under half the blast's life
+    for (let j = 0; j < (b.big ? 7 : 4); j++) {                           // smoke
+      const a = hash2(b.seed, j, 61) * Math.PI * 2, d = hash2(b.seed, j, 62) * r0 * 0.6;
+      const qx = sx + Math.cos(a) * d * (0.5 + b.t), qy = sy + Math.sin(a) * d * 0.6 - b.t * r0 * (0.5 + hash2(b.seed, j, 63) * 0.5);
+      ctx.beginPath(); ctx.arc(qx, qy, r0 * (0.22 + b.t * 0.35), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${60 + j * 9},${58 + j * 9},${58 + j * 9},${0.5 * Math.pow(1 - b.t, 1.4)})`; ctx.fill();
+    }
+    if (tf < 1) {
+      const fr = r0 * (0.35 + 0.75 * ease), g = ctx.createRadialGradient(sx, sy, 0, sx, sy, fr);
+      g.addColorStop(0, `rgba(255,250,220,${1 - tf})`);
+      g.addColorStop(0.35, `rgba(255,170,50,${0.9 * (1 - tf)})`);
+      g.addColorStop(0.75, `rgba(215,70,25,${0.6 * (1 - tf)})`);
+      g.addColorStop(1, 'rgba(90,20,10,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, fr, 0, Math.PI * 2); ctx.fill();
+      ctx.lineCap = 'round';
+      for (let j = 0; j < (b.big ? 14 : 7); j++) {                         // sparks flying outward
+        const a = hash2(b.seed, j, 64) * Math.PI * 2, v = 0.7 + hash2(b.seed, j, 65) * 0.9;
+        const d0 = r0 * ease * v * 0.9, d1 = r0 * ease * v * 1.25;
+        ctx.beginPath(); ctx.moveTo(sx + Math.cos(a) * d0, sy + Math.sin(a) * d0 * 0.8); ctx.lineTo(sx + Math.cos(a) * d1, sy + Math.sin(a) * d1 * 0.8);
+        ctx.strokeStyle = `rgba(255,${200 + j * 3},120,${1 - tf})`; ctx.lineWidth = b.big ? 2.2 : 1.5; ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+      ctx.beginPath(); ctx.ellipse(sx, sy, r0 * (0.3 + 1.5 * ease), r0 * (0.3 + 1.5 * ease) * 0.8, 0, 0, Math.PI * 2);   // shockwave
+      ctx.strokeStyle = `rgba(255,255,255,${0.75 * (1 - tf)})`; ctx.lineWidth = (b.big ? 5 : 3) * (1 - tf) + 0.5; ctx.stroke();
+    }
+    if (b.t < 0.07) { ctx.beginPath(); ctx.arc(sx, sy, r0 * 1.3, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,255,255,${0.85 * (1 - b.t / 0.07)})`; ctx.fill(); }
   }
 }
 
@@ -3733,6 +4414,7 @@ function drawBuildPreview(z) {
   const plan = planFor(t.i, type);
   const ok = !canBuild(t.i, type) && !missingFor(totalCost(type, plan, t.i), countryAt(t.i) || activeCountry());
   if (plan && plan.path) strokeRoute(plan.path, type === 'station' ? 'rail' : 'sea', z, true);
+  if (type === 'settlement') drawReachPreview(t.i, z);
   const [sx, sy] = toScreen(t.x, t.y);
   ctx.fillStyle = ok ? 'rgba(123,211,137,0.3)' : 'rgba(255,122,107,0.3)';
   ctx.fillRect(sx, sy, z, z);
@@ -3807,5 +4489,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, stopSaving: () => { noSave = true; } };
+window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, aiTake, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; } };
 init();

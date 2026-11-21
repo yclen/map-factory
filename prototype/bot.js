@@ -4,9 +4,9 @@
  *   ?bot        watch it play live (one decision a second)
  *   MFBot.simulate(30)   from the console: fast-forward 30 game-minutes and return a report
  *
- * It plays like a sensible beginner: work every deposit it owns, build houses when full,
- * push toward the nearest free deposit, send an expedition to iron if it has none, link
- * colonies by rail, then use what unlocks (apartments, burners, rigs, solar, city blocks).
+ * It plays like a sensible beginner: work every deposit it owns, found a settlement wherever
+ * enough of its land has none in reach, push toward the nearest free deposit, send an expedition
+ * to iron if it has none, link colonies by rail, then use what unlocks (burners, rigs, solar).
  */
 (() => {
   const G = window.__game, g = G.game, CFG = G.CFG, W = 1000;
@@ -19,6 +19,18 @@
   const cx = i => i % W, cy = i => (i / W) | 0;
   const dist = (i, x, y) => Math.hypot(cx(i) - x, cy(i) - y);
 
+  // the best place for a new settlement: sample this country's land that no settlement reaches yet
+  function settlementSite(C) {
+    const [bx0, by0, bx1, by1] = C.box;
+    let best = -1, bg = 0;
+    for (let k = 0; k < 60; k++) {
+      const x = bx0 + ((Math.random() * (bx1 - bx0 + 1)) | 0), y = by0 + ((Math.random() * (by1 - by0 + 1)) | 0), i = y * W + x;
+      if (!mine(C, i) || G.isServed(i) || G.building[i] || G.depositOf[i] >= 0) continue;
+      const g = G.settlementGain(i).gain;
+      if (g > bg) { bg = g; best = i; }
+    }
+    return { i: best, gain: bg };
+  }
   // free building spots in a country, nearest its centre first (keeps towns compact)
   function freeSpots(C, n = 6) {
     const out = [], x0 = Math.round(C.lx), y0 = Math.round(C.ly);
@@ -67,32 +79,31 @@
     if (alive().length > 1 && !owned(C, 'station').length && afford(C, B.station.cost, 0)) {
       const s = freeSpots(C, 1)[0]; if (s !== undefined && tryB(s, 'station') && g.links.length) mark('first rail link');
     }
-    // 5) housing when nearly full: upgrade if we can, else build
-    let built = 0;
-    while (C.people >= C.cap * 0.8 && built < 4) {
-      let did = false;
-      if (G.isUnlocked('house3') && mw.max - mw.need >= 3 && afford(C, B.house3.cost, 5)) {
-        const ap = owned(C, 'house2')[0]; if (ap && tryB(ap.i, 'house3')) { did = true; mark('first city block'); }
-      }
-      if (!did && G.isUnlocked('house2') && afford(C, B.house2.cost, 5)) {
-        const h = owned(C, 'house')[0]; if (h && tryB(h.i, 'house2')) { did = true; mark('first apartment'); }
-      }
-      const needStation = alive().length > 1 && alive().some(c => !owned(c, 'station').length);
-      if (!did && afford(C, B.house.cost, needStation ? 25 : 0)) { const s = freeSpots(C, 1)[0]; if (s !== undefined && tryB(s, 'house')) did = true; }
-      if (!did) break;
-      built++;
+    // 5) a new settlement wherever a good patch of land has none in reach
+    const needStation = alive().length > 1 && alive().some(c => !owned(c, 'station').length);
+    if (afford(C, B.settlement.cost, needStation ? 25 : 0) && G.freePeople(C) >= B.settlement.people + 10) {
+      const site = settlementSite(C);
+      if (site.gain >= 40 && tryB(site.i, 'settlement')) mark("first new settlement");
     }
     // 6) expand toward the nearest free deposit when there are people to spare
     const free = G.freePeople(C);
     if (free >= 40 && C.people >= C.cap * 0.9 && !g.pushes.some(p => G.liveCountry(p.country) === C)) {
-      let best = null, bd = 60;
+      const rad = Math.sqrt(C.tiles / Math.PI);        // roughly how far the border is from the centre
+      let best = null, bd = rad + 60;
       for (const d of G.deposits) {
         const i = d.tiles[0];
         if (G.owner[i] || G.aiOf[i]) continue;
         const dd = Math.hypot(d.cx - C.lx, d.cy - C.ly);
         if (dd < bd) { bd = dd; best = d; }
       }
-      const tx = best ? Math.round(best.cx) : Math.round(C.lx + 30), ty = best ? Math.round(best.cy) : Math.round(C.ly);
+      let tx = best ? Math.round(best.cx) : -1, ty = best ? Math.round(best.cy) : -1;
+      for (let k = 0; k < 16 && tx < 0; k++) {         // no deposit nearby: any free land just past the border
+        const a = Math.random() * Math.PI * 2, x = Math.round(C.lx + Math.cos(a) * (rad + 15)), y = Math.round(C.ly + Math.sin(a) * (rad + 15));
+        if (x < 0 || y < 0 || x >= W || y >= 1000) continue;
+        const i = y * W + x;
+        if (isLand(i) && !G.owner[i] && !G.aiOf[i]) { tx = x; ty = y; }
+      }
+      if (tx < 0) return;
       g.sendPct = 50; G.startPush(tx, ty);
     }
   }
@@ -114,14 +125,14 @@
     if (!best) return;
     g.active = home.id; g.sendPct = 25;
     const before = g.expeditions.length;
-    G.launchExpedition(Math.round(best.cx), Math.round(best.cy));
+    G.launchExpedition(Math.round(best.cx), Math.round(best.cy), { auto: true });   // the bot does not drive
     if (g.expeditions.length > before) mark(`expedition to iron (${Math.round(bd)} tiles)`);
   }
 
   function step() {
     for (const C of alive()) stepCountry(C);
     maybeExpedition();
-    for (const t of ['house2', 'burner', 'rig', 'silo', 'solar', 'house3']) if (G.isUnlocked(t)) mark(`unlocked ${B[t].name}`);
+    for (const t of ['burner', 'rig', 'silo', 'solar']) if (G.isUnlocked(t)) mark(`unlocked ${B[t].name}`);
     for (const p of [150, 300, 500, 1000, 2000, 5000]) if (g.peakPop >= p) mark(`${p} people`);
     if (g.countries.filter(c => c.alive).length > 1) mark('second country');
   }
@@ -134,7 +145,8 @@
       tiles: sum(c => c.tiles), wood: Math.round(sum(c => c.res.wood)), stone: Math.round(sum(c => c.res.stone)), iron: Math.round(sum(c => c.res.iron)),
       rate: RES.map(r => sum(c => (c.prod || {})[r] || 0)).join(' / '),
       power: `${sum(c => (c.mw || {}).need || 0)}/${sum(c => (c.mw || {}).max || 0)} MW`,
-      houses: ['house', 'house2', 'house3'].map(t => g.buildings.filter(b => b.type === t && G.owner[b.i]).length).join('/'),
+      // your settlements by level: hamlets / villages / towns / cities
+      settlements: [0, 1, 2, 3].map(l => g.buildings.filter(b => b.type === 'settlement' && G.owner[b.i] && G.settlementLevel(b) === l).length).join('/'),
     };
   }
 
