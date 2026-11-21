@@ -1213,12 +1213,28 @@ function stepPush(p, dt) {
   if (!cands.length || p.budget < cheapest || p.budget < grassCost) p.done = true;
 }
 
+// the tile just outside a country's border that's closest to a spot (falls back to its centre)
+function borderTileOf(C, tx, ty) {
+  let best = -1, bd = Infinity;
+  for (const i of frontier) {
+    const d = (i % W - tx) ** 2 + (((i / W) | 0) - ty) ** 2;
+    if (d >= bd) continue;
+    const x = i % W, y = (i / W) | 0;
+    for (const [dx, dy] of DIRS4) {
+      const n = idx(x + dx, y + dy);
+      if (inb(x + dx, y + dy) && owner[n] && liveCountry(countryOf[n]) === C) { best = i; bd = d; break; }
+    }
+  }
+  return best >= 0 ? best : idx(Math.floor(C.lx), Math.floor(C.ly));
+}
 function launchExpedition(tx, ty) {
   const t = idx(tx, ty);
   if (!isLand(t)) return toast('Pick a land tile for the expedition');
   if (owner[t]) return toast('That land is already yours. Left-click to expand instead.');
   if (aiOf[t]) return toast(`That's ${nationAt(t).full}. Take it by pushing in from your border (left-click), or hit it with missiles.`);
-  const { country: src, tile } = nearestCountryTo(tx, ty);
+  // expeditions leave from the country you're viewing (the one in the top bar), from its border nearest the target
+  const src = activeCountry() || nearestCountryTo(tx, ty).country;
+  const tile = borderTileOf(src, tx, ty);
   const n = sendFrom(src);
   if (n < 2) return toast(`${src.short} doesn't have enough people for an expedition`);
   src.people -= n;
@@ -1443,6 +1459,10 @@ function saveGame() {
 }
 // lay a save over the freshly generated (same seed, so same) world
 function loadGame(sv) {
+  // refuse a save that doesn't fit this version of the game (map size, building types), before touching anything
+  const tiles = (sv.runs || []).reduce((a, v, k) => (k % 2 ? a + v : a), 0);
+  if (tiles !== N || !Array.isArray(sv.countries) || !sv.countries.length || !Array.isArray(sv.links) ||
+      !Array.isArray(sv.buildings) || sv.buildings.some(b => !CFG.buildings[b[1]])) throw new Error('save does not fit this version');
   owner.fill(0); countryOf.fill(-1); aiOf.fill(0); building.fill(0); frontier.clear();
   game.buildings = []; game.stations.length = 0; game.ports.length = 0; game.countries = []; game.ownedCount = 0;
   for (const sc of sv.countries) {
@@ -1475,6 +1495,7 @@ function loadGame(sv) {
   fillLayer.img.data.fill(0); borderLayer.img.data.fill(0);
   for (let t = 0; t < N; t++) if (owner[t] || aiOf[t]) paintTerr(t);
   markDirty(fillLayer, 0, 0); markDirty(fillLayer, W - 1, H - 1); markDirty(borderLayer, 0, 0); markDirty(borderLayer, W - 1, H - 1);
+  if (!game.countries.some(c => c.alive && c.tiles)) throw new Error('save has no living country');
   if (sv.cam) Object.assign(cam, sv.cam);
   game.savedAt = game.time;
 }
@@ -3715,7 +3736,13 @@ function start() {
   cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5;
   if (RESUME) {
     try { loadGame(RESUME); }
-    catch (e) { console.warn('Could not load the save; starting fresh', e); noSave = true; toast('Could not load your save'); }
+    catch (e) {                                     // a save from an incompatible version: drop it and start this map fresh
+      console.warn('Could not load the save; starting fresh', e);
+      noSave = true;
+      try { localStorage.removeItem(SAVE_KEY); } catch (e2) { /* storage blocked */ }
+      location.reload();
+      return;
+    }
   }
   buildMenu();
   checkUnlocks(true);
