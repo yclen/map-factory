@@ -12,8 +12,9 @@ Add `?seed=123` to the address to replay a specific map, for example https://ycl
 
 - **A generated disk world:** 1000 × 1000 tiles of continents, islands, grassland, desert and snowy mountains, ringed by an ice wall, floating in a starfield.
 - **The core loop:** people regrow toward house capacity; click to push your border; deposits inside your territory produce wood, stone and iron; build houses to grow.
-- **Countries:** every territory is a named country with its own people and stockpile. Right-click far away to found a new one with an expedition, then link your countries with **rail stations** (they lay their own track) or **ports** (ships sail the route) to move people and cargo between them. Countries merge when their borders touch.
+- **Countries:** every territory is a named country with its own people and stockpile. Right-click far away to found a new one with an expedition, then link your countries with **rail stations** (they lay their own track) or **ports** (ships sail the route) to move people and cargo between them. Countries merge when their borders touch, and their names grow with them: *the Colony of Gorethus* → *Gorethus Harbor* → *the Free State of Gorethus* → … → *the United States of Gorethus*.
 - **Population unlocks:** press **E** for the build menu; stations, ports and the housing ladder (House → Apartment → City block, upgraded in place) unlock as your empire grows.
+- **AI nations and missiles:** static nations in their own colours share the disk. Push into their land to conquer it and take their houses, or soften them up first with missiles from a missile silo.
 - **Collectors:** deposits only produce once something works them: a logger's cabin or miner's camp (each employs 5 people) early on, powered mining rigs later.
 - **Energy:** every country has a power budget. Wood burners and solar panels make power; mining rigs and city blocks use it. Power stays inside a territory. Short on power, everything slows down evenly.
 - **Copy and paste:** drag a box over houses, press **C** to paste the layout elsewhere.
@@ -24,10 +25,11 @@ Add `?seed=123` to the address to replay a specific map, for example https://ycl
 
 | Input | Action |
 |---|---|
-| Click near your border | Expand toward that spot |
+| Click near your border | Expand toward that spot (into an AI nation: conquer it) |
 | Right-click far away | Send an expedition (becomes a boat over water) |
 | E | Build menu (everything, including what's still locked) |
-| 1 – 9, 0 | Build House / Apartment / City block / Station / Port / Wood burner / Mining rig / Solar panel / Logger's cabin / Miner's camp (once unlocked) · Esc cancels |
+| 1 – 9, 0, Q | Build House / Apartment / City block / Station / Port / Wood burner / Mining rig / Solar panel / Logger's cabin / Miner's camp / Missile silo (once unlocked) · Esc cancels |
+| F, then click | Fire a missile from your nearest silo in range |
 | Apartment or City block, then click a house | Upgrade it in place (cheaper than building fresh) |
 | Click inside one of your countries | View that country in the top bar (zoomed out: fly the camera to it) |
 | Tab · Shift+Tab | Fly to your next / previous country |

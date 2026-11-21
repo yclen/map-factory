@@ -5,9 +5,9 @@
  *   houses -> people capacity -> people regrow -> spend people to claim land
  *   -> deposits inside CONNECTED territory produce -> resources build houses
  *
- * Territory is either connected to your capital (touching it by land, or linked
- * by rail stations / ports) or cut off. Cut-off land produces nothing and its
- * houses don't count. Expedition outposts must be connected before supplies run out.
+ * Every separate piece of your territory is a country with its own people,
+ * stockpile and power. Expeditions found new countries; links move people and
+ * cargo between them. Names grow with each country's size.
  *
  * Everything you might want to tune is in CFG below.
  * Add ?seed=123 to the URL to replay a specific map.
@@ -70,8 +70,15 @@ const CFG = {
                desc: 'Build it on a forest so it produces wood. Employs 5 of the country\'s people, who can\'t be sent anywhere.' },
     camp:    { key: '0', name: "Miner's camp",   cap: 0, unlock: 0, cost: { wood: 15, stone: 5 }, workers: 5, on: ['stone', 'iron'],
                desc: 'Build it on stone or iron so it produces. Employs 5 of the country\'s people, who can\'t be sent anywhere.' },
+    // weapons
+    silo:    { key: 'q', name: 'Missile silo', cap: 0, unlock: 600, cost: { stone: 30, iron: 20 }, range: 60,
+               desc: 'Press F, then click a target up to 60 tiles away. Each missile costs 10 wood and 10 iron, destroys buildings and kills people where it lands.' },
   },
-  power: { burnerWood: 0.25, rigMult: 3 },   // wood/s a burner eats at full output; output multiplier of a powered rig
+  power: { burnerWood: 0.25, rigMult: 3 },
+  // AI nations (v1: static). Taking a tile of theirs costs extra people: defenseBase + defensePerDensity x (their people per tile)
+  ai: { count: 7, minDist: 75, radius: [8, 14], houses: [8, 24], fill: [0.6, 0.9], growth: 0.5,
+        defenseBase: 0.5, defensePerDensity: 2.5, killShare: 0.6 },
+  missile: { cost: { wood: 10, iron: 10 }, speed: 30, radius: 3, reload: 6, killPerTile: 3 },   // wood/s a burner eats at full output; output multiplier of a powered rig
 
   // rail: a new station links itself to the nearest station by the cheapest land route
   trackCostPerTile: { wood: 0.25, stone: 0.25 },
@@ -82,7 +89,6 @@ const CFG = {
 
   expeditionSpeed: 18,         // tiles per second
   outpostRadius: 3,            // land claimed on arrival
-  outpostSupply: 45,           // seconds to connect an outpost before its settlers starve
 
   // the moon: a smaller world orbiting the disk (visual only, for now)
   // orbit 30 = half the real Earth–Moon distance (the real Moon is ~60 Earth radii away)
@@ -240,6 +246,11 @@ const SHAPES = {
     <path d="M-3 -9 V11" stroke="#5a4310" stroke-width="0.9"/><path d="M-6 11 L-3 3 L0 11 Z" fill="#4a3a28"/>
     <path d="M5 -10 L12 -3 M8 -12 L4 -6 L10 -8" stroke="#8d969e" stroke-width="2" stroke-linecap="round"/>
     <path d="M6 -8 L13 1" stroke="#7a4a2a" stroke-width="1.6" stroke-linecap="round"/>`,
+  silo: `<rect x="-9" y="-8" width="22" height="21" fill="#000" opacity="0.22"/>
+    <rect x="-12" y="-11" width="24" height="22" rx="2" fill="#6c7480" stroke="#2b3038" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7" fill="#3a4049" stroke="#1d2126" stroke-width="1"/>
+    <path d="M0 -6 L2.6 -1 V5 H-2.6 V-1 Z" fill="#e8ecef" stroke="#59616b" stroke-width="0.7"/><path d="M-2.6 2 H2.6" stroke="#d64045" stroke-width="1.4"/>
+    <path d="M-12 -11 L-8 -7 M12 -11 L8 -7 M-12 11 L-8 7 M12 11 L8 7" stroke="#f2c14e" stroke-width="1.4"/>`,
   bolt: `<path d="M2 -11 L-7 2 H-1 L-3 11 L7 -3 H1 Z" fill="#f2c14e" stroke="#5a4310" stroke-width="0.9" stroke-linejoin="round"/>`,
   station: `<rect x="-10" y="-8" width="24" height="20" fill="#000" opacity="0.22"/>
     <rect x="-12" y="-10" width="24" height="20" rx="2" fill="#a3aab1" stroke="#4c535b" stroke-width="1"/>
@@ -272,9 +283,9 @@ for (const [name, inner] of Object.entries(SHAPES)) {
 const DEP_SPRITE = { forest: 'tree', stone: 'rock', iron: 'ore' };
 const DEP_RES = { forest: 'wood', stone: 'stone', iron: 'iron' };
 const DEP_COLOR = { forest: '#3f7a35', stone: '#a7adb3', iron: '#a8654a' };
-const BLD_CODE = { house: 1, house2: 2, station: 3, port: 4, house3: 5, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10 };
+const BLD_CODE = { house: 1, house2: 2, station: 3, port: 4, house3: 5, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10, silo: 11 };
 const BLD_COLOR = { house: '#cf5c3e', house2: '#5d84b0', house3: '#7c8fa4', station: '#8f979f', port: '#a67c52',
-  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b' };
+  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b', silo: '#6c7480' };
 // housing ladder helpers
 const LEVEL = { house: 1, house2: 2, house3: 3 };
 const buildingAt = i => (building[i] ? game.buildings.find(b => b.i === i) : null);
@@ -318,6 +329,7 @@ const landmass = new Int32Array(N).fill(-1);
 const owner = new Uint8Array(N);
 const depositOf = new Int16Array(N).fill(-1);
 const building = new Uint8Array(N);
+const aiOf = new Uint8Array(N);              // which AI nation owns each tile (0 = none; else nation id + 1)
 const deposits = [];
 let seaLevel = 0, mtnLevel = 0, maxElev = 1;
 let spawn = { x: 0, y: 0 };
@@ -330,8 +342,10 @@ const game = {
   time: 0, landTiles: 0, ownedCount: 0,
   ownedDep: { forest: 0, stone: 0, iron: 0 },
   buildings: [], stations: [], ports: [], links: [],
-  pushes: [], expeditions: [], outposts: [], floats: [],
+  pushes: [], expeditions: [], floats: [],
   sendPct: 25, tool: null, netDirty: true,
+  nations: [],                     // AI nations
+  missiles: [], blasts: [], aiming: false,
   selection: [],   // tiles of selected buildings (box-select with left-drag)
 };
 const frontier = new Set();   // unowned land tiles touching our territory
@@ -524,6 +538,7 @@ function generateWorld() {
     if (inb(x, y) && biome[idx(x, y)] !== OCEAN) claim(idx(x, y), home.id);
   }
   for (const i of townTiles) placeBuilding(i, 'house');
+  spawnNations();
   for (const id of startDeps) {
     const d = deposits[id];
     if (!d) continue;
@@ -532,6 +547,7 @@ function generateWorld() {
   }
   recomputeNetwork();
   home.people = Math.min(CFG.startPeople, home.cap);
+  game.started = true;
   game.population = game.peakPop = home.people;
 }
 
@@ -541,7 +557,7 @@ function generateWorld() {
 // Two 1-px-per-tile layers: a flat tint for every owned tile, and the border
 // pixels. Far out, both are drawn (chunky pixel border, like openfront). Close
 // up, only the tint is drawn and the border is stroked as thin lines instead.
-// Your countries are blue; a brand-new colony still waiting for houses is orange.
+// Your countries are blue (new colonies too); AI nations use their own colours.
 function makeLayer() {
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
@@ -563,27 +579,41 @@ const fillLayer = makeLayer(), borderLayer = makeLayer();
 const PIXEL_BORDER_BELOW = 6;   // zoom where the border switches from pixels to lines
 const COL = {
   fill: [47, 125, 225, 72], border: [28, 98, 214, 230],
-  cutFill: [255, 159, 67, 64], cutBorder: [232, 128, 40, 235],
 };
 
 function paintTerr(i) {
   const o = i * 4, f = fillLayer.img.data, b = borderLayer.img.data;
   const x = i % W, y = (i / W) | 0;
   markDirty(fillLayer, x, y); markDirty(borderLayer, x, y);
-  if (!owner[i]) { f[o + 3] = 0; b[o + 3] = 0; return; }
+  if (!owner[i]) {
+    const a = aiOf[i];
+    if (!a) { f[o + 3] = 0; b[o + 3] = 0; return; }
+    const col = game.nations[a - 1].col;
+    let edge = false;
+    for (const [dx, dy] of DIRS4) {
+      const nx = x + dx, ny = y + dy;
+      if (!inb(nx, ny) || aiOf[idx(nx, ny)] !== a) { edge = true; break; }
+    }
+    f[o] = col[0]; f[o + 1] = col[1]; f[o + 2] = col[2]; f[o + 3] = 78;
+    if (edge) { b[o] = col[0] * 0.75; b[o + 1] = col[1] * 0.75; b[o + 2] = col[2] * 0.75; b[o + 3] = 235; } else b[o + 3] = 0;
+    return;
+  }
   let border = false;
   for (const [dx, dy] of DIRS4) {
     const nx = x + dx, ny = y + dy;
     if (!inb(nx, ny) || !owner[idx(nx, ny)]) { border = true; break; }
   }
-  const cut = isCutOff(i);
-  const fc = cut ? COL.cutFill : COL.fill, bc = cut ? COL.cutBorder : COL.border;
+  const fc = COL.fill, bc = COL.border;
   f[o] = fc[0]; f[o + 1] = fc[1]; f[o + 2] = fc[2]; f[o + 3] = fc[3];
   if (border) { b[o] = bc[0]; b[o + 1] = bc[1]; b[o + 2] = bc[2]; b[o + 3] = bc[3]; } else b[o + 3] = 0;
 }
 
-function claim(i, cid) {
+function claim(i, cid, conquer = false) {
   if (owner[i] || !isLand(i)) return false;
+  if (aiOf[i]) {
+    if (!conquer) return false;
+    aiOf[i] = 0;                                   // their buildings on this tile are now yours
+  }
   owner[i] = 1;
   countryOf[i] = cid;
   game.ownedCount++;
@@ -595,7 +625,7 @@ function claim(i, cid) {
     if (!inb(nx, ny)) continue;
     const n = idx(nx, ny);
     if (owner[n]) paintTerr(n);
-    else if (isLand(n)) frontier.add(n);
+    else { if (aiOf[n]) paintTerr(n); if (isLand(n)) frontier.add(n); }
   }
   game.netDirty = true;
   return true;
@@ -611,20 +641,116 @@ const tileCost = i => CFG.tileCost[BIOME_KEY[biome[i]]];
 // ======================================================================
 const comp = new Int32Array(N).fill(-1);        // territory piece id per owned tile
 const countryOf = new Int16Array(N).fill(-1);   // which of your countries owns each tile
-const NAME_FORMS = ['the Kingdom of {}', 'the {} Republic', 'the Free State of {}', 'the Union of {}',
-  'the {} Dominion', 'the Federation of {}', 'the Duchy of {}', 'the {} Commonwealth'];
 function countryName(id) {
   const r = mulberry32(Math.floor(hash2(SEED, id + 1, 4242) * 4294967296));
   const short = makeName(r);
-  return { short, full: NAME_FORMS[(r() * NAME_FORMS.length) | 0].replace('{}', short) };
+  return { short, full: `the Colony of ${short}` };
 }
+// A country's title grows with its housing (people capacity) and fits its land:
+// the Colony of X -> X Harbor / X Hold / X Oasis / X Town -> the Republic of X -> the Federation of X -> the United States of X
+const TITLE_TIERS = [
+  { cap: 0 },
+  { cap: 50, coast: ['{} Harbor', 'Port {}'], mtn: ['{} Hold', '{} Peaks'], desert: ['{} Oasis', '{} Sands'], land: ['{} Town', '{} Crossing', '{} Vale'] },
+  { cap: 200, forms: ['the Free State of {}', 'the Republic of {}', 'the Kingdom of {}', 'the Duchy of {}'], coast: ['the Maritime Republic of {}'] },
+  { cap: 1000, forms: ['the Federation of {}', 'the {} Commonwealth', 'the Dominion of {}', 'the Union of {}'] },
+  { cap: 5000, forms: ['the United States of {}', 'the {} Empire', 'the Grand Union of {}'] },
+];
+function titleFor(c) {
+  const T = TITLE_TIERS[c.tier], n = Math.max(1, c.tiles), g = c.geo;
+  if (c.tier === 0) return `the Colony of ${c.short}`;
+  const env = g.port || g.coast / n > 0.06 ? 'coast' : g.mtn / n > 0.4 ? 'mtn' : g.desert / n > 0.4 ? 'desert' : 'land';
+  const opts = T.forms ? (env === 'coast' && T.coast ? [...T.forms, ...T.coast] : T.forms) : T[env];
+  return opts[Math.floor(hash2(SEED, c.id * 7 + c.tier, 5151) * opts.length)].replace('{}', c.short);
+}
+function retitle(c, quiet) {
+  const full = c.capBase + c.pw.capPow;                // housing with full power
+  let tier = c.tier;
+  while (tier + 1 < TITLE_TIERS.length && full >= TITLE_TIERS[tier + 1].cap) tier++;
+  const grew = tier > c.tier;
+  c.tier = tier;                                       // a title never shrinks back
+  const old = c.full;
+  c.full = titleFor(c);
+  if (grew && !quiet && old !== c.full) {
+    toast(`${old} is now ${c.full}!`);
+    floatText(c.lx, c.ly - 3, `Now ${c.full}`, '#f2c14e');
+  }
+}
+// ---------- AI nations (v1: static civilizations in their own colours) ----------
+const NATION_COLORS = [[214, 64, 69], [156, 89, 209], [232, 140, 40], [38, 166, 154], [219, 90, 160], [150, 115, 70], [120, 170, 60], [200, 190, 60]];
+const NATION_FORMS = ['the Empire of {}', 'the {} Horde', 'the Kingdom of {}', 'the {} Sultanate',
+  'the Realm of {}', 'the {} Khanate', 'the Theocracy of {}', 'the {} Imperium'];
+function nationName(k) {
+  const r = mulberry32(Math.floor(hash2(SEED, k + 1, 9191) * 4294967296));
+  const short = makeName(r);
+  return { short, full: NATION_FORMS[(r() * NATION_FORMS.length) | 0].replace('{}', short) };
+}
+function spawnNations() {
+  const r = mulberry32(Math.floor(hash2(SEED, 77, 31) * 4294967296));
+  const A = CFG.ai, centers = [{ x: spawn.x, y: spawn.y }];
+  let tries = 0;
+  while (game.nations.length < A.count && tries++ < 5000) {
+    const x = (r() * W) | 0, y = (r() * H) | 0, c = idx(x, y);
+    if ((biome[c] !== GRASS && biome[c] !== DESERT) || owner[c] || aiOf[c]) continue;
+    if (centers.some(q => (q.x - x) ** 2 + (q.y - y) ** 2 < A.minDist ** 2)) continue;
+    const rad = A.radius[0] + r() * (A.radius[1] - A.radius[0]), R = Math.ceil(rad), lm = landmass[c];
+    const tiles = [];
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      if (dx * dx + dy * dy > rad * rad || !inb(x + dx, y + dy)) continue;
+      const i = idx(x + dx, y + dy);
+      if (isLand(i) && !owner[i] && !aiOf[i] && landmass[i] === lm) tiles.push(i);
+    }
+    if (tiles.length < 60) continue;
+    const k = game.nations.length, col = NATION_COLORS[k % NATION_COLORS.length];
+    game.nations.push({ id: k, ...nationName(k), col, hex: `rgb(${col.join(',')})`, people: 0, cap: 0, tiles: 0,
+      lx: x + 0.5, ly: y + 0.5, alive: true, growth: 0 });
+    for (const i of tiles) aiOf[i] = k + 1;
+    // their town: houses round the centre (the biggest ones in the middle), collectors on their deposits
+    const spots = tiles.filter(i => depositOf[i] < 0 && (biome[i] === GRASS || biome[i] === DESERT))
+      .map(i => ({ i, d: (i % W - x) ** 2 + (((i / W) | 0) - y) ** 2 + r() * 3 })).sort((a, b) => a.d - b.d);
+    const nh = A.houses[0] + ((r() * (A.houses[1] - A.houses[0])) | 0);
+    spots.slice(0, nh).forEach((o, j) => placeBuilding(o.i, j < nh * 0.3 && r() < 0.7 ? 'house2' : 'house'));
+    const seen = new Set();
+    for (const i of tiles) {
+      const d = depositOf[i];
+      if (d < 0 || seen.has(d) || building[i]) continue;
+      seen.add(d);
+      placeBuilding(i, deposits[d].type === 'forest' ? 'cabin' : 'camp');
+    }
+    centers.push({ x, y });
+  }
+  recomputeNations();
+  for (const n of game.nations) n.people = Math.round(n.cap * (A.fill[0] + r() * (A.fill[1] - A.fill[0])));
+  for (let i = 0; i < N; i++) if (aiOf[i]) paintTerr(i);
+}
+function recomputeNations() {
+  for (const n of game.nations) { n.cap = 0; n.tiles = 0; n.sx = 0; n.sy = 0; }
+  for (let i = 0; i < N; i++) {
+    if (!aiOf[i]) continue;
+    const n = game.nations[aiOf[i] - 1];
+    n.tiles++; n.sx += i % W; n.sy += (i / W) | 0;
+  }
+  for (const b of game.buildings) if (aiOf[b.i]) game.nations[aiOf[b.i] - 1].cap += CFG.buildings[b.type].cap || 0;
+  for (const n of game.nations) {
+    if (n.tiles) { n.lx = n.sx / n.tiles + 0.5; n.ly = n.sy / n.tiles + 0.5; }
+    n.people = Math.min(n.people, n.cap);          // lost houses: the people who lived there are gone
+    if (n.alive && !n.tiles) { n.alive = false; n.people = 0; toast(`You conquered ${n.full}!`); }
+  }
+  clustersDirty = true;
+}
+const nationAt = i => (aiOf[i] ? game.nations[aiOf[i] - 1] : null);
+// extra people it costs to take one tile of a nation's land: the more crowded they are, the harder they fight
+const defenseAt = i => {
+  const n = nationAt(i);
+  return n ? CFG.ai.defenseBase + CFG.ai.defensePerDensity * n.people / Math.max(1, n.tiles) : 0;
+};
+
 const newPower = () => ({ burners: 0, solar: 0, need: 0, capPow: 0, workers: 0,
   rigDep: { forest: 0, stone: 0, iron: 0 }, colDep: { forest: 0, stone: 0, iron: 0 } });
 // people not working a collector: only they can be sent on pushes and expeditions
 const freePeople = c => Math.max(0, c.people - c.pw.workers);
-function newCountry({ people = 0, res = {}, supply = 0 } = {}) {
+function newCountry({ people = 0, res = {} } = {}) {
   const id = game.countries.length;
-  const c = { id, ...countryName(id), people, cap: 0, growth: 0, supply,
+  const c = { id, ...countryName(id), people, cap: 0, growth: 0, tier: 0, geo: { coast: 0, mtn: 0, desert: 0, port: 0 },
     res: { wood: 0, stone: 0, iron: 0, ...res }, rates: { wood: 0, stone: 0, iron: 0 },
     ownedDep: { forest: 0, stone: 0, iron: 0 }, tiles: 0, lx: 0, ly: 0, alive: true, mergedInto: -1,
     capBase: 0, capPow: 0, sat: 1, pw: newPower(), mw: { gen: 0, max: 0, need: 0, burn: 0 } };
@@ -638,12 +764,10 @@ function liveCountry(id) {                       // follows merges to the countr
 }
 const countryAt = i => (owner[i] ? liveCountry(countryOf[i]) : null);
 const activeCountry = () => liveCountry(game.active) || liveCountry(0) || game.countries.find(c => c.alive);
-const isCutOff = i => { const c = countryAt(i); return !!c && c.supply > 0; };   // a new colony still waiting for houses
 
 function mergeCountry(from, into) {
   into.people += from.people;
   for (const r in from.res) into.res[r] += from.res[r];
-  into.supply = into.supply > 0 && from.supply > 0 ? Math.max(into.supply, from.supply) : 0;
   from.alive = false; from.mergedInto = into.id; from.people = 0;
   if (game.active === from.id) game.active = into.id;
   toast(`${from.short} has merged into ${into.full}`);
@@ -684,11 +808,13 @@ function recomputeNetwork() {
     pieceCountry[pc] = best;
   }
   // 3) relabel tiles and recount every country
-  for (const c of game.countries) { c.capBase = 0; c.tiles = 0; c.sx = 0; c.sy = 0; c.ownedDep = { forest: 0, stone: 0, iron: 0 }; c.pw = newPower(); }
+  for (const c of game.countries) { c.capBase = 0; c.tiles = 0; c.sx = 0; c.sy = 0; c.ownedDep = { forest: 0, stone: 0, iron: 0 }; c.pw = newPower(); c.geo = { coast: 0, mtn: 0, desert: 0, port: 0 }; }
   for (let i = 0; i < N; i++) {
     if (!owner[i]) continue;
     const c = game.countries[pieceCountry[comp[i]]];
     countryOf[i] = c.id; c.tiles++; c.sx += i % W; c.sy += (i / W) | 0;
+    if (biome[i] === MOUNTAIN) c.geo.mtn++; else if (biome[i] === DESERT) c.geo.desert++;
+    if (isCoastal(i)) c.geo.coast++;
   }
   for (const c of game.countries) if (c.tiles) { c.lx = c.sx / c.tiles + 0.5; c.ly = c.sy / c.tiles + 0.5; }
   // bounding box per country (for flying the camera to it)
@@ -699,20 +825,24 @@ function recomputeNetwork() {
     if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y;
   }
   for (const b of game.buildings) {
+    if (!owner[b.i]) continue;                    // an AI nation's building
     const def = CFG.buildings[b.type], c = game.countries[countryOf[b.i]];
     if (def.cap) { c.capBase += def.cap - (def.capPowered || 0); c.pw.capPow += def.capPowered || 0; }
     if (def.use) c.pw.need += def.use;
     if (b.type === 'burner') c.pw.burners++;
     if (b.type === 'solar') c.pw.solar++;
     if (def.workers) c.pw.workers += def.workers;
+    if (b.type === 'port') c.geo.port++;
     if (b.type === 'rig' || def.on) {
       const d = deposits[depositOf[b.i]], into = b.type === 'rig' ? c.pw.rigDep : c.pw.colDep;
       for (const t of d.tiles) if (owner[t] && countryOf[t] === c.id) into[d.type]++;
     }
   }
   for (const c of game.countries) c.cap = c.capBase + c.pw.capPow * c.sat;
+  for (const c of game.countries) if (c.alive && c.tiles) retitle(c, !game.started);
   for (const d of deposits) for (const t of d.tiles) if (owner[t]) game.countries[countryOf[t]].ownedDep[d.type]++;
   for (let i = 0; i < N; i++) if (owner[i]) paintTerr(i);
+  recomputeNations();
   game.netDirty = false;
   clustersDirty = true;
 }
@@ -1008,17 +1138,19 @@ function stepPush(p, dt) {
   cands.sort((a, b) => a.s - b.s);
   for (const c of cands) {
     if (owner[c.i]) continue;
-    const cost = tileCost(c.i), work = cost / grassCost;
+    const def = defenseAt(c.i), cost = tileCost(c.i) + def, work = cost / grassCost;
     if (cost > p.budget) continue;
     if (work > p.work) break;
     p.work -= work; p.budget -= cost;
-    claim(c.i, cid);
+    const foe = nationAt(c.i);
+    if (foe) foe.people = Math.max(0, foe.people - def * CFG.ai.killShare);
+    claim(c.i, cid, true);
     // marker follows the part of the front closest to the target
     const cx = c.i % W + 0.5, cy = ((c.i / W) | 0) + 0.5;
     if (p.lx == null || Math.hypot(cx - p.tx, cy - p.ty) < Math.hypot(p.lx - p.tx, p.ly - p.ty) + 1.5) { p.lx = cx; p.ly = cy; }
     if (p.work < 1) break;
   }
-  const cheapest = cands.length ? Math.min(...cands.slice(0, 40).map(c => tileCost(c.i))) : Infinity;
+  const cheapest = cands.length ? Math.min(...cands.slice(0, 40).map(c => tileCost(c.i) + defenseAt(c.i))) : Infinity;
   if (!cands.length || p.budget < cheapest || p.budget < grassCost) p.done = true;
 }
 
@@ -1026,6 +1158,7 @@ function launchExpedition(tx, ty) {
   const t = idx(tx, ty);
   if (!isLand(t)) return toast('Pick a land tile for the expedition');
   if (owner[t]) return toast('That land is already yours. Left-click to expand instead.');
+  if (aiOf[t]) return toast(`That's ${nationAt(t).full}. Take it by pushing in from your border (left-click), or hit it with missiles.`);
   const { country: src, tile } = nearestCountryTo(tx, ty);
   const n = sendFrom(src);
   if (n < 2) return toast(`${src.short} doesn't have enough people for an expedition`);
@@ -1052,7 +1185,7 @@ function arrive(e) {
     floatText(e.tx, e.ty, `${e.n} joined ${there.short}`, '#f2c14e');
     return;
   }
-  const col = newCountry({ people: e.n, res: e.kit, supply: CFG.outpostSupply });
+  const col = newCountry({ people: e.n, res: e.kit });
   const r = CFG.outpostRadius;
   for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
     if (dx * dx + dy * dy > r * r + 1) continue;
@@ -1062,15 +1195,10 @@ function arrive(e) {
   recomputeNetwork();
   const live = liveCountry(col.id);
   if (live !== col) { toast(`The settlers joined ${live.full}`); return; }
-  game.outposts.push({ x: e.tx, y: e.ty, country: col.id });
   const kitTxt = Object.entries(e.kit).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing';
-  toast(`Founded ${col.full}! It has its own stockpile (${kitTxt}). Build houses there within ${CFG.outpostSupply}s, or link it home, before the settlers starve.`);
+  toast(`Founded ${col.full}! It has its own stockpile (${kitTxt}). Build houses there so its people can grow, and link it home to share people and cargo.`);
 }
 
-function stepOutpost(o) {
-  const c = liveCountry(o.country);
-  if (!c || c.supply <= 0) o.done = true;         // housed, merged, or the supplies ran out
-}
 
 // ======================================================================
 // select + copy/paste (left-drag a box over houses, press C to paste at the cursor)
@@ -1085,7 +1213,7 @@ function finishSelection(ax, ay, bx, by) {
     const x = b.i % W + 0.5, y = ((b.i / W) | 0) + 0.5;
     return x >= x0 && x <= x1 && y >= y0 && y <= y1;
   };
-  const sel = game.buildings.filter(b => inBox(b) && COPYABLE[b.type]);
+  const sel = game.buildings.filter(b => inBox(b) && COPYABLE[b.type] && owner[b.i]);
   if (!sel.length) { clearSelection(); return toast('No houses in that box'); }
   setTool(null);
   game.selection = sel.map(b => b.i);
@@ -1172,18 +1300,6 @@ function tick(dt) {
       c.growth = CFG.growthRate * c.people * (1 - c.people / c.cap) + CFG.growthBase;
       c.people = Math.min(c.cap, c.people + c.growth * dt);
     } else c.growth = 0;
-    // a new colony: settled once it can house everyone; if supplies run out first, the extra settlers starve
-    if (c.supply > 0) {
-      c.supply -= dt;
-      if (c.people <= c.cap + 0.01) {
-        c.supply = 0; game.netDirty = true;
-        floatText(c.lx, c.ly - 2, `${c.short} is settled!`, '#7bd389');
-      } else if (c.supply <= 0) {
-        const lost = Math.floor(c.people - c.cap);
-        c.people = c.cap; c.supply = 0; game.netDirty = true;
-        floatText(c.lx, c.ly, `${lost} settlers starved in ${c.short}`, '#ff7a6b');
-      }
-    }
     pop += c.people;
   }
   game.population = pop;
@@ -1194,8 +1310,16 @@ function tick(dt) {
   game.pushes = game.pushes.filter(p => !p.done);
   for (const e of game.expeditions) stepExpedition(e, dt);
   game.expeditions = game.expeditions.filter(e => !e.done);
-  for (const o of game.outposts) stepOutpost(o);
-  game.outposts = game.outposts.filter(o => !o.done);
+  for (const m of game.missiles) { m.t += dt / m.dur; if (m.t >= 1) { m.done = true; explode(m.x1, m.y1); } }
+  game.missiles = game.missiles.filter(m => !m.done);
+  for (const b of game.blasts) b.t += dt / 0.9;
+  game.blasts = game.blasts.filter(b => b.t < 1);
+  // AI nations regrow toward their houses' capacity
+  for (const n of game.nations) {
+    if (!n.alive || n.people >= n.cap) { n.growth = 0; continue; }
+    n.growth = (CFG.growthRate * n.people * (1 - n.people / n.cap) + CFG.growthBase) * CFG.ai.growth;
+    n.people = Math.min(n.cap, n.people + n.growth * dt);
+  }
   for (const L of game.links) {
     const speed = L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed;
     L.t += speed * dt * L.dir;
@@ -1207,6 +1331,55 @@ function tick(dt) {
   }
   for (const f of game.floats) f.t += dt;
   game.floats = game.floats.filter(f => f.t < 2.4);
+}
+
+// ---------- missiles ----------
+const silosOf = () => game.buildings.filter(b => b.type === 'silo' && owner[b.i]);
+const tileDist = (i, x, y) => Math.hypot(i % W - x, ((i / W) | 0) - y);
+function setAiming(on) {
+  if (on && !silosOf().length) return toast(isUnlocked('silo') ? 'Build a missile silo first (Q)' : `Missiles need a missile silo, which unlocks at ${CFG.buildings.silo.unlock} people`);
+  game.aiming = on;
+  if (on) { setTool(null); clearSelection(); toast('Aiming: click a target in range · F or Esc to stop'); }
+}
+function fireMissile(tx, ty) {
+  const R = CFG.buildings.silo.range;
+  const inRange = silosOf().filter(b => tileDist(b.i, tx, ty) <= R).sort((a, b) => tileDist(a.i, tx, ty) - tileDist(b.i, tx, ty));
+  if (!inRange.length) return toast(`Out of range: short-range missiles reach ${R} tiles from a silo`);
+  const s = inRange.find(b => (b.ready || 0) <= game.time);
+  if (!s) return toast(`Reloading: ${Math.ceil(Math.min(...inRange.map(b => b.ready)) - game.time)}s`);
+  const C = countryAt(s.i), miss = missingFor(CFG.missile.cost, C);
+  if (miss) return toast(`${C.short} doesn't have enough ${miss} for a missile`);
+  for (const [r, n] of Object.entries(CFG.missile.cost)) C.res[r] -= n;
+  s.ready = game.time + CFG.missile.reload;
+  const [x0, y0] = tileCenter(s.i);
+  game.missiles.push({ x0, y0, x1: tx + 0.5, y1: ty + 0.5, t: 0, dur: Math.max(0.7, tileDist(s.i, tx, ty) / CFG.missile.speed) });
+}
+function removeBuilding(i) {
+  const b = buildingAt(i);
+  if (!b) return;
+  building[i] = 0;
+  game.buildings.splice(game.buildings.indexOf(b), 1);
+  for (const arr of [game.stations, game.ports, game.selection]) { const k = arr.indexOf(i); if (k >= 0) arr.splice(k, 1); }
+  game.links = game.links.filter(L => L.a !== i && L.b !== i);
+  clustersDirty = true;
+}
+const everyone = () => game.countries.reduce((a, c) => a + (c.alive ? c.people : 0), 0) + game.nations.reduce((a, n) => a + n.people, 0);
+function explode(x, y) {
+  const R = CFG.missile.radius, cx = Math.floor(x), cy = Math.floor(y), before = everyone();
+  const hit = new Map();                           // nation or country -> tiles hit
+  let wrecked = 0;
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    if (dx * dx + dy * dy > R * R + 0.5 || !inb(cx + dx, cy + dy)) continue;
+    const i = idx(cx + dx, cy + dy);
+    if (building[i]) { removeBuilding(i); wrecked++; }
+    const who = nationAt(i) || countryAt(i);
+    if (who) hit.set(who, (hit.get(who) || 0) + 1);
+  }
+  for (const [who, n] of hit) who.people = Math.max(0, who.people - n * CFG.missile.killPerTile);
+  recomputeNetwork();                              // lost houses: nations lose the people who lived in them
+  const killed = Math.round(before - everyone());
+  game.blasts.push({ x, y, t: 0 });
+  floatText(x, y - R - 1.5, `${killed} killed · ${wrecked} building${wrecked === 1 ? '' : 's'} destroyed`, '#ff7a6b');
 }
 
 function floatText(x, y, text, color) { game.floats.push({ x, y, text, color, t: 0 }); }
@@ -1301,14 +1474,14 @@ function computeClusters() {
   const B = 9, map = new Map();
   for (const b of game.buildings) {
     if (!CFG.buildings[b.type].cap) continue;
-    const x = b.i % W, y = (b.i / W) | 0, k = ((x / B) | 0) + ',' + ((y / B) | 0);
+    if (!owner[b.i] && !aiOf[b.i]) continue;
+    const x = b.i % W, y = (b.i / W) | 0, k = aiOf[b.i] + ':' + ((x / B) | 0) + ',' + ((y / B) | 0);
     let c = map.get(k);
-    if (!c) map.set(k, c = { x: 0, y: 0, n: 0, top: 'house', cut: 0 });
+    if (!c) map.set(k, c = { x: 0, y: 0, n: 0, top: 'house', cut: 0, ai: aiOf[b.i] });
     c.x += x + 0.5; c.y += y + 0.5; c.n++;
     if (LEVEL[b.type] > LEVEL[c.top]) c.top = b.type;
-    if (isCutOff(b.i)) c.cut++;
   }
-  clusters = [...map.values()].map(c => ({ x: c.x / c.n, y: c.y / c.n, n: c.n, top: c.top, cut: c.cut > 0 }));
+  clusters = [...map.values()].map(c => ({ x: c.x / c.n, y: c.y / c.n, n: c.n, top: c.top, ai: c.ai }));
   clustersDirty = false;
 }
 
@@ -2578,11 +2751,21 @@ function render() {
 
   // close up: border as crisp lines along tile edges that face unowned land/water
   if (z >= PIXEL_BORDER_BELOW) {
-    const paths = { blue: new Path2D(), orange: new Path2D() };
+    const paths = { blue: new Path2D() };
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = idx(x, y);
-      if (!owner[i]) continue;
-      const p = isCutOff(i) ? paths.orange : paths.blue;
+      if (!owner[i]) {
+        const a = aiOf[i];
+        if (!a) continue;
+        const q = paths['n' + a] || (paths['n' + a] = new Path2D());
+        const [sx, sy] = toScreen(x, y);
+        if (x === 0 || aiOf[i - 1] !== a) { q.moveTo(sx, sy); q.lineTo(sx, sy + z); }
+        if (x === W - 1 || aiOf[i + 1] !== a) { q.moveTo(sx + z, sy); q.lineTo(sx + z, sy + z); }
+        if (y === 0 || aiOf[i - W] !== a) { q.moveTo(sx, sy); q.lineTo(sx + z, sy); }
+        if (y === H - 1 || aiOf[i + W] !== a) { q.moveTo(sx, sy + z); q.lineTo(sx + z, sy + z); }
+        continue;
+      }
+      const p = paths.blue;
       const [sx, sy] = toScreen(x, y);
       if (x === 0 || !owner[i - 1]) { p.moveTo(sx, sy); p.lineTo(sx, sy + z); }
       if (x === W - 1 || !owner[i + 1]) { p.moveTo(sx + z, sy); p.lineTo(sx + z, sy + z); }
@@ -2592,7 +2775,7 @@ function render() {
     ctx.lineCap = 'square';
     ctx.lineWidth = Math.min(4, 1.5 + z * 0.12);
     ctx.strokeStyle = '#1c62d6'; ctx.stroke(paths.blue);
-    ctx.strokeStyle = '#e8802a'; ctx.stroke(paths.orange);
+    for (const key in paths) if (key[0] === 'n') { ctx.strokeStyle = game.nations[+key.slice(1) - 1].hex; ctx.stroke(paths[key]); }
     ctx.lineCap = 'butt';
   }
 
@@ -2646,7 +2829,7 @@ function render() {
       const [sx, sy] = toScreen(c.x, c.y);
       ctx.beginPath(); ctx.arc(sx, sy, 10, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill();
-      ctx.strokeStyle = c.cut ? '#e8802a' : { house: '#de6d4c', house2: '#7099c4', house3: '#c9d3df' }[c.top]; ctx.lineWidth = 2; ctx.stroke();
+      ctx.strokeStyle = c.ai ? game.nations[c.ai - 1].hex : { house: '#de6d4c', house2: '#7099c4', house3: '#c9d3df' }[c.top]; ctx.lineWidth = 2; ctx.stroke();
       if (SPR[c.top].complete) ctx.drawImage(SPR[c.top], sx - 9, sy - 9, 18, 18);
       if (c.n > 1) {
         ctx.font = "700 10px 'Segoe UI', Arial, sans-serif"; ctx.textBaseline = 'middle';
@@ -2658,26 +2841,12 @@ function render() {
 
   drawVehicles(z);
   drawBuildPreview(z);
+  drawMissiles(z);
   drawSelection(z);
   drawDiskLabel(z);
 
   drawCountryLabels(z);
 
-  // new colonies: supply countdown ring
-  for (const o of game.outposts) {
-    const c = liveCountry(o.country);
-    if (!c) continue;
-    const [sx, sy] = toScreen(o.x, o.y);
-    const r = Math.max(26, CFG.outpostRadius * z * 1.6);
-    const frac = clamp(c.supply / CFG.outpostSupply, 0, 1);
-    ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
-    ctx.lineWidth = 5; ctx.strokeStyle = '#ff9f43'; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.arc(sx, sy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); ctx.stroke();
-    ctx.lineCap = 'butt';
-    pill(sx, sy - r - 30, `New colony: ${c.short} · ${Math.floor(c.people)} settlers · housing for ${c.cap}`, { dot: '#ff7a6b' });
-    pill(sx, sy - r - 8, `Supplies ${Math.ceil(c.supply)}s · build houses here or link it home`, { dot: '#ff9f43', size: 11 });
-  }
 
   // pushes: gold number at the advancing edge
   for (const p of game.pushes) {
@@ -2765,6 +2934,20 @@ function drawCountryLabels(z) {
     ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10,14,24,0.75)'; ctx.strokeText(text, sx, sy);
     ctx.fillStyle = c.id === game.active ? '#ffffff' : 'rgba(214,228,255,0.88)'; ctx.fillText(text, sx, sy);
   }
+  for (const n of game.nations) {
+    if (!n.alive) continue;
+    const span = Math.sqrt(n.tiles) * z;
+    if (span < 18) continue;
+    const [sx, sy0] = toScreen(n.lx, n.ly);
+    const size = clamp(span * 0.14, 10, 22);
+    const sy = sy0 + (z < CFG.cityZoom ? 14 + size * 0.6 : 0);
+    const text = (span > 160 ? n.full : n.short).toUpperCase();
+    ctx.font = `800 ${size}px 'Segoe UI', Inter, Arial, sans-serif`;
+    ctx.letterSpacing = `${Math.round(size * 0.12)}px`;
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10,14,24,0.75)'; ctx.strokeText(text, sx, sy);
+    const [r, g, b] = n.col;
+    ctx.fillStyle = `rgb(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)})`; ctx.fillText(text, sx, sy);
+  }
   ctx.restore();
 }
 
@@ -2819,6 +3002,8 @@ window.addEventListener('mouseup', e => {
   if (wasSel) { finishSelection(mouse.sx, mouse.sy, e.clientX, e.clientY); return; }
   if (wasDrag || e.target !== canvas) return;
   // a plain click on any body (or your world from far out) locks onto it
+  if (btn === 0 && game.aiming) { const t = hoverTile(); if (t) fireMissile(t.x, t.y); return; }
+  if (btn === 2 && game.aiming) { setAiming(false); return; }
   if (btn === 0 && !game.tool) {
     const [wx, wy] = toWorld(e.clientX, e.clientY);
     const body = bodyUnder(wx, wy);
@@ -2866,7 +3051,8 @@ window.addEventListener('keydown', e => {
   keys.add(e.key.toLowerCase());
   const k = e.key.toLowerCase();
   for (const [type, b] of Object.entries(CFG.buildings)) if (k === b.key) setTool(game.tool === type ? null : type);
-  if (k === 'escape') { setTool(null); clearSelection(); stopFollow(); if (menuOpen) toggleBuildMenu(false); }
+  if (k === 'escape') { setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false); }
+  if (k === 'f' && !e.repeat) setAiming(!game.aiming);
   if (k === 'e' && !e.repeat) toggleBuildMenu();
   if (k === 'c' && !e.repeat) {
     const t = mouse.in ? hoverTile() : null;
@@ -3042,6 +3228,7 @@ function buildMenu() {
 function setTool(t) {
   if (t && !isUnlocked(t)) return toast(`${CFG.buildings[t].name} unlocks when your empire reaches ${CFG.buildings[t].unlock} people`);
   game.tool = t;
+  if (t) game.aiming = false;
   document.querySelectorAll('.bbtn').forEach(el => el.classList.toggle('sel', el.dataset.type === t));
   canvas.classList.toggle('building', !!t);
 }
@@ -3152,12 +3339,14 @@ function updateHover() {
   let info = BIOME_NAME[b];
   if (b === ICE) info += ' · the edge of the world';
   if (isLand(t.i)) {
-    info += ` · ${tileCost(t.i)} people/tile`;
+    const foe = nationAt(t.i);
+    info += foe ? ` · ${foe.full} (AI) · ${fmtNum(foe.people)} people · ${(tileCost(t.i) + defenseAt(t.i)).toFixed(1)} people/tile to take`
+      : ` · ${tileCost(t.i)} people/tile`;
     if (depositOf[t.i] >= 0) info += ` · ${deposits[depositOf[t.i]].type}`;
     if (building[t.i]) info += ` · ${CFG.buildings[buildingAt(t.i).type].name}`;
     else if (depositOf[t.i] >= 0 && !deposits[depositOf[t.i]].tiles.some(k => building[k]))
       info += ` · nobody works it yet: build a ${deposits[depositOf[t.i]].type === 'forest' ? "logger's cabin" : "miner's camp"}`;
-    if (owner[t.i]) { const c = countryAt(t.i); if (c) info += ` · ${c.full}${c.supply > 0 ? ' (new colony)' : ''}`; }
+    if (owner[t.i]) { const c = countryAt(t.i); if (c) info += ` · ${c.full}`; }
   }
   $('hover-info').textContent = info;
 
@@ -3169,6 +3358,16 @@ function updateHover() {
     tip.style.top = Math.min(mouse.y + 18, ch - 120) + 'px';
   };
 
+  if (game.aiming) {
+    const R = CFG.buildings.silo.range, ds = silosOf().map(b => tileDist(b.i, t.x, t.y)), d = Math.min(...ds), ok = d <= R;
+    const foe = nationAt(t.i), mine = countryAt(t.i);
+    placeTip(`<div class="t">Fire a missile: click</div>
+      <div class="${ok ? 'g' : 'r'}">${ok ? `${Math.round(d)} tiles from your nearest silo` : `Out of range (${R} tiles from a silo)`}</div>
+      ${foe ? `<div class="d">Target: ${foe.full} · ${fmtNum(foe.people)} people</div>` : mine ? `<div class="r">That's your own land!</div>` : ''}
+      <div class="d">Cost: 10 wood · 10 iron · blast radius ${CFG.missile.radius}</div>
+      <div class="d">F or Esc to stop aiming</div>`, !ok);
+    return;
+  }
   if (!game.tool && blueprint) {
     const plan = pastePlan(t.x, t.y), n = blueprint.items.length;
     const costTxt = Object.entries(plan.cost).map(([r, v]) => `${v} ${r}`).join(' · ') || 'nothing';
@@ -3222,6 +3421,49 @@ function updateHover() {
   tip.style.display = 'block';
   tip.style.left = Math.min(mouse.x + 18, cw - 290) + 'px';
   tip.style.top = Math.min(mouse.y + 18, ch - 120) + 'px';
+}
+
+function drawMissiles(z) {
+  if (game.aiming) {
+    const R = CFG.buildings.silo.range;
+    for (const b of silosOf()) {
+      const [sx, sy] = toScreen(...tileCenter(b.i));
+      ctx.beginPath(); ctx.arc(sx, sy, R * z, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,122,107,0.06)'; ctx.fill();
+      ctx.setLineDash([8, 6]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,122,107,0.85)'; ctx.stroke(); ctx.setLineDash([]);
+    }
+    const t = mouse.in ? hoverTile() : null;
+    if (t) {
+      const [sx, sy] = toScreen(t.x + 0.5, t.y + 0.5), r = Math.max(10, (CFG.missile.radius + 0.5) * z);
+      ctx.lineWidth = 2; ctx.strokeStyle = '#ff7a6b';
+      ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx - r - 6, sy); ctx.lineTo(sx + r + 6, sy); ctx.moveTo(sx, sy - r - 6); ctx.lineTo(sx, sy + r + 6); ctx.stroke();
+    }
+  }
+  for (const m of game.missiles) {
+    const dist = Math.hypot(m.x1 - m.x0, m.y1 - m.y0);
+    const at = e => {                              // a ballistic arc, lifted towards the top of the screen
+      const [sx, sy] = toScreen(lerp(m.x0, m.x1, e), lerp(m.y0, m.y1, e));
+      return [sx, sy - Math.sin(Math.PI * e) * Math.max(30, dist * z * 0.35)];
+    };
+    ctx.beginPath();
+    for (let k = 0; k <= 16; k++) { const [x, y] = at(m.t * k / 16); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(255,235,200,0.55)'; ctx.stroke();
+    const [hx, hy] = at(m.t);
+    ctx.beginPath(); ctx.arc(hx, hy, 6, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,150,60,0.45)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, 3, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    const [tx, ty] = toScreen(m.x1, m.y1);
+    ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,122,107,0.8)';
+    ctx.beginPath(); ctx.arc(tx, ty, Math.max(8, CFG.missile.radius * z), 0, Math.PI * 2); ctx.stroke();
+  }
+  for (const b of game.blasts) {
+    const [sx, sy] = toScreen(b.x, b.y), r = Math.max(14, (CFG.missile.radius + 1) * z) * (0.5 + b.t);
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+    g.addColorStop(0, `rgba(255,245,200,${0.95 * (1 - b.t)})`);
+    g.addColorStop(0.4, `rgba(255,140,40,${0.8 * (1 - b.t)})`);
+    g.addColorStop(1, 'rgba(120,30,10,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 function drawBuildPreview(z) {
@@ -3287,5 +3529,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCutOff, isCoastal, OCEAN, depositOf, deposits, canBuild };
+window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode };
 init();

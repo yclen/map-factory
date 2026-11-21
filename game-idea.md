@@ -98,11 +98,25 @@ A browser prototype of the core loop is in [`prototype/`](prototype/). To play, 
 - **Connections:** a new outpost is **cut off** (outlined in orange, with a 45-second supply ring). Build a **station** there and it links itself by rail to your nearest station, with a train running on it. Or build a **port** on the coast and it links by sea to your nearest port, with a ship sailing the route. Once it's connected, the outpost turns blue, its settlers join your people, and its resources count. If you don't connect it in time, the settlers starve.
 - **Countries (v4):** every separate territory is a named **country** with its **own people, houses and stockpile**. The top bar shows the country you're viewing (click inside any of your countries to view it).
   - **Pushes and expeditions** use the people of the country nearest the spot you click.
-  - **An expedition founds a new country:** it carries a supply kit (20 wood, 20 stone, if home can spare it) and gets 45 seconds to house its settlers. Build houses there with its own stockpile, or link it home. If it runs out of time, the settlers who can't be housed starve.
+  - **An expedition founds a new country:** it carries a supply kit (20 wood, 20 stone, if home can spare it). The settlers simply live there: build houses with the colony's own stockpile so they can grow, or link it home. *(Until v8 there was a 45-second timer before unhoused settlers starved; it was removed.)*
   - **Links between your countries** (rail or sea) automatically move **people** toward the emptier country (an overcrowded colony evacuates home; a growing colony gets settlers) and **even out stockpiles** (a rich home supplies a broke colony). Rail moves 3 people and 4 cargo per second; sea 2 and 3.
   - **Countries merge** when their borders touch, pooling people and resources.
-  - **Names** are generated from the seed (e.g. *the Union of Ethbelzanus*, *the Federation of Gorethus*), and written across each country on the map when you zoom out.
+  - **Names** are generated from the seed and written across each country on the map when you zoom out. **Titles grow with the country** (v8), by its housing capacity, and fit its land:
+
+    | Housing | Title | Example |
+    |---|---|---|
+    | under 50 | colony | *the Colony of Gorethus* |
+    | 50+ | town, by geography: coast (or a port) → *Harbor / Port*, mostly mountains → *Hold / Peaks*, mostly desert → *Oasis / Sands*, else *Town / Crossing / Vale* | *Gorethus Harbor* |
+    | 200+ | nation: *Free State, Republic, Kingdom, Duchy* (coastal: also *Maritime Republic*) | *the Free State of Gorethus* |
+    | 1,000+ | *Federation, Commonwealth, Dominion, Union* | *the Federation of Gorethus* |
+    | 5,000+ | *United States, Empire, Grand Union* | *the United States of Gorethus* |
+
+    The choice within a tier is seeded, so a country keeps its name; a title never shrinks back if houses are lost. Growing a tier shows a toast ("Gorethus Vale is now the Free State of Gorethus!").
 - **Build menu (E) and population unlocks:** press **E** for every building, with a description, its cost, and what's still locked. New buildings unlock as your empire's peak population grows: House from the start, **Station at 150**, **Port at 200**, **Apartment at 300**, **City block at 1,000**. The bottom bar shows only what you've unlocked. Send % moved to **[ ]**.
+- **Colonies are just countries (v8):** a new colony is blue like the rest of your empire, with **no supply timer**: its settlers simply live there until you build houses (they only grow into houses that exist). Orange is now an enemy colour.
+- **Names grow (v8):** *the Colony of Gorethus* → *Gorethus Vale / Harbor / Hold / Oasis* (50 housing) → *the Free State of Gorethus* (200) → *Federation…* (1,000) → *the United States of Gorethus* (5,000). See Countries.
+- **AI nations (v8):** 7 static nations spawn across the disk (seeded), each in its own colour with a name (*the Empire of Yrlia*), a ring of houses, cabins and camps on its deposits, and a population that regrows to fill its houses. Their city icons on the map have rings in their colour. **Click into their land to conquer it**: each tile costs your push extra people (0.5 + 2.5 × their people per tile) and kills some defenders; tiles with buildings hand you the buildings. A nation with no land left is conquered. Hovering their land shows their people and the cost per tile. (Test: 600 people took 118 of Yrlia's 155 tiles and its houses, raising the colony's capacity from 0 to 170.)
+- **Missiles (v8):** a **Missile silo** (Q, unlocks at 600 people) fires **short-range missiles**: press **F**, then click a target within 60 tiles (range circles show while aiming). Each shot costs 10 wood and 10 iron, reloads in 6 s, flies in an arc, and the blast (radius 3) destroys every building and kills 3 people per tile, including your own if you aim badly.
 - **Collectors (v7):** deposits only produce once something works them. **Logger's cabin** (key 9, on a forest) and **Miner's camp** (key 0, on stone or iron) each employ 5 people, who can't be sent; too few people and they slow down. The people panel shows how many are at work. The start town comes with both. The **Mining rig** is now the powered upgrade of either one (3x, frees the workers, no power = no output).
 - **Country select (v7):** zoomed out, **click one of your countries** to fly the camera to it and view its people, stockpile and power; **Tab** / **Shift+Tab** cycles through your countries; clicking the country name in the top bar flies back to it.
 - **Energy (v6):** each country has a **power budget**, shown in the top bar (MW used / MW available). **Wood burner** (400 people): 8 MW, burns up to 0.25 wood/s, only as much as needed. **Solar panel** (700): 1.5 MW per tile, free; solar is used first, so panels save wood. **Mining rig** (500): built on a deposit, triples it while powered, uses 4 MW, one per deposit. **City blocks** use 3 MW; without power they hold 30 instead of 80. Short on power, every user slows down evenly. Keys 6–8.
@@ -139,7 +153,7 @@ A browser prototype of the core loop is in [`prototype/`](prototype/). To play, 
 | Rail station | 15 wood · 10 stone + track | Links to the nearest station on the same landmass |
 | Track | 0.25 wood + 0.25 stone per tile | Desert tiles count 1.5×, mountain tiles 3×; max ~120 tiles per link |
 | Port | 20 wood · 10 stone | Must be on the coast; links to the nearest port by sea |
-| Outpost supplies | 45 seconds | Connect it in time or all settlers starve |
+| Outpost supplies | ~~45 seconds~~ removed in v8 | ~~Connect it in time or all settlers starve~~ |
 
 - A station or port with nothing to link to yet is still built. The next one you build links to it.
 - Each new station or port links to **one** other (the nearest), so your network grows as a chain or tree.
@@ -365,6 +379,22 @@ Dropped: wind (there is no wind on the disk), a separate coal plant (coal is jus
 - **Later: machines run on power.** A **Mining rig** is the upgrade of a cabin or camp (click it): 3x the output and the workers are freed, but it uses 4 MW, and **no power means no output**.
 - One collector per deposit. Your starting town comes with a cabin and a camp on its home forest and stone; colonies have to build their own.
 
+### AI nations and missiles (DECIDED 2026-11-21)
+**AI nations, v1: static civilizations.** They spawn at random places on the disk, each in its **own colour**, with a territory, houses, collectors on their deposits, and a population that regrows to fill their houses. They don't expand, build or attack yet; smarter AI comes later.
+
+**Conquest works like openfront:** you take their land by **pushing into it**, the same left-click as expanding. Enemy land costs more people than empty land: the more crowded the nation (people per tile), the harder each tile is to take, and every tile you take kills some of its defenders. **When your border reaches their buildings, you get them**: their houses become your houses, their cabins and camps become yours. A nation with no land left is gone.
+
+**Missiles are the first weapon.** Range is the whole idea, and it leads straight into rockets and space:
+
+| Tier | Reach | Status |
+|---|---|---|
+| **Short-range missile** | ~60 tiles from a missile silo | in the prototype |
+| **Long-range missile** | a few hundred tiles (across a sea) | later |
+| **Intercontinental missile** | anywhere on the disk | later; the step before real rockets |
+| **Warheads**: nuclear, then hydrogen | much bigger blasts on the same missiles | later |
+
+A missile is fired from a **Missile silo** and costs resources per shot. It flies in an arc, and the blast **destroys buildings** and **kills people** in a small radius, in anyone's territory. Missiles soften a nation before you push in: fewer houses means fewer people, which means cheaper land.
+
 ### A methodology for the tech tree
 A simple way to organise the whole progression, so it stays coherent as it grows:
 
@@ -501,7 +531,7 @@ Things the prototype had to pick that the design hasn't decided:
 - **Links balance automatically.** You can't yet choose to send people or cargo one way; links just move people toward the emptier country and even out stockpiles. Manual control (e.g. "send 50 settlers to Gorethus") may be needed for "choosing where your empire grows".
 - **Unlocks use the empire's peak population** (all countries added up, at its highest), so an unlock never disappears when you spend people.
 - **Unlock thresholds** (150 / 200 / 300) are placeholders.
-- **A colony that starves keeps its land**, with 0 people; it can be rebuilt if resources reach it.
+- ~~A colony that starves keeps its land~~ (settlers no longer starve; a colony is just a country)
 
 ### Design checklist
 Everything the design still has to work out, with where each stands after the 2026-11-21 brainstorms:
@@ -512,7 +542,7 @@ Everything the design still has to work out, with where each stands after the 20
 | 2 | **Object catalogue** | Every building, level and population threshold, kept as rows in one data table | **Draft v1 written**; housing ladder in the prototype |
 | 3 | **Production chains** | **No crafting chains**; only a few conversion steps that create real decisions (e.g. ice → hydrogen). Deposits need a **collector**: people early, powered machines later | **Decided, in the prototype** |
 | 4 | **Energy** | **The central system.** Per-country power budget, brownouts when short. Wood burner → solar → nuclear → geothermal → fusion. No wind, no compute | **Decided**; burner, solar, mining rig in the prototype |
-| 5 | **AI nations and combat** | AI countries that play like you but differently: build houses, expand, and **launch weapons at you**. Needs a full **military tech tree** | To do |
+| 5 | **AI nations and combat** | v1: **static nations** in their own colours; conquer them openfront-style by pushing in (you take their houses). First weapon: **missiles** in range tiers (short → long → intercontinental → nuclear/hydrogen warheads). Later: AI that expands and attacks | **v1 decided, in the prototype** |
 | 6 | **Goal** | **Fly into the black hole at the centre of the galaxy.** Eventually a whole galaxy of seeded solar systems; for now, just one system | **Decided** (galaxy later) |
 | 7 | **Losing and damage** | Part of combat: losing territory, damaged buildings | To do (with combat) |
 | 8 | **Space gameplay** | Where the game should **shine**: visit planets, mine them for resources, a **planetary tech tree** of advanced technology, and big weapons like **planet-slicing lasers** | To do |
@@ -526,7 +556,7 @@ Everything the design still has to work out, with where each stands after the 20
 1. ~~The **people-per-country model** in the prototype~~ **done**
 2. ~~The **object catalogue**~~ **draft v1 written** (see Object catalogue) and ~~the **E build menu** with population unlocks~~ **done**
 3. ~~**Production chains** and **energy**~~ **decided, in the prototype**
-4. **AI nations**, then **combat**, losing and damage
+4. **AI nations**, then **combat**, losing and damage (**v1 in the prototype**: static nations, conquest, short-range missiles)
 5. **Space**: rockets, orbit, other planets, the planetary tech tree
 6. The **galaxy** (1,000 seeded stars), **telescopes**, and the black hole
 7. **Tutorial** once the core is stable; multiplayer last
@@ -678,7 +708,7 @@ These rules keep the mockups (and later the real game) consistent.
   - **Bottom center:** the people bar (people / capacity, regrowth rate, a mark at half full) and the "send per click" slider (10 / 25 / 50 / 100%)
   - **Bottom right:** a controls reminder (click = expand, right-click = expedition)
   - **On the map:** gold numbers at the border where people are pushing out; dashed areas for land being claimed; a dotted line and marker for expeditions; an orange countdown ring around a new outpost; green "+1.0 wood/s" tags on producing deposits; rail lines (brown sleepers, grey rail) with a red train; dashed white sea routes with a ship
-  - **Connected vs. cut off:** connected land is outlined blue; cut-off land is outlined orange
+  - **Connected vs. cut off:** connected land is outlined blue; cut-off land is outlined orange *(the prototype dropped this: colonies are blue, orange belongs to AI nations)*
 - **Biomes:** desert is sandy tan with dune strokes; mountains are grey-brown with snow-capped peaks
 
 ### How the art is made
@@ -708,6 +738,7 @@ python art/generate_art.py
 - **v1:** people were assigned to deposits as workers (0.1/sec each), and drills replaced workers. Food was an open question.
 - **v2 (2026-11-20):** deposits inside your border produce on their own. People are spent to claim land and to send expeditions, and regrow toward house capacity. Food is built into land fertility. Drills and factories are parked.
 - **Disk world (2026-11-20):** the map became a round disk in outer space, with an ice wall around the rim.
+- **v8 (2026-11-21):** static AI nations, openfront-style conquest (push in, take their houses), missile silos and short-range missiles.
 - **v7 (2026-11-21):** collectors (logger's cabin, miner's camp) worked by people; mining rig as their powered upgrade; power stays inside each territory (no power lines); click or Tab to fly to a country.
 - **v6 (2026-11-21):** energy decided as the central system (no crafting chains, no compute, no wind); the prototype gets per-country power, wood burners, solar panels, mining rigs and powered city blocks. Resource collection left open.
 - **v5 (2026-11-21), in the prototype:** the object catalogue (draft v1) and the housing ladder: House → Apartment → City block, upgraded in place; keys 1–5.
