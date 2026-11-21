@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 500" width="1100" height="500">
+
+<defs>
+  <filter id="soft" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="28"/></filter>
+  <filter id="softsm" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="8"/></filter>
+  <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+    <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#000" stroke-opacity="0.055" stroke-width="1"/>
+  </pattern>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0 0 L10 5 L0 10 z" fill="#c9d3e3"/>
+  </marker>
+  <marker id="arrowgold" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0 0 L10 5 L0 10 z" fill="#f2c14e"/>
+  </marker>
+
+  <!-- PERSON: the currency -->
+  <g id="person">
+    <circle cx="0" cy="-4.5" r="3" fill="#f2c14e" stroke="#5a4310" stroke-width="0.8"/>
+    <path d="M-4.5 5 C-4.5 0 -2.5 -0.8 0 -0.8 C2.5 -0.8 4.5 0 4.5 5 Z" fill="#f2c14e" stroke="#5a4310" stroke-width="0.8"/>
+  </g>
+
+  <!-- HOUSE: holds people -->
+  <g id="house">
+    <rect x="-7" y="-6" width="18" height="16" fill="#000" opacity="0.22"/>
+    <rect x="-9" y="-8" width="18" height="8" fill="#de6d4c"/>
+    <rect x="-9" y="0" width="18" height="8" fill="#b04a31"/>
+    <rect x="-9" y="-8" width="18" height="16" fill="none" stroke="#6b2b1b" stroke-width="1"/>
+    <line x1="-9" y1="0" x2="9" y2="0" stroke="#7d3220" stroke-width="1.2"/>
+    <rect x="3" y="-6.5" width="3.2" height="4" fill="#4e3a33"/>
+  </g>
+
+  <!-- FARM: makes food -->
+  <g id="farm">
+    <rect x="-11" y="-9" width="26" height="22" fill="#000" opacity="0.2"/>
+    <rect x="-13" y="-11" width="26" height="22" rx="1.5" fill="#d8c26a" stroke="#7d6a2a" stroke-width="1"/>
+    <path d="M-10 -11 V11 M-5 -11 V11 M0 -11 V11" stroke="#8fae45" stroke-width="2.2"/>
+    <rect x="3" y="-1" width="10" height="12" fill="#8fae45" opacity="0.55"/>
+    <rect x="4" y="-10" width="8" height="8" fill="#b04a31" stroke="#6b2b1b" stroke-width="0.8"/>
+    <line x1="4" y1="-6" x2="12" y2="-6" stroke="#7d3220" stroke-width="1"/>
+  </g>
+
+  <!-- FACTORY: turns resources into goods -->
+  <g id="factory">
+    <rect x="-11" y="-8" width="26" height="20" fill="#000" opacity="0.22"/>
+    <rect x="-13" y="-10" width="26" height="20" rx="1.5" fill="#6f7c8f"/>
+    <rect x="-13" y="-10" width="6.5" height="20" fill="#8a97ab"/>
+    <rect x="0" y="-10" width="6.5" height="20" fill="#8a97ab"/>
+    <rect x="-13" y="-10" width="26" height="20" rx="1.5" fill="none" stroke="#2f3744" stroke-width="1"/>
+    <circle cx="9" cy="-5" r="3" fill="#3d4450" stroke="#22272f" stroke-width="0.8"/>
+    <circle cx="12" cy="-10" r="2.6" fill="#e3e7ec" opacity="0.75"/>
+    <circle cx="15.5" cy="-14.5" r="3.4" fill="#e3e7ec" opacity="0.5"/>
+  </g>
+
+  <!-- DRILL: mines without people -->
+  <g id="drill">
+    <rect x="-9" y="-9" width="22" height="22" rx="3" fill="#000" opacity="0.25"/>
+    <rect x="-11" y="-11" width="22" height="22" rx="3" fill="#5a636f" stroke="#2a3037" stroke-width="1.2"/>
+    <circle cx="-7.5" cy="-7.5" r="1.1" fill="#2a3037"/><circle cx="7.5" cy="-7.5" r="1.1" fill="#2a3037"/>
+    <circle cx="-7.5" cy="7.5" r="1.1" fill="#2a3037"/><circle cx="7.5" cy="7.5" r="1.1" fill="#2a3037"/>
+    <circle r="7" fill="#f0a23a" stroke="#7a4a12" stroke-width="1.2"/>
+    <path d="M-5 0 H5 M0 -5 V5" stroke="#7a4a12" stroke-width="2" stroke-linecap="round"/>
+    <circle r="1.8" fill="#3a2a10"/>
+  </g>
+
+  <!-- TREE: part of a forest (wood) -->
+  <g id="tree">
+    <ellipse cx="1.5" cy="3" rx="7" ry="4" fill="#000" opacity="0.18"/>
+    <circle r="7" fill="#3d6b32"/>
+    <circle cx="-2" cy="-2" r="4.2" fill="#558a3f"/>
+    <circle cx="-3" cy="-3" r="1.6" fill="#72a855"/>
+  </g>
+
+  <!-- ROCK: part of a stone deposit -->
+  <g id="rock">
+    <ellipse cx="1" cy="4" rx="8" ry="3.5" fill="#000" opacity="0.2"/>
+    <path d="M-8 3 L-6 -4 L-1 -7 L5 -5 L8 1 L5 5 L-4 6 Z" fill="#8e959c" stroke="#5f666d" stroke-width="1"/>
+    <path d="M-6 -4 L-1 -7 L5 -5 L1 -1 L-4 0 Z" fill="#bcc2c8"/>
+  </g>
+
+  <!-- ORE: part of an iron deposit -->
+  <g id="ore">
+    <ellipse cx="1" cy="4" rx="8" ry="3.5" fill="#000" opacity="0.2"/>
+    <path d="M-8 2 L-5 -5 L1 -7 L6 -4 L8 2 L4 6 L-4 5 Z" fill="#7a5040" stroke="#45291f" stroke-width="1"/>
+    <path d="M-5 -5 L1 -7 L6 -4 L2 0 L-4 -1 Z" fill="#a96d52"/>
+    <circle cx="-3" cy="2" r="1.1" fill="#d6e1ea"/><circle cx="3" cy="-2.5" r="0.9" fill="#d6e1ea"/>
+    <circle cx="4" cy="3" r="0.8" fill="#d6e1ea"/>
+  </g>
+
+  <!-- LOCKED: placeholder for future buildings -->
+  <g id="locked">
+    <rect x="-11" y="-11" width="22" height="22" rx="4" fill="#39425a" stroke="#56607a" stroke-dasharray="3 2"/>
+    <text x="0" y="5" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#8792ab" text-anchor="middle">?</text>
+  </g>
+
+  <!-- LEVEL 2 HOUSE: needs iron, holds more -->
+  <g id="house2">
+    <rect x="-9" y="-8" width="24" height="20" fill="#000" opacity="0.22"/>
+    <rect x="-12" y="-10" width="24" height="10" fill="#7099c4"/>
+    <rect x="-12" y="0" width="24" height="10" fill="#4d6f96"/>
+    <rect x="-12" y="-10" width="24" height="20" fill="none" stroke="#2c4260" stroke-width="1"/>
+    <line x1="-12" y1="0" x2="12" y2="0" stroke="#2c4260" stroke-width="1.2"/>
+    <rect x="-8" y="-8" width="3" height="4" fill="#3a3f4a"/>
+    <rect x="5" y="-8" width="3" height="4" fill="#3a3f4a"/>
+  </g>
+
+  <!-- DOCK: launches boat expeditions -->
+  <g id="dock">
+    <rect x="-12" y="-12" width="24" height="24" rx="2" fill="#4a86ab"/>
+    <rect x="-12" y="-12" width="24" height="7" fill="#dccf93"/>
+    <rect x="-4" y="-7" width="8" height="18" fill="#a67c52" stroke="#6b4a2b" stroke-width="0.9"/>
+    <path d="M-4 -2 H4 M-4 3 H4 M-4 8 H4" stroke="#6b4a2b" stroke-width="0.8"/>
+    <circle cx="-5.5" cy="10" r="1.4" fill="#5a3d22"/><circle cx="5.5" cy="10" r="1.4" fill="#5a3d22"/>
+  </g>
+
+  <!-- MOUNTAIN: biome decoration -->
+  <g id="mount">
+    <path d="M-15 8 L-2 -11 L12 8 Z" fill="#7b7466" stroke="#4f4a40" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M-2 -11 L12 8 L3 8 Z" fill="#000" opacity="0.16"/>
+    <path d="M-2 -11 L3.5 -3.5 L0.5 -4.5 L-2 -1.5 L-4.5 -4.5 L-7 -3.5 Z" fill="#f1f1ec"/>
+  </g>
+
+  <!-- TERRITORY: small icon for diagrams -->
+  <g id="terr">
+    <path d="M-10 -4 C-10 -11 -2 -11 2 -9 C9 -9 11 -3 10 3 C9 10 1 11 -4 9 C-10 8 -10 3 -10 -4 Z"
+          fill="#2f7de1" fill-opacity="0.35" stroke="#2f7de1" stroke-width="2"/>
+  </g>
+
+  <g id="cursor">
+    <path d="M0 0 L0 17 L4.5 13 L7.5 20 L10.5 18.8 L7.5 12 L13 12 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/>
+  </g>
+</defs>
+
+<rect width="1100" height="500" fill="#121722"/>
+<text x="40.0" y="52.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="28" font-weight="700" fill="#eef2f8" text-anchor="start" letter-spacing="0" opacity="1">The core loop</text>
+<text x="40.0" y="80.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#97a3b6" text-anchor="start" letter-spacing="0" opacity="1">Houses are the engine, people are the fuel. Land you own makes resources; resources build houses.</text>
+<rect x="150.0" y="154.0" width="220" height="72" rx="14" fill="#1d2433" stroke="#f2c14e" stroke-width="2"/>
+<rect x="162.0" y="168" width="44" height="44" rx="9" fill="#86ad5f"/>
+<use href="#person" transform="translate(184.0,190.0) scale(1.45)"/>
+<text x="218.0" y="187.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#eef2f8" text-anchor="start" letter-spacing="0" opacity="1">People</text>
+<text x="218.0" y="206.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#97a3b6" text-anchor="start" letter-spacing="0" opacity="1">regrow toward capacity</text>
+<rect x="730.0" y="154.0" width="220" height="72" rx="14" fill="#1d2433" stroke="#2f7de1" stroke-width="2"/>
+<rect x="742.0" y="168" width="44" height="44" rx="9" fill="#86ad5f"/>
+<use href="#terr" transform="translate(764.0,190.0) scale(1.45)"/>
+<text x="798.0" y="187.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#eef2f8" text-anchor="start" letter-spacing="0" opacity="1">Territory</text>
+<text x="798.0" y="206.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#97a3b6" text-anchor="start" letter-spacing="0" opacity="1">your border</text>
+<rect x="730.0" y="364.0" width="220" height="72" rx="14" fill="#1d2433" stroke="#c9d3e3" stroke-width="2"/>
+<rect x="742.0" y="378" width="44" height="44" rx="9" fill="#86ad5f"/>
+<use href="#rock" transform="translate(764.0,400.0) scale(1.45)"/>
+<text x="798.0" y="397.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#eef2f8" text-anchor="start" letter-spacing="0" opacity="1">Resources</text>
+<text x="798.0" y="416.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#97a3b6" text-anchor="start" letter-spacing="0" opacity="1">wood · stone · iron</text>
+<rect x="150.0" y="364.0" width="220" height="72" rx="14" fill="#1d2433" stroke="#de6d4c" stroke-width="2"/>
+<rect x="162.0" y="378" width="44" height="44" rx="9" fill="#86ad5f"/>
+<use href="#house" transform="translate(184.0,400.0) scale(1.45)"/>
+<text x="218.0" y="397.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#eef2f8" text-anchor="start" letter-spacing="0" opacity="1">Houses</text>
+<text x="218.0" y="416.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#97a3b6" text-anchor="start" letter-spacing="0" opacity="1">set people capacity</text>
+<path d="M 376 190 L 722 190" fill="none" stroke="#f2c14e" stroke-width="2.4" marker-end="url(#arrowgold)"/><text x="0.0" y="0.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#f2c14e" text-anchor="middle" letter-spacing="0" opacity="1"></text>
+<text x="549.0" y="168.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f2c14e" text-anchor="middle" letter-spacing="0" opacity="1">spend people to claim land</text>
+<text x="549.0" y="216.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#f2c14e" text-anchor="middle" letter-spacing="0" opacity="1">left-click: expand  ·  right-click: expedition</text>
+<path d="M 840 230 L 840 360" fill="none" stroke="#c9d3e3" stroke-width="2.4" marker-end="url(#arrow)"/><text x="0.0" y="0.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#c9d3e3" text-anchor="middle" letter-spacing="0" opacity="1"></text>
+<text x="858.0" y="290.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#c9d3e3" text-anchor="start" letter-spacing="0" opacity="1">deposits inside</text>
+<text x="858.0" y="308.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#c9d3e3" text-anchor="start" letter-spacing="0" opacity="1">your border produce</text>
+<path d="M 722 400 L 376 400" fill="none" stroke="#c9d3e3" stroke-width="2.4" marker-end="url(#arrow)"/><text x="0.0" y="0.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#c9d3e3" text-anchor="middle" letter-spacing="0" opacity="1"></text>
+<text x="549.0" y="388.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#c9d3e3" text-anchor="middle" letter-spacing="0" opacity="1">spend wood + stone to build</text>
+<path d="M 260 360 L 260 230" fill="none" stroke="#f2c14e" stroke-width="2.4" marker-end="url(#arrowgold)"/><text x="0.0" y="0.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#f2c14e" text-anchor="middle" letter-spacing="0" opacity="1"></text>
+<text x="242.0" y="290.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#f2c14e" text-anchor="end" letter-spacing="0" opacity="1">more capacity,</text>
+<text x="242.0" y="308.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#f2c14e" text-anchor="end" letter-spacing="0" opacity="1">people regrow to fill it</text>
+<text x="549.0" y="470.0" font-family="'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#97a3b6" text-anchor="middle" letter-spacing="0" opacity="1">Iron (far away, reached by expedition) unlocks level 2 houses: a bigger engine.</text>
+</svg>

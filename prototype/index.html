@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map Factory Prototype</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- top bar: resources, territory, view, time -->
+  <div id="topbar">
+    <div class="res"><span class="ic" data-icon="tree"></span>
+      <div><div class="lbl">WOOD <span class="rate" id="rate-wood"></span></div><div class="val" id="val-wood">0</div></div></div>
+    <div class="res"><span class="ic" data-icon="rock"></span>
+      <div><div class="lbl">STONE <span class="rate" id="rate-stone"></span></div><div class="val" id="val-stone">0</div></div></div>
+    <div class="res"><span class="ic" data-icon="ore"></span>
+      <div><div class="lbl">IRON <span class="rate" id="rate-iron"></span></div><div class="val" id="val-iron">0</div></div></div>
+    <div class="res"><span class="terr-swatch"></span>
+      <div><div class="lbl">TERRITORY</div><div class="val" id="val-terr">0%</div></div></div>
+    <div class="spacer"></div>
+    <div class="res"><div><div class="lbl">VIEW</div><div class="val small" id="val-view">Detail</div></div></div>
+    <div class="res"><div><div class="lbl">TIME</div><div class="val" id="val-time">00:00</div></div></div>
+  </div>
+
+  <!-- bottom row -->
+  <div id="bottom">
+    <div id="build"></div>
+
+    <div id="people" class="panel">
+      <div class="people-top">
+        <span class="ic big" data-icon="person"></span>
+        <div>
+          <div class="lbl">PEOPLE</div>
+          <div class="val big" id="val-people">0 / 0</div>
+        </div>
+        <div class="bar-wrap">
+          <div class="bar"><div class="fill" id="people-fill"></div><div class="mid"></div></div>
+          <div class="bar-note">regrows fastest at half full</div>
+        </div>
+        <div class="rate" id="people-rate"></div>
+      </div>
+      <div class="people-send">
+        <span class="lbl">SEND PER CLICK</span>
+        <div id="pct-buttons"></div>
+        <span class="send-n" id="send-n"></span>
+      </div>
+    </div>
+
+    <div id="help" class="panel">
+      <div class="lbl">CONTROLS</div>
+      <div class="help-row"><b>Click</b> near your border: expand there</div>
+      <div class="help-row"><b>Right-click</b> far away: send an expedition</div>
+      <div class="help-row"><b>Drag</b> a box over houses: select · <b>C</b> paste a copy at the cursor</div>
+      <div class="help-row"><b>1–4</b> build · <b>Esc</b> cancel · <b>Q / E</b> send % · <b>M</b> map / orbit · <b>N</b> new map</div>
+      <div class="help-row"><b>Scroll</b> zoom · <b>Right-drag</b> or <b>WASD</b> pan · <b>Click</b> any planet, moon or the Sun to lock on</div>
+      <div class="help-row">Lock-on keys: <b>L</b> Moon · <b>V</b> Vulcan · <b>R</b> Aries · <b>Z</b> Zeus · <b>P</b> Poseidon · <b>G</b> seed world · <b>U</b> Sun</div>
+      <div class="hover" id="hover-info">&nbsp;</div>
+    </div>
+  </div>
+
+  <div id="loading"><div class="spin"></div>Generating world…</div>
+  <div id="tooltip"></div>
+  <div id="toast"></div>
+
+  <script src="game.js"></script>
+</body>
+</html>
