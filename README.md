@@ -13,7 +13,7 @@ Add `?seed=123` to the address to replay a specific map, for example https://ycl
 - **A generated disk world:** 1000 × 1000 tiles of continents, islands, grassland, desert and snowy mountains, ringed by an ice wall, floating in a starfield.
 - **The core loop:** people regrow toward house capacity; click to push your border; deposits inside your territory produce wood, stone and iron; build houses to grow.
 - **Countries:** every territory is a named country with its own people and stockpile. Right-click far away to found a new one with an expedition, then link your countries with **rail stations** (they lay their own track) or **ports** (ships sail the route) to move people and cargo between them. Countries merge when their borders touch.
-- **Population unlocks:** press **E** for the build menu; stations, ports and bigger houses unlock as your empire grows.
+- **Population unlocks:** press **E** for the build menu; stations, ports and the housing ladder (House → Apartment → City block, upgraded in place) unlock as your empire grows.
 - **Copy and paste:** drag a box over houses, press **C** to paste the layout elsewhere.
 - **A whole solar system:** the Moon (with phases), the Sun, lava world Vulcan, red planet Aries, gas giants Zeus and Poseidon with their moons, and a **seed world**: a planet generated entirely from the map seed.
 - **Zoom from a single house out to the whole solar system**, and click any body to lock the camera onto it.
@@ -25,7 +25,8 @@ Add `?seed=123` to the address to replay a specific map, for example https://ycl
 | Click near your border | Expand toward that spot |
 | Right-click far away | Send an expedition (becomes a boat over water) |
 | E | Build menu (everything, including what's still locked) |
-| 1 – 4 | Build House / Level 2 / Station / Port (once unlocked) · Esc cancels |
+| 1 – 5 | Build House / Apartment / City block / Station / Port (once unlocked) · Esc cancels |
+| Apartment or City block, then click a house | Upgrade it in place (cheaper than building fresh) |
 | Click inside one of your countries | View that country in the top bar |
 | Drag a box · C | Select houses · paste a copy at the cursor |
 | [ / ] | People sent per click (10 / 25 / 50 / 100 %) |

@@ -44,13 +44,17 @@ const CFG = {
 
   // unlock = how many people your whole empire must reach (at its peak) before you can build it
   buildings: {
-    house:   { key: '1', name: 'House',   cap: 10, unlock: 0,   cost: { wood: 10, stone: 10 },
+    // the housing ladder: each level is built by upgrading the one below it in place (`from`).
+    // Clicking a lower level pays only the steps in between; clicking clear land pays the whole ladder.
+    house:   { key: '1', name: 'House',      cap: 10, unlock: 0,    cost: { wood: 10, stone: 10 },
                desc: 'Holds 10 people in the country you build it in.' },
-    house2:  { key: '2', name: 'Level 2', cap: 30, unlock: 300, cost: { wood: 20, iron: 10 },
-               desc: 'A bigger house: holds 30 people. Needs iron, which is never near the start.' },
-    station: { key: '3', name: 'Station', cap: 0,  unlock: 150, cost: { wood: 15, stone: 10 },
+    house2:  { key: '2', name: 'Apartment',  cap: 30, unlock: 300,  cost: { wood: 20, iron: 10 }, from: 'house',
+               desc: 'Click one of your houses to upgrade it: holds 30 people. Needs iron, which is never near the start.' },
+    house3:  { key: '3', name: 'City block', cap: 80, unlock: 1000, cost: { wood: 40, stone: 40, iron: 30 }, from: 'house2',
+               desc: 'Click an apartment to upgrade it: holds 80 people. Dense cities fit far more people on the same land.' },
+    station: { key: '4', name: 'Station', cap: 0,  unlock: 150, cost: { wood: 15, stone: 10 },
                desc: 'Lays its own rail to your nearest station. Trains carry people and cargo between your countries.' },
-    port:    { key: '4', name: 'Port',    cap: 0,  unlock: 200, cost: { wood: 20, stone: 10 },
+    port:    { key: '5', name: 'Port',    cap: 0,  unlock: 200, cost: { wood: 20, stone: 10 },
                desc: 'On the coast. Opens a sea route to your nearest port. Ships carry people and cargo.' },
   },
 
@@ -192,6 +196,11 @@ const SHAPES = {
     <rect x="-12" y="-10" width="24" height="20" fill="none" stroke="#2c4260" stroke-width="1"/>
     <line x1="-12" y1="0" x2="12" y2="0" stroke="#2c4260" stroke-width="1.2"/>
     <rect x="-8" y="-8" width="3" height="4" fill="#3a3f4a"/><rect x="5" y="-8" width="3" height="4" fill="#3a3f4a"/>`,
+  house3: `<rect x="-10" y="-9" width="26" height="25" fill="#000" opacity="0.25"/>
+    <rect x="-13" y="-13" width="26" height="26" rx="1.5" fill="#5f6b7d" stroke="#2b323d" stroke-width="1"/>
+    <rect x="-11" y="-11" width="10" height="10" fill="#8fa3b8"/><rect x="1" y="-11" width="10" height="10" fill="#7c8fa4"/>
+    <rect x="-11" y="1" width="10" height="10" fill="#7c8fa4"/><rect x="1" y="1" width="10" height="10" fill="#8fa3b8"/>
+    <path d="M-9 -8 H-3 M-9 -4 H-3 M3 -8 H9 M3 -4 H9 M-9 4 H-3 M-9 8 H-3 M3 4 H9 M3 8 H9" stroke="#f2d98a" stroke-width="1.3"/>`,
   station: `<rect x="-10" y="-8" width="24" height="20" fill="#000" opacity="0.22"/>
     <rect x="-12" y="-10" width="24" height="20" rx="2" fill="#a3aab1" stroke="#4c535b" stroke-width="1"/>
     <path d="M-9 -2 V6 M-4 -2 V6 M1 -2 V6 M6 -2 V6" stroke="#6b5240" stroke-width="1.6"/>
@@ -223,8 +232,20 @@ for (const [name, inner] of Object.entries(SHAPES)) {
 const DEP_SPRITE = { forest: 'tree', stone: 'rock', iron: 'ore' };
 const DEP_RES = { forest: 'wood', stone: 'stone', iron: 'iron' };
 const DEP_COLOR = { forest: '#3f7a35', stone: '#a7adb3', iron: '#a8654a' };
-const BLD_CODE = { house: 1, house2: 2, station: 3, port: 4 };
-const BLD_COLOR = { house: '#cf5c3e', house2: '#5d84b0', station: '#8f979f', port: '#a67c52' };
+const BLD_CODE = { house: 1, house2: 2, station: 3, port: 4, house3: 5 };
+const BLD_COLOR = { house: '#cf5c3e', house2: '#5d84b0', house3: '#7c8fa4', station: '#8f979f', port: '#a67c52' };
+// housing ladder helpers
+const LEVEL = { house: 1, house2: 2, house3: 3 };
+const buildingAt = i => (building[i] ? game.buildings.find(b => b.i === i) : null);
+// the steps from `have` (or clear land) up to `type`, or null if `have` isn't below `type` on its ladder
+function ladderSteps(type, have) {
+  const steps = [];
+  for (let t = type; t; t = CFG.buildings[t].from) {
+    if (t === have) return steps;
+    steps.unshift(t);
+  }
+  return have ? null : steps;
+}
 const RES_ICON = { wood: 'tree', stone: 'rock', iron: 'ore' };
 
 // ======================================================================
@@ -797,20 +818,34 @@ function canBuild(i, type) {
   if (!isLand(i)) return biome[i] === OCEAN ? "Can't build on water" : biome[i] === ICE ? "Can't build on the ice wall" : "That's outer space";
   if (!owner[i]) return 'Must be inside your territory';
   if (depositOf[i] >= 0) return "Can't build on a resource deposit";
-  if (building[i]) return 'Something is already built here';
+  if (building[i]) {
+    const have = buildingAt(i).type;
+    if (!ladderSteps(type, have)) {
+      if (LEVEL[have] && LEVEL[type]) return LEVEL[have] >= LEVEL[type] ? `Already ${/^[AEIOU]/.test(CFG.buildings[have].name) ? 'an' : 'a'} ${CFG.buildings[have].name}` : 'Something is already built here';
+      return 'Something is already built here';
+    }
+  }
   if (type === 'port' && !isCoastal(i)) return 'Ports must be on the coast';
   return null;
 }
 function planFor(i, type) {
   return (type === 'station' || type === 'port') && !canBuild(i, type) ? linkPlan(i, type) : null;
 }
-function totalCost(type, plan) { return addCost(CFG.buildings[type].cost, plan && plan.extra); }
+// cost to put `type` on tile i: the ladder steps from whatever is there now, plus any track
+function totalCost(type, plan, i = -1) {
+  const have = i >= 0 && building[i] ? buildingAt(i).type : null;
+  let cost = {};
+  for (const t of ladderSteps(type, have) || [type]) cost = addCost(cost, CFG.buildings[t].cost);
+  return addCost(cost, plan && plan.extra);
+}
 function missingFor(cost, C = activeCountry()) {
   for (const [r, n] of Object.entries(cost)) if (!C || C.res[r] < n) return r;
   return null;
 }
 const empireCap = () => game.countries.reduce((a, c) => a + (c.alive ? c.cap : 0), 0);
 function placeBuilding(i, type) {
+  const old = buildingAt(i);
+  if (old) { old.type = type; building[i] = BLD_CODE[type]; clustersDirty = true; return; }   // upgrade in place
   building[i] = BLD_CODE[type];
   game.buildings.push({ i, type });
   if (type === 'station') game.stations.push(i);
@@ -822,7 +857,7 @@ function tryBuild(i, type) {
   if (why) return toast(why);
   const C = countryAt(i);                       // every building is paid for by the country it's built in
   const plan = planFor(i, type);
-  const cost = totalCost(type, plan);
+  const cost = totalCost(type, plan, i);
   const miss = missingFor(cost, C);
   if (miss) return toast(`${C.short} doesn't have enough ${miss}`);
   for (const [r, n] of Object.entries(cost)) C.res[r] -= n;
@@ -955,7 +990,7 @@ function stepOutpost(o) {
 // ======================================================================
 // select + copy/paste (left-drag a box over houses, press C to paste at the cursor)
 // ======================================================================
-const COPYABLE = { house: true, house2: true };   // stations/ports aren't copied (they'd all try to link)
+const COPYABLE = { house: true, house2: true, house3: true };   // stations/ports aren't copied (they'd all try to link)
 let blueprint = null;                              // { items: [{dx, dy, type}] } relative to the selection's centre
 
 function finishSelection(ax, ay, bx, by) {
@@ -989,7 +1024,7 @@ function pastePlan(tx, ty) {
     const x = tx + it.dx, y = ty + it.dy;
     const ok = inb(x, y) && !canBuild(idx(x, y), it.type);
     tiles.push({ x, y, type: it.type, ok });
-    if (ok) { fit++; cost = addCost(cost, CFG.buildings[it.type].cost); }
+    if (ok) { fit++; cost = addCost(cost, totalCost(it.type, null, idx(x, y))); }
   }
   return { tiles, cost, fit };
 }
@@ -1001,7 +1036,7 @@ function pasteAt(tx, ty) {
   let placed = 0, short = null;
   for (const o of plan.tiles) {
     if (!o.ok) continue;
-    const C = countryAt(idx(o.x, o.y)), c = CFG.buildings[o.type].cost, miss = missingFor(c, C);
+    const C = countryAt(idx(o.x, o.y)), c = totalCost(o.type, null, idx(o.x, o.y)), miss = missingFor(c, C);
     if (miss) { short = miss; break; }
     for (const [r, n] of Object.entries(c)) C.res[r] -= n;
     placeBuilding(idx(o.x, o.y), o.type);
@@ -1172,12 +1207,12 @@ function computeClusters() {
     if (!CFG.buildings[b.type].cap) continue;
     const x = b.i % W, y = (b.i / W) | 0, k = ((x / B) | 0) + ',' + ((y / B) | 0);
     let c = map.get(k);
-    if (!c) map.set(k, c = { x: 0, y: 0, n: 0, lvl2: 0, cut: 0 });
+    if (!c) map.set(k, c = { x: 0, y: 0, n: 0, top: 'house', cut: 0 });
     c.x += x + 0.5; c.y += y + 0.5; c.n++;
-    if (b.type === 'house2') c.lvl2++;
+    if (LEVEL[b.type] > LEVEL[c.top]) c.top = b.type;
     if (isCutOff(b.i)) c.cut++;
   }
-  clusters = [...map.values()].map(c => ({ x: c.x / c.n, y: c.y / c.n, n: c.n, lvl2: c.lvl2, cut: c.cut > 0 }));
+  clusters = [...map.values()].map(c => ({ x: c.x / c.n, y: c.y / c.n, n: c.n, top: c.top, cut: c.cut > 0 }));
   clustersDirty = false;
 }
 
@@ -2482,7 +2517,7 @@ function render() {
     for (const b of game.buildings) {
       const x = b.i % W, y = (b.i / W) | 0;
       if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'house' ? 1.45 : 1.25));
+      drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'house' ? 1.45 : b.type === 'house3' ? 1.15 : 1.25));
     }
   } else if (z >= CFG.cityZoom) {
     // middle view: buildings as solid squares
@@ -2515,8 +2550,8 @@ function render() {
       const [sx, sy] = toScreen(c.x, c.y);
       ctx.beginPath(); ctx.arc(sx, sy, 10, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill();
-      ctx.strokeStyle = c.cut ? '#e8802a' : c.lvl2 ? '#7099c4' : '#de6d4c'; ctx.lineWidth = 2; ctx.stroke();
-      if (SPR.house.complete) ctx.drawImage(SPR[c.lvl2 ? 'house2' : 'house'], sx - 9, sy - 9, 18, 18);
+      ctx.strokeStyle = c.cut ? '#e8802a' : { house: '#de6d4c', house2: '#7099c4', house3: '#c9d3df' }[c.top]; ctx.lineWidth = 2; ctx.stroke();
+      if (SPR[c.top].complete) ctx.drawImage(SPR[c.top], sx - 9, sy - 9, 18, 18);
       if (c.n > 1) {
         ctx.font = "700 10px 'Segoe UI', Arial, sans-serif"; ctx.textBaseline = 'middle';
         ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,26,37,0.9)';
@@ -3011,13 +3046,15 @@ function updateHover() {
   const type = game.tool, bdef = CFG.buildings[type];
   const why = canBuild(t.i, type);
   const plan = planFor(t.i, type);
-  const cost = totalCost(type, plan);
+  const cost = totalCost(type, plan, t.i);
   const TC = countryAt(t.i);
   const miss = missingFor(cost, TC || activeCountry());
   const costTxt = Object.entries(cost).map(([r, n]) => `${n} ${r}`).join(' · ');
-  let html = `<div class="t">Place ${bdef.name}</div>`;
+  const have = !why && building[t.i] ? buildingAt(t.i).type : null;
+  let html = `<div class="t">${have ? `Upgrade ${CFG.buildings[have].name} → ${bdef.name}` : `Place ${bdef.name}`}</div>`;
   if (bdef.cap) {
-    html += `<div class="g">+${bdef.cap} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
+    html += `<div class="g">+${bdef.cap - (have ? CFG.buildings[have].cap : 0)} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
+    if (!have && bdef.from) html += `<div class="d">Cheaper: click a ${CFG.buildings[bdef.from].name} to upgrade it</div>`;
   } else if (plan) {
     if (plan.path) {
       html += type === 'station'
@@ -3042,7 +3079,7 @@ function drawBuildPreview(z) {
   if (!t) return;
   const type = game.tool;
   const plan = planFor(t.i, type);
-  const ok = !canBuild(t.i, type) && !missingFor(totalCost(type, plan), countryAt(t.i) || activeCountry());
+  const ok = !canBuild(t.i, type) && !missingFor(totalCost(type, plan, t.i), countryAt(t.i) || activeCountry());
   if (plan && plan.path) strokeRoute(plan.path, type === 'station' ? 'rail' : 'sea', z, true);
   const [sx, sy] = toScreen(t.x, t.y);
   ctx.fillStyle = ok ? 'rgba(123,211,137,0.3)' : 'rgba(255,122,107,0.3)';

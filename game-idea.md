@@ -94,7 +94,7 @@ A browser prototype of the core loop is in [`prototype/`](prototype/). To play, 
   - **Lock-on works on every body:** click it, or use its key (**L** Moon, **V** Vulcan, **R** Aries, **Z** Zeus, **P** Poseidon, **U** Sun). Rocky worlds and moons hold perfectly still (the camera turns with them); locking onto a gas giant zooms out to show its whole family of moons orbiting it.
 - **The seed world** (press **G**): a planet generated entirely from the map seed, beyond Poseidon. See "The seed world" section for the rules.
 - **Moon phases:** the Moon is lit from the Sun's real direction, so as it orbits your world its lit side swings round: real phases.
-- **The full core loop:** people regrow toward house capacity; **click** to push your border (a gold number counts down as land is claimed); deposits inside connected territory produce; build **House / Level 2 / Station / Port** with keys 1–4; **right-click** sends an expedition, which turns into a boat over water.
+- **The full core loop:** people regrow toward house capacity; **click** to push your border (a gold number counts down as land is claimed); deposits inside connected territory produce; build **House / Apartment / City block / Station / Port** with keys 1–5; **right-click** sends an expedition, which turns into a boat over water.
 - **Connections:** a new outpost is **cut off** (outlined in orange, with a 45-second supply ring). Build a **station** there and it links itself by rail to your nearest station, with a train running on it. Or build a **port** on the coast and it links by sea to your nearest port, with a ship sailing the route. Once it's connected, the outpost turns blue, its settlers join your people, and its resources count. If you don't connect it in time, the settlers starve.
 - **Countries (v4):** every separate territory is a named **country** with its **own people, houses and stockpile**. The top bar shows the country you're viewing (click inside any of your countries to view it).
   - **Pushes and expeditions** use the people of the country nearest the spot you click.
@@ -102,7 +102,8 @@ A browser prototype of the core loop is in [`prototype/`](prototype/). To play, 
   - **Links between your countries** (rail or sea) automatically move **people** toward the emptier country (an overcrowded colony evacuates home; a growing colony gets settlers) and **even out stockpiles** (a rich home supplies a broke colony). Rail moves 3 people and 4 cargo per second; sea 2 and 3.
   - **Countries merge** when their borders touch, pooling people and resources.
   - **Names** are generated from the seed (e.g. *the Union of Ethbelzanus*, *the Federation of Gorethus*), and written across each country on the map when you zoom out.
-- **Build menu (E) and population unlocks:** press **E** for every building, with a description, its cost, and what's still locked. New buildings unlock as your empire's peak population grows: House from the start, **Station at 150**, **Port at 200**, **Level 2 house at 300**. The bottom bar shows only what you've unlocked. Send % moved to **[ ]**.
+- **Build menu (E) and population unlocks:** press **E** for every building, with a description, its cost, and what's still locked. New buildings unlock as your empire's peak population grows: House from the start, **Station at 150**, **Port at 200**, **Apartment at 300**, **City block at 1,000**. The bottom bar shows only what you've unlocked. Send % moved to **[ ]**.
+- **Housing ladder (v5):** House (10) → **Apartment** (30) → **City block** (80). Pick a higher level and **click one of your houses to upgrade it in place**: you pay only the steps in between (House → Apartment costs 20 wood, 10 iron). Placing it on clear land works too but pays the whole ladder. Skipping a level (House → City block) pays both steps. Copy-paste copies the levels and upgrades whatever lower housing it lands on. City icons on the map show a country's densest housing.
 - **Copy and paste houses:** hold left click and drag a box over houses to select them (gold outlines). A ghost copy follows the mouse, with green tiles where it fits and red where it doesn't. Press **C** to paste it there. It only builds on your own clear land, skips blocked tiles, and stops if you run out of resources. Press C again for more copies; Esc or a click clears the selection. Stations and ports aren't copied. Because of this, **panning is right-drag** (or WASD).
 - **Previews:** with the Station or Port tool selected, hovering shows the route it would build (green dashed line), its length, and the total cost including track. Hover any tile to see its biome, cost per tile, and whether it's yours and connected.
 
@@ -355,7 +356,7 @@ A simple way to organise the whole progression, so it stays coherent as it grows
 ### Object levels (proposal)
 - **Some objects have levels you upgrade in place:** click a built object, pay, and it gets better. Each level is its own population unlock.
 - **Worth it for a few core objects, not everything:**
-  - **Housing ladder:** hut → house → apartment → **city block**, each holding more people. (The prototype's "Level 2 house" is the first rung.)
+  - **Housing ladder:** hut → house → apartment → **city block**, each holding more people. (In the prototype as House → Apartment → City block.)
   - **Transport links:** e.g. a rail line upgraded to carry more, faster.
 - **Why:** keeps the menu short, makes your city visibly grow up, and reuses the population-unlock system.
 - **Cities** as the top of the housing ladder, or as a special building that boosts all the houses around it. Open.
@@ -470,7 +471,7 @@ Everything the design still has to work out, with where each stands after the 20
 | # | Topic | Direction so far | Status |
 |---|---|---|---|
 | 1 | **People per country** | Yes: each country has its own people and resources; links carry both (see Countries) | **Decided, in the prototype** |
-| 2 | **Object catalogue** | Every building, level and population threshold, kept as rows in one data table | To do (big job) |
+| 2 | **Object catalogue** | Every building, level and population threshold, kept as rows in one data table | **Draft v1 written**; housing ladder in the prototype |
 | 3 | **Production chains** | Processing buildings (e.g. iron → steel, fuel) needed before rockets | To do |
 | 4 | **Energy** | Many sources, including **solar**. Candidates to consider: burning wood/coal, wind, hydro, solar, **geothermal** (Vulcan?), nuclear fission, and late-game fusion (helium-3 from the Moon or gas giants?) | To do |
 | 5 | **AI nations and combat** | AI countries that play like you but differently: build houses, expand, and **launch weapons at you**. Needs a full **military tech tree** | To do |
@@ -485,12 +486,93 @@ Everything the design still has to work out, with where each stands after the 20
 
 **Suggested work order:** each step builds on the one before.
 1. ~~The **people-per-country model** in the prototype~~ **done**
-2. The **object catalogue** (still to write) and ~~the **E build menu** with population unlocks~~ **done**
+2. ~~The **object catalogue**~~ **draft v1 written** (see Object catalogue) and ~~the **E build menu** with population unlocks~~ **done**
 3. **Production chains** and **energy**
 4. **AI nations**, then **combat**, losing and damage
 5. **Space**: rockets, orbit, other planets, the planetary tech tree
 6. The **galaxy** (1,000 seeded stars), **telescopes**, and the black hole
 7. **Tutorial** once the core is stable; multiplayer last
+
+---
+
+## Object catalogue (draft v1, 2026-11-21)
+
+> **Draft for review.** Every number is a placeholder; the point is the *shape*: which objects exist, how they group, what unlocks them, and what each era adds. **Unlock** = your empire's peak population. **In game** marks what the prototype already has.
+
+### How the catalogue works
+- **One table row per object** (in the code, one entry in `CFG.buildings`). Each row has: name, category, era, unlock population, cost, what it does, and (for some) **levels**.
+- **Levels upgrade in place:** pick the higher level from the build menu and click an existing lower one. You pay only the steps in between and keep the spot. Placing a higher level on clear land is allowed but pays the whole ladder, so upgrading is always cheaper.
+- **Categories:** Housing · Extraction · Processing · Energy · Transport · Science · Military (military is its own tree, designed with combat).
+- **Eras** follow "progression is about reach": each era's buildings let you cross the next barrier, and each era adds the resources the next one needs.
+
+### Era 1: Settlement (start → ~1,000 people)
+Resources: **wood, stone, iron**
+
+| Object | Category | Levels | Unlock | Cost (draft) | Does | In game |
+|---|---|---|---|---|---|---|
+| **House** | Housing | L1 of the housing ladder | 0 | 10 wood, 10 stone | +10 capacity | ✅ |
+| **Apartment** | Housing | L2 (upgrade a house) | 300 | 20 wood, 10 iron | +30 capacity | ✅ |
+| **City block** | Housing | L3 (upgrade an apartment) | 1,000 | 40 wood, 40 stone, 30 iron | +80 capacity | ✅ |
+| **Rail station** | Transport | L1–L3 (faster, more cargo) | 150 | 15 wood, 10 stone + track | links countries by land | ✅ (L1) |
+| **Port** | Transport | L1–L2 (bigger ships) | 200 | 20 wood, 10 stone | links countries by sea | ✅ (L1) |
+| **Lumber camp / Quarry / Mine** | Extraction | L1–L3 | 250 | wood, stone | ×2 output of one deposit per level | |
+| **Road** | Transport | - | 100 | stone per tile | faster pushes and expeditions over land | |
+
+### Era 2: Industry (~1,000 → ~10,000)
+New resources: **coal, oil** (deposits), **planks, bricks, steel, concrete, fuel** (made), **power**
+
+| Object | Category | Levels | Unlock | Does |
+|---|---|---|---|---|
+| **Sawmill** | Processing | L1–L2 | 1,200 | wood → planks |
+| **Kiln** | Processing | L1–L2 | 1,200 | stone → bricks / concrete |
+| **Smelter** | Processing | L1–L3 | 1,500 | iron + coal → steel |
+| **Refinery** | Processing | L1–L2 | 3,000 | oil → fuel |
+| **Wood burner → Coal plant** | Energy | ladder | 1,000 → 2,000 | burns fuel for power |
+| **Wind turbine** | Energy | - | 2,500 | free power, small |
+| **Solar farm** | Energy | L1–L3 | 5,000 | free power by day (the Sun is real in this game) |
+| **Shipyard** | Transport | - | 4,000 | ocean-going ships: cross deep oceans, carry much more |
+| **Tower block** | Housing | L4 of the housing ladder | 6,000 | +250 capacity, needs steel + power |
+
+### Era 3: The edge of the world (~10,000 → ~50,000)
+New resources: **water** (ice), **hydrogen**, **uranium**
+
+| Object | Category | Unlock | Does |
+|---|---|---|---|
+| **Ice mine** | Extraction | 10,000 | mines the ice wall → water |
+| **Electrolysis plant** | Processing | 12,000 | water + power → hydrogen (rocket fuel) |
+| **Nuclear plant** | Energy | 20,000 | uranium → lots of power |
+| **Launch site** | Transport | 25,000 | must sit on the ice wall; builds and launches rockets |
+| **Telescope** | Science | 15,000 | resolves stars in the galaxy over time |
+
+### Era 4: Orbit
+| Object | Category | Does |
+|---|---|---|
+| **Rocket** | Transport | world → orbit; carries people and cargo |
+| **Space station** | Housing / Transport | lives in orbit; the hub for everything in space |
+| **Fuel depot** | Transport | stores hydrogen in orbit so ships can refuel |
+
+### Era 5: The solar system
+New resources: **helium-3** (gas giants), **heavy metals, sulfur** (Vulcan), **minerals** (rocky worlds), **water** (icy moons)
+
+| Object | Category | Does |
+|---|---|---|
+| **Planetary outpost** | Housing | a colony on another world (its own country) |
+| **Orbital mine** | Extraction | mines a planet or moon from orbit |
+| **Gas scoop** | Extraction | skims helium-3 from a gas giant |
+| **Fusion plant** | Energy | helium-3 → huge power |
+| **Interplanetary ship** | Transport | travel between planets |
+
+### Era 6: The stars (the endgame)
+| Object | Category | Does |
+|---|---|---|
+| **Deep-space telescope** | Science | resolves distant stars faster |
+| **Starship** | Transport | travel between stars |
+| **Black-hole probe / final ship** | Transport | the endgame: fly into the black hole at the centre of the galaxy |
+
+### Still to add
+- The **military tree** (designed with combat).
+- Exact costs, rates and thresholds (tuning, once production chains exist).
+- Which buildings have levels beyond housing and transport.
 
 ---
 
@@ -590,6 +672,7 @@ python art/generate_art.py
 - **v1:** people were assigned to deposits as workers (0.1/sec each), and drills replaced workers. Food was an open question.
 - **v2 (2026-11-20):** deposits inside your border produce on their own. People are spent to claim land and to send expeditions, and regrow toward house capacity. Food is built into land fertility. Drills and factories are parked.
 - **Disk world (2026-11-20):** the map became a round disk in outer space, with an ice wall around the rim.
+- **v5 (2026-11-21), in the prototype:** the object catalogue (draft v1) and the housing ladder: House → Apartment → City block, upgraded in place; keys 1–5.
 - **v4 (2026-11-21), in the prototype:** territories became countries with their own people, houses and stockpiles; expeditions found new countries with a supply kit; links move people and cargo between countries; countries merge when they touch; the E build menu with population unlocks (send % moved to [ ]).
 - **Progression decisions (2026-11-21):** population unlocks the tech tree; build menu on E; territories are countries with their own people and resources, linked by transport that moves both; the end goal is the black hole at the centre of the galaxy.
 - **v3 (2026-11-20):** farms and fertility removed. Territory is either connected to your capital or cut off. Rail stations and ports link themselves to keep outposts alive and bring their resources home.
