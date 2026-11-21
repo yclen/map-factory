@@ -55,9 +55,11 @@
     // 1) work every deposit we own part of
     const seen = new Set();
     for (const d of G.deposits) {
-      if (!d.tiles.some(t => mine(C, t)) || d.tiles.some(t => G.building[t])) continue;
-      if (seen.has(d)) continue; seen.add(d);
-      const t = d.tiles.find(k => mine(C, k));
+      // a collector wherever at least 4 of our tiles of this deposit have none in reach, on the unworked tile nearest its middle
+      const free = d.tiles.filter(t => mine(C, t) && !G.isHarvested(t) && !G.building[t]);
+      if (free.length < 4 || seen.has(d)) continue; seen.add(d);
+      const mid = k => (k % W - d.cx) ** 2 + (((k / W) | 0) - d.cy) ** 2;
+      const t = free.reduce((a, b) => (mid(a) <= mid(b) ? a : b));
       const type = d.type === 'forest' ? 'cabin' : 'camp';
       if (afford(C, B[type].cost) && tryB(t, type)) { if (d.type === 'iron') mark('first iron collector'); }
     }
@@ -71,7 +73,7 @@
     }
     // 3) rigs: upgrade a collector when there's spare power
     if (G.isUnlocked('rig') && mw.max - mw.need >= 4 && afford(C, B.rig.cost, 10)) {
-      const col = g.buildings.find(b => (b.type === 'camp' || b.type === 'cabin') && mine(C, b.i) && G.deposits[G.depositOf[b.i]].type !== 'forest')
+      const col = g.buildings.find(b => b.type === 'camp' && mine(C, b.i))
         || g.buildings.find(b => (b.type === 'camp' || b.type === 'cabin') && mine(C, b.i));
       if (col && tryB(col.i, 'rig')) mark('first mining rig');
     }
@@ -112,7 +114,7 @@
   function maybeExpedition() {
     const home = alive().sort((a, b) => b.people - a.people)[0];
     if (!home || g.expeditions.length) return;
-    const hasIron = g.buildings.some(b => G.owner[b.i] && (b.type === 'camp' || b.type === 'rig') && G.deposits[G.depositOf[b.i]].type === 'iron');
+    const hasIron = g.buildings.some(b => G.owner[b.i] && b.work && b.work.iron > 0);
     if (hasIron || G.freePeople(home) < 40 || home.res.wood < 50 || home.res.stone < 50) return;
     let best = null, bd = Infinity;
     for (const d of G.deposits) {

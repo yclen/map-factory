@@ -17,7 +17,7 @@ A Factorio-style growth game played entirely from a **map view**, like openfront
 
 ---
 
-## How the game works now (prototype v17)
+## How the game works now (prototype v19)
 
 The rules as they are in the playable prototype ([`prototype/`](prototype/), or [play it online](https://yclen.github.io/map-factory/)). Everything below is current; older versions are in the Archive at the end. All numbers live in `CFG` at the top of `prototype/game.js` and are placeholders until playtesting.
 
@@ -31,9 +31,11 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 
 **Countries.** Every separate piece of your territory is a **country** with its own people, stockpile and power. **Right-click** outside your border to send an expedition from the **country you're viewing** (the one in the top bar; click a country to select it), and **drive it yourself**: a **truck** over land, or a **boat** if your border (or a port) touches water in that direction. **Arrow keys or WASD** steer and the camera rides along. A truck grips the ground and slows down in desert and mountains (about 11 / 7.5 / 4 tiles a second); a boat drifts and turns wide. Neither can leave its element, so the coast is a real barrier. It has **90 seconds of supplies**, after which it loses a person a second. **Space** settles: a truck where it stands, a boat on free land within 2 tiles (the circle shows the land the colony starts with). **Esc** lets go of the wheel and **X** takes it again. It carries the same share of the country's stockpile as of its people (the send %), and at least 40 wood and 40 stone if home has them: enough for the colony to build a station with track, or a cabin and a camp, straight away. On arrival the settlers found a **settlement**, which grows as the colony claims the land around it. Countries **merge** when their borders touch. **Names grow with capacity**: *the Colony of Gorethus* → *Gorethus Harbor / Hold / Oasis / Vale* (50) → *the Free State of Gorethus* (200) → *the Federation of Gorethus* (1,000) → *the United States of Gorethus* (5,000). Click a country from far out (or press Tab) to fly to it.
 
-**Resources: wood, stone, iron.** A deposit produces only when something works it:
-- **Logger's cabin** (forest) / **Miner's camp** (stone, iron): employ 5 people each.
-- **Mining rig** (500 people): the upgrade of either; 3× output, no workers, uses 4 MW, nothing without power.
+**Resources: wood, stone, iron.** A deposit tile produces only when a collector works it:
+- **Logger's cabin** (forest) / **Miner's camp** (stone and iron): each works the matching deposit tiles **within 4 tiles of it**, on your own land, and employs 5 people. Build them anywhere, on the deposit or beside it.
+- **A tile is worked by its nearest collector.** One collector in the middle of a small deposit covers all of it; a big forest needs several. Two side by side share the same tiles, so packing them in gives less each.
+- **Mining rig** (500 people): the upgrade of either; 3× output from the tiles it works, no workers, uses 4 MW, nothing without power.
+- With a collector selected, the tiles it would work show green and tiles already worked show grey, with the income it would add. Point at one to see its reach.
 
 **Settlements: the land holds the capacity.** There is one housing building, the **settlement** (40 wood, 40 stone and 20 people).
 - Every land tile you own can support people: grassland 0.5, desert 0.2, mountains 0.1.
@@ -49,18 +51,20 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 
 **AI nations.** 7 nations in their own colours, and they play the game: every couple of seconds each one may claim free land next to its border (while it is at least three-quarters full, up to 5,000 tiles), found a settlement where its land has none in reach, and build weapons as it grows (up to 4 mortars and 3 silos). Each starts with a settlement or more, a mortar and a missile silo. **Conquest works like openfront:** push into their land; each tile costs 0.5 + 2.5 × (their people per tile) extra and kills defenders, and their buildings become yours. A nation with no land left is conquered.
 
-**Their weapons.** A nation's **mortars fire at anything of yours within 22 tiles** (expeditions first, then buildings, then any of your land), so driving or settling next to a nation gets you shelled. Its **silos stay quiet until you attack it** (take a tile, or land a shell on it); from then on it is **at war** with you and its missiles hit your buildings from up to 110 tiles away. AI weapons reload slower than yours (mortar 4 s, silo 30 s).
+**Soldiers are the main threat.** Once a nation's border touches yours it may turn on you (about a 4% chance every 2 seconds), and attacking it (taking a tile, shelling it) or boxing it in does the same. At war it sends **waves of soldiers** into your land, openfront-style: a quarter of its people about every 20 seconds, shown as a red number at the advancing edge, heading for your nearest settlement. Each of your tiles costs the wave the land price plus 0.5 + 2.5 × (your people per tile), and your defenders die holding it. Whatever stands on a tile it takes becomes its own. **Push back the same way** (left-click their land) to retake it. A country that loses its last tile **falls**; lose them all and the game is over (N starts a new map).
 
-**They take your land.** A nation at war pushes into your territory from its border, the same way you push into theirs: each of your tiles costs it the land price plus 0.5 + 2.5 × (your people per tile), and kills some of your people. Whatever stands on a tile it takes becomes its own, settlements included. A nation that has **no free land left to claim** and borders you declares war by itself. A country that loses its last tile **falls**; lose them all and the game is over (N starts a new map). To hold a border: keep your country crowded, shell their settlements (fewer people means a weaker push), or push back in.
+**Weapons hit structures, not people.** A blast damages every building in it and destroys any expedition caught in it. It does nothing to open land. Buildings take hits before they go: a mortar shell does 1, a missile 5; most buildings take 2, and a settlement takes 8 / 12 / 18 / 25 as a hamlet / village / town / city. **A damaged settlement holds fewer people:** its capacity falls in step with its hit points, and each hit kills that share of the people living there, so shelling a city pays off long before it is destroyed. Damage shows as a bar over the building and mends by itself, one hit every 15 seconds, and the capacity comes back with it. People die when their **settlement** is hit, destroyed or captured.
+
+**Their weapons.** A nation's **mortars fire at your buildings and expeditions within 22 tiles**. Its **silos** fire at your buildings from up to 110 tiles away, but only once it is at war with you. AI weapons reload slower than yours (mortar 4 s, silo 30 s).
 
 **Your weapons.** Press **F**, then click a target; the lightest loaded weapon in range fires. A reload bar shows under any weapon that is reloading.
 
-| Weapon | Unlock | Build cost | Range | Reload | Blast | Each shot | Power |
+| Weapon | Unlock | Build cost | Range | Reload | Blast radius | Each shot | Power |
 |---|---|---|---|---|---|---|---|
-| **Mortar** | 300 people | 20 wood, 20 stone | 22 tiles | 2.5 s | radius 1.5, kills 1 per tile | 3 wood, 3 stone | none |
-| **Missile silo** | 600 people | 30 stone, 20 iron | 110 tiles | 10 s | radius 3, kills 3 per tile | 10 wood, 10 iron | 3 MW; reloads slower when short |
+| **Mortar** | 300 people | 20 wood, 20 stone | 22 tiles | 2.5 s | 1.5 | 5 iron | none |
+| **Missile silo** | 600 people | 30 stone, 20 iron | 110 tiles | 10 s | 3 | 10 wood, 60 iron | 3 MW; reloads slower when short |
 
-Any blast destroys every building in it, yours included, kills people on the land it hits, and destroys an expedition caught in it.
+Firing is paid for in **iron**, so a bombardment is something you save up for, and iron is what a war runs on.
 
 **Unlocks and building.** Buildings unlock by your empire's **peak population**. **E** opens the build menu, grouped by category (Housing, Resources, Energy, Transport, Military). The bottom bar is a **hotbar** on keys 1–9, 0: new unlocks fill empty slots; in the E menu, hover any building and press a number to put it on that key, or right-click to add / remove it. Drag a box over solar panels or burners and press **C** to paste copies.
 
@@ -543,6 +547,7 @@ Settings to adjust in playtesting. All of them are in `CFG` at the top of `proto
 - **Station, port, and track costs**, and how much more track costs through mountains and desert
 - **How rich** far-away deposits are compared to the ones near the start
 - **Unlock thresholds** for every building (`buildings.*.unlock`)
+- **Collector reach** (`collectorReach`) and output per tile (`prodPerTile`)
 - **Vehicle loads and the shipping reserve** (`vehicles`, `shipReserve`)
 - **Power** (`buildings.burner.gen`, `buildings.solar.gen`, `power.burnerWood`, `power.rigMult`)
 - **AI nations**: count, size, how hard they defend, how fast they expand and arm, how slowly they reload (`ai.*`)
@@ -602,6 +607,8 @@ python art/generate_art.py
 ---
 
 ## Design history
+- **v19 (2026-11-21), collectors have a reach:** a cabin or camp works the deposit tiles within 4 tiles instead of a whole deposit, each tile going to its nearest collector. Several can share one deposit, with diminishing returns where they overlap, and they can stand beside a deposit as well as on it.
+- **v18 (2026-11-21), soldiers first:** weapons only destroy structures (and expeditions); shelling open land does nothing, and people die when their settlement is destroyed or captured. Nations no longer shell bare land. Their main attack is soldiers: a neighbour may turn on you once borders touch, and at war it sends waves into your land the way your own pushes work, shown as a red number at the front.
 - **v17 (2026-11-21), invasion:** nations at war take your land tile by tile, and what's built on it; a boxed-in nation declares war by itself; countries can fall and the game can be lost.
 - **v16 (2026-11-21), nations fight back:** AI nations expand, found settlements and arm themselves; their mortars shell anything of yours in range and their silos join in once you attack them. New **mortar** (short range, fast, no iron, no power); the **missile silo** reaches 110 tiles (was 60), reloads in 10 s (was 6) and uses 3 MW. Reload bars; rockets with a flame, smoke trail and ground shadow; explosions with a flash, fireball, shockwave, sparks, smoke and a scorch mark; new silo and mortar art.
 - **v15 (2026-11-21), driving:** expeditions are vehicles you steer (arrow keys or WASD, Space to settle, Esc / X to let go and take the wheel). One physics model: thrust along the heading and drag from what's underneath; trucks stay on land, boats on water. Supplies last 90 seconds. The trail you drove is drawn behind you (not yet used for rail). Also new close-up art: forests are mixed trees with stands of conifers, deposits are boulders, rubble and flecked ore on stained ground, thinner at the edges.
