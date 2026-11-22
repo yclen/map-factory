@@ -167,3 +167,6 @@ canvas#game.building { cursor: copy; }
 
 /* goods and people on their way by ship or train */
 .incoming { font-size: 11px; font-weight: 700; color: var(--accent); margin-left: 5px; }
+
+/* resource values carry "/ cap" now: keep them on one line */
+#topbar .val { white-space: nowrap; }

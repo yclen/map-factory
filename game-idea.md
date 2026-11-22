@@ -17,7 +17,7 @@ A Factorio-style growth game played entirely from a **map view**, like openfront
 
 ---
 
-## How the game works now (prototype v21)
+## How the game works now (prototype v22)
 
 The rules as they are in the playable prototype ([`prototype/`](prototype/), or [play it online](https://yclen.github.io/map-factory/)). Everything below is current; older versions are in the Archive at the end. All numbers live in `CFG` at the top of `prototype/game.js` and are placeholders until playtesting.
 
@@ -43,7 +43,9 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 - A settlement's capacity is the sum of its tiles, and its level is read off that number: **Hamlet** → **Village** (50) → **Town** (110) → **City** (175). You never upgrade one by hand: push your border out around it and it grows.
 - Capacity above 170 needs power: a settlement that big uses 2 MW, and without it stays a Town.
 - With the Settlement tool selected, the map shows the land a new one would add in green and land that's already served in grey, with the capacity it would add. Point at a settlement to see its reach.
-- Up close a settlement draws its own houses around it (more, and bigger, as it grows). Zoomed out it is one badge: larger per level, ringed in its owner's colour, with a gold arc for how full its country is.
+- Up close a settlement draws its own houses around it (more, and bigger, as it grows). Zoomed out it is one badge: larger per level, ringed in its owner's colour, with a gold arc for how full its country is. Nothing is written on it; point at one to see its level and how many people live there.
+- Every country and nation has its name on the map with its **total population** underneath.
+- **Roads appear by themselves** between neighbouring settlements of the same country (each joins its two nearest within 34 tiles; the road runs along the grid with one or two right-angle turns, and only forms if such a route stays on that country's land), with trucks driving back and forth. They are for show: they carry nothing. Zoomed out, settlements are clusters of coloured pixels (red houses, blue apartments, grey city blocks), not icons.
 
 **Energy.** Each country has a power budget (top bar: MW used / available). **Wood burner** (200): 8 MW, burns up to 0.25 wood/s, only what's needed. **Solar panel** (700): 1.5 MW per tile, free, used first. Short on power, every user slows down evenly. Power never leaves a territory: no power lines.
 
@@ -53,11 +55,11 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 
 **Soldiers are the main threat.** Once a nation's border touches yours it may turn on you (about a 4% chance every 2 seconds), and attacking it (taking a tile, shelling it) or boxing it in does the same. At war it sends **waves of soldiers** into your land, openfront-style: a quarter of its people about every 20 seconds, shown as a red number at the advancing edge, heading for your nearest settlement. Each of your tiles costs the wave the land price plus 0.5 + 2.5 × (your people per tile), and your defenders die holding it. Whatever stands on a tile it takes becomes its own. **Push back the same way** (left-click their land) to retake it. A country that loses its last tile **falls**; lose them all and the game is over (N starts a new map).
 
-**Weapons hit structures, not people.** A blast damages every building in it and destroys any expedition caught in it. It does nothing to open land. Buildings take hits before they go: a mortar shell does 1, a missile 5; most buildings take 2, and a settlement takes 8 / 12 / 18 / 25 as a hamlet / village / town / city. **A damaged settlement holds fewer people:** its capacity falls in step with its hit points, and each hit kills that share of the people living there, so shelling a city pays off long before it is destroyed. Damage shows as a bar over the building and mends by itself, one hit every 15 seconds, and the capacity comes back with it. People die when their **settlement** is hit, destroyed or captured.
+**Weapons hit structures, not people.** A blast damages every building in it and destroys any expedition caught in it. It does nothing to open land. Buildings take hits before they go: a mortar shell does 1, a missile 5; most buildings take 2, and a settlement takes 8 / 12 / 18 / 25 as a hamlet / village / town / city. **A damaged settlement holds fewer people:** its capacity falls in step with its hit points, and each hit kills that share of the people living there, so shelling a city pays off long before it is destroyed. Damage shows as a bar over the building and mends by itself, one hit every 15 seconds, and the capacity comes back with it. People die when their **settlement** is hit or captured. **A settlement is never wiped off the map:** at zero hit points it is a ruin that houses nobody, nobody shells it, and it mends back by itself. So a town you capture is not flattened by its old owners.
 
 **Their weapons.** A nation's **mortars fire at your buildings and expeditions within 22 tiles**. Its **silos** fire at your buildings from up to 110 tiles away, but only once it is at war with you. They pay iron for every shot, as you do (see below).
 
-**Your weapons.** Press **F**, then click a target; the lightest loaded weapon in range fires. A reload bar shows under any weapon that is reloading.
+**Your weapons.** Only **missile silos** are aimed: press **F**, then click a target. **Mortars fire by themselves** at the buildings of any nation at war with you within range (weapons and defenses first, settlements last, never ruins), and hold fire once the country is down to 20 iron. A reload bar shows under any weapon that is reloading.
 
 | Weapon | Unlock | Build cost | Range | Reload | Blast radius | Each shot | Power |
 |---|---|---|---|---|---|---|---|
@@ -65,6 +67,8 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 | **Missile silo** | 600 people | 30 stone, 20 iron | 110 tiles | 10 s | 3 | 10 wood, 60 iron | 3 MW; reloads slower when short |
 
 Firing is paid for in **iron**, so a bombardment is something you save up for, and iron is what a war runs on.
+
+**Gun turret** (400 people; 25 stone, 15 iron) fires by itself at enemy soldiers: when the front of a wave comes within **9 tiles**, it kills 6 of them a second, for 0.15 iron each. A few turrets behind a border stop a wave dead. Nations build them too (up to 3), and theirs gun down *your* pushes the same way.
 
 **Air defense** (500 people; 30 stone, 30 iron; 2 MW) covers everything within **14 tiles** of it: a shell or missile aimed inside that circle is shot down in the air, for 8 iron, after which the battery reloads for 3 seconds (longer when short on power). One battery stops a slow trickle of shots but not a salvo, and it only works while there is iron to pay. Nations build them too as they grow (up to 2); while you aim, their coverage shows as blue rings, so you can see where a shot will be wasted.
 
@@ -614,6 +618,7 @@ python art/generate_art.py
 ---
 
 ## Design history
+- **v22 (2026-11-21), automatic defenses:** gun turrets that thin out enemy waves by themselves; mortars pick their own targets (only silos are aimed); settlements become ruins at zero health instead of being destroyed, and mend; country names show total population underneath, and settlements show their numbers only when pointed at. Settlements draw as pixel clusters when zoomed out, and roads with trucks join neighbouring settlements.
 - **v21 (2026-11-21), air defense:** a battery that shoots down shells and missiles aimed within 14 tiles of it, for 8 iron a time, with a 3 second reload; nations build them too. Sea routes no longer draw a dotted line.
 - **v20 (2026-11-21), storage caps and iron as the war currency:** every resource is capped by settlement capacity (wood and stone 200 + 5 per person housed, iron 50 + 1) with meters in the top bar; shells cost 5 iron and missiles 60. AI nations get an iron store under the same rule, mine the iron in their land, pay the same prices and reload as fast as you.
 - **v19 (2026-11-21), collectors have a reach:** a cabin or camp works the deposit tiles within 4 tiles instead of a whole deposit, each tile going to its nearest collector. Several can share one deposit, with diminishing returns where they overlap, and they can stand beside a deposit as well as on it.

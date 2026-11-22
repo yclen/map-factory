@@ -54,6 +54,10 @@ const CFG = {
   // Collectors harvest the deposit tiles within `collectorReach` of them (their own country's land only). A tile is
   // worked by its nearest collector, so two side by side share the same tiles: more of them on one deposit gives less each.
   collectorReach: 4,
+  // Roads: settlements in the same country join up by themselves, each to its nearest neighbours within `roadMax`
+  // tiles, along the grid with one or two right-angle turns, when such a route stays on that country's land.
+  // Trucks drive them. For show only.
+  roadMax: 34, roadLinks: 2, truckSpeed: 5,
   // Every resource can only be stockpiled so far: a country stores `base` plus `perCap` for each person its settlements
   // can house. Collectors set how fast a store fills; settlements set how much it holds. Wood and stone are generous
   // (enough for a long building spree); iron is tighter, because it is what war runs on.
@@ -86,7 +90,9 @@ const CFG = {
                desc: 'Mines the stone and iron within 4 tiles of it. Employs 5 of the country\'s people, who can\'t be sent anywhere. Two close together share the same rock.' },
     // weapons
     mortar:  { cat: 'Military', name: 'Mortar', cap: 0, unlock: 300, cost: { wood: 20, stone: 20 }, weapon: 'shell',
-               desc: 'Press F, then click a target up to 22 tiles away. Shells cost 5 iron, land in a small blast and reload in under 3 seconds. Cheap to build and needs no power.' },
+               desc: 'Fires by itself at the buildings of any nation you are at war with, up to 22 tiles away. Shells cost 5 iron and reload in under 3 seconds. Holds fire when the country is down to 20 iron.' },
+    turret:  { cat: 'Military', name: 'Gun turret', cap: 0, unlock: 400, cost: { stone: 25, iron: 15 }, gun: true,
+               desc: 'Guns down enemy soldiers pushing into your land within 9 tiles of it, by itself: 6 a second, for a little iron. Enough of them stop a wave dead.' },
     airdef:  { cat: 'Military', name: 'Air defense', cap: 0, unlock: 500, cost: { stone: 30, iron: 30 }, use: 2, defense: true,
                desc: 'Shoots down shells and missiles aimed at anything within 14 tiles of it. Each interception costs 8 iron, then it reloads for 3 seconds. Uses 2 MW; short on power, it reloads slower.' },
     silo:    { cat: 'Military', name: 'Missile silo', cap: 0, unlock: 600, cost: { stone: 30, iron: 20 }, use: 3, weapon: 'missile',
@@ -98,7 +104,7 @@ const CFG = {
         defenseBase: 0.5, defensePerDensity: 2.5, killShare: 0.6,
         // v2: nations play the game. Every `think` seconds each one may build a weapon, found a settlement and claim land.
         think: 2, expandAt: 0.75, expandShare: 0.05, maxTiles: 5000, settleGain: 40,
-        tilesPerMortar: 500, maxMortars: 4, tilesPerSilo: 1200, maxSilos: 3, tilesPerAirDef: 900, maxAirDefs: 2,
+        tilesPerMortar: 500, maxMortars: 4, tilesPerSilo: 1200, maxSilos: 3, tilesPerAirDef: 900, maxAirDefs: 2, tilesPerTurret: 500, maxTurrets: 3,
         // Their mortars fire at your buildings and expeditions in range; their silos only once they're at war with you.
         reloadMult: { shell: 1, missile: 1 },      // they pay for every shot in iron, as you do, so they reload as fast as you
         // Soldiers: a nation whose border touches yours may turn on you (`aggression` = chance per think). At war it sends
@@ -114,6 +120,9 @@ const CFG = {
   hp: { settlement: [8, 12, 18, 25], other: 2, repairSec: 15 },
   // air defense: shoots down an incoming shell or missile whose target is within `range` of it, if loaded and paid for
   airDefense: { range: 14, reload: 3, cost: { iron: 8 } },
+  // gun turret: kills soldiers of a push whose front is within `range`, `kills` a second, paying `iron` per soldier
+  turret: { range: 9, kills: 6, iron: 0.15 },
+  mortarReserve: 20,           // your mortars fire by themselves, but not below this much iron
   weapons: {
     shell:   { name: 'Mortar shell', range: 22, reload: 2.5, radius: 1.5, damage: 1, speed: 24, arc: 0.75, cost: { iron: 5 } },
     missile: { name: 'Missile', range: 110, reload: 10, radius: 3, damage: 5, speed: 36, arc: 0.3, cost: { wood: 10, iron: 60 } },
@@ -357,6 +366,10 @@ const SHAPES = {
     <circle r="8" fill="#22262c" stroke="#14171b" stroke-width="1.2"/><circle r="6.2" fill="none" stroke="#454c55" stroke-width="0.9"/>
     <path d="M-5.5 -5.5 L5.5 5.5 M5.5 -5.5 L-5.5 5.5" stroke="#b9c0c6" stroke-width="1.8"/>
     <circle r="4.2" fill="#e8ecef" stroke="#8d969e" stroke-width="0.8"/><circle r="2.5" fill="#f6f8f9"/><circle r="1.5" fill="#d64045"/>`,
+  turret: `<ellipse cx="1.5" cy="3" rx="12" ry="10" fill="#000" opacity="0.2"/>` + ring(10, 9, 3, '#8f7a52') + ring(10, 9, 2.3, '#bfa674', -0.4, -0.5) +
+    `<circle r="6.6" fill="#4a4034"/><circle r="4.6" fill="#55603a" stroke="#262b18" stroke-width="0.9"/>
+    <g transform="rotate(-30)"><rect x="1" y="-2.6" width="12" height="1.8" rx="0.6" fill="#22262c"/><rect x="1" y="0.8" width="12" height="1.8" rx="0.6" fill="#22262c"/>
+    <rect x="-3.4" y="-3.4" width="6.8" height="6.8" rx="1.4" fill="#6f7a4a" stroke="#262b18" stroke-width="0.8"/></g>`,
   airdef: `<rect x="-10" y="-9" width="24" height="23" fill="#000" opacity="0.22"/>
     <rect x="-12" y="-12" width="24" height="24" rx="3" fill="#5f6f78" stroke="#263238" stroke-width="1"/>
     <circle r="8.5" fill="#3d4a52" stroke="#1d262b" stroke-width="1"/>
@@ -419,9 +432,9 @@ for (const [name, inner] of Object.entries(SHAPES)) {
 const DEP_SPRITE = { forest: 'tree', stone: 'rock', iron: 'ore' };
 const DEP_RES = { forest: 'wood', stone: 'stone', iron: 'iron' };
 const DEP_COLOR = { forest: '#3f7a35', stone: '#a7adb3', iron: '#a8654a' };
-const BLD_CODE = { settlement: 1, station: 3, port: 4, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10, silo: 11, mortar: 12, airdef: 13 };
+const BLD_CODE = { settlement: 1, station: 3, port: 4, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10, silo: 11, mortar: 12, airdef: 13, turret: 14 };
 const BLD_COLOR = { settlement: '#de6d4c', station: '#8f979f', port: '#a67c52',
-  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b', silo: '#6c7480', mortar: '#8f7a52', airdef: '#4f7f8c' };
+  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b', silo: '#6c7480', mortar: '#8f7a52', airdef: '#4f7f8c', turret: '#6f7a4a' };
 const buildingAt = i => (building[i] ? game.buildings.find(b => b.i === i) : null);
 // the steps from `have` (or clear land) up to `type`, or null if `have` isn't below `type` on its ladder
 function ladderSteps(type, have) {
@@ -999,6 +1012,7 @@ function aiThink(n) {
   const base = towns.length ? towns[(Math.random() * towns.length) | 0].i : idx(Math.floor(n.lx), Math.floor(n.ly));
   const want = count('mortar') < Math.min(A.maxMortars, 1 + Math.floor(n.tiles / A.tilesPerMortar)) ? 'mortar'
     : count('silo') < Math.min(A.maxSilos, 1 + Math.floor(n.tiles / A.tilesPerSilo)) ? 'silo'
+    : count('turret') < Math.min(A.maxTurrets, Math.floor(n.tiles / A.tilesPerTurret)) ? 'turret'
     : count('airdef') < Math.min(A.maxAirDefs, Math.floor(n.tiles / A.tilesPerAirDef)) ? 'airdef' : null;
   const price = want ? CFG.buildings[want].cost.iron || 0 : 0;      // nations only keep iron, so that's the part they pay
   if (want && (n.iron || 0) >= price) { const sp = aiSpot(n, base % W, (base / W) | 0, 6); if (sp >= 0) { placeBuilding(sp, want); n.iron -= price; game.bldDirty = true; } }
@@ -1116,7 +1130,7 @@ function aiFire() {
     for (const e of game.expeditions) { const d = Math.hypot(e.x - bx, e.y - by); if (!e.done && d < bd) { bd = d; tgt = [e.x, e.y]; } }
     if (!tgt) {
       yours = yours || game.buildings.filter(q => owner[q.i]);
-      for (const q of yours) { const d = tileDist(q.i, bx, by); if (d < bd) { bd = d; tgt = tileCenter(q.i); } }
+      for (const q of yours) { const d = tileDist(q.i, bx, by); if (d < bd && !isRuin(q)) { bd = d; tgt = tileCenter(q.i); } }
     }
     if (!tgt) continue;
     launchShot(b, tgt[0], tgt[1], def.weapon, n);
@@ -1219,6 +1233,93 @@ function recomputeNetwork() {
 
 // everything that depends on buildings (housing, power, workers, collectors, titles, nation housing).
 // Only loops the buildings and deposits, so it's cheap enough to run whenever something changes.
+// ---------- roads: drawn between neighbouring settlements of the same country, with trucks on them ----------
+let roads = [], roadsDirty = true, roadsAt = -9;
+// A road runs along the grid: straight, a right-angle turn, straight again. Two turns (a Z) when the two
+// settlements are well off each other's axes, one (an L) otherwise. It tries each shape and takes the first
+// that stays on the country's own land the whole way.
+function roadPath(ax, ay, bx, by, side) {
+  const dx = bx - ax, dy = by - ay, mx = Math.round((ax + bx) / 2), my = Math.round((ay + by) / 2);
+  const L1 = [[ax, ay], [bx, ay], [bx, by]], L2 = [[ax, ay], [ax, by], [bx, by]];
+  const Z1 = [[ax, ay], [mx, ay], [mx, by], [bx, by]], Z2 = [[ax, ay], [ax, my], [bx, my], [bx, by]];
+  const wide = Math.abs(dx) >= Math.abs(dy), diagonal = Math.min(Math.abs(dx), Math.abs(dy)) > 5;
+  const order = diagonal ? (wide ? [Z1, Z2, L1, L2] : [Z2, Z1, L2, L1]) : (wide ? [L1, L2, Z1, Z2] : [L2, L1, Z2, Z1]);
+  for (const pts of order) {
+    let ok = true;
+    for (let k = 0; k + 1 < pts.length && ok; k++) {
+      const [x0, y0] = pts[k], [x1, y1] = pts[k + 1], n = Math.abs(x1 - x0) + Math.abs(y1 - y0);
+      for (let e = 0; e <= n && ok; e++) {
+        const t = idx(x0 + Math.sign(x1 - x0) * e, y0 + Math.sign(y1 - y0) * e);
+        if (sideOf(t) !== side || !isLand(t)) ok = false;
+      }
+    }
+    if (ok) return pts.filter((q, k) => k === 0 || q[0] !== pts[k - 1][0] || q[1] !== pts[k - 1][1]);
+  }
+  return null;
+}
+function buildRoads() {
+  const S = game.buildings.filter(b => b.type === 'settlement' && sideOf(b.i));
+  const pos = S.map(b => [b.i % W, (b.i / W) | 0, sideOf(b.i)]);
+  const seen = new Set();
+  roads = [];
+  S.forEach((b, k) => {
+    const near = [];
+    for (let j = 0; j < S.length; j++) {
+      if (j === k || pos[j][2] !== pos[k][2]) continue;
+      const d = Math.hypot(pos[j][0] - pos[k][0], pos[j][1] - pos[k][1]);
+      if (d <= CFG.roadMax) near.push({ j, d });
+    }
+    near.sort((p, q) => p.d - q.d);
+    let made = 0;
+    for (const { j } of near) {
+      if (made >= CFG.roadLinks) break;
+      const key = k < j ? k + ':' + j : j + ':' + k;
+      if (seen.has(key)) { made++; continue; }
+      const pts = roadPath(pos[k][0], pos[k][1], pos[j][0], pos[j][1], pos[k][2]);
+      if (!pts) continue;
+      seen.add(key); made++;
+      const at = [0];                              // distance along the road at each corner
+      for (let q = 1; q < pts.length; q++) at.push(at[q - 1] + Math.abs(pts[q][0] - pts[q - 1][0]) + Math.abs(pts[q][1] - pts[q - 1][1]));
+      roads.push({ pts, at, len: at[at.length - 1], mine: pos[k][2] > 0, ph: hash2(b.i % 9973, S[j].i % 9973, 81) });
+    }
+  });
+  roadsDirty = false; roadsAt = game.time;
+}
+function drawRoads(z) {
+  if (roadsDirty && Math.abs(game.time - roadsAt) > 1) buildRoads();   // at most once a second, however fast the border moves
+  if (z < 1) return;
+  const w = Math.max(1.3, z * 0.22);
+  ctx.lineCap = 'square'; ctx.lineJoin = 'miter';
+  for (const pass of [0, 1]) {                    // a dark edge first, then the pale road on top
+    ctx.beginPath();
+    for (const r of roads) r.pts.forEach((q, k) => { const [sx, sy] = toScreen(q[0] + 0.5, q[1] + 0.5); k ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+    ctx.strokeStyle = pass ? 'rgba(216,200,160,0.92)' : 'rgba(50,42,30,0.55)'; ctx.lineWidth = pass ? w : w + 1.6; ctx.stroke();
+  }
+  ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+  if (z < 1.8) return;
+  for (const r of roads) {                        // trucks shuttling back and forth, turning at the corners
+    if (r.len < 1) continue;
+    const n = r.len > 22 ? 2 : 1;
+    for (let k = 0; k < n; k++) {
+      const u = (game.time * CFG.truckSpeed / r.len + r.ph + k / n) % 2, back = u >= 1, d = (back ? 2 - u : u) * r.len;
+      let q = 1;
+      while (q < r.at.length - 1 && r.at[q] < d) q++;
+      const [x0, y0] = r.pts[q - 1], [x1, y1] = r.pts[q], f = (d - r.at[q - 1]) / Math.max(1e-6, r.at[q] - r.at[q - 1]);
+      const [sx, sy] = toScreen(lerp(x0, x1, f) + 0.5, lerp(y0, y1, f) + 0.5);
+      if (sx < -20 || sy < -20 || sx > cw + 20 || sy > ch + 20) continue;
+      if (z >= CFG.detailZoom && RAS.truck) {
+        const a = Math.atan2(y1 - y0, x1 - x0) + (back ? Math.PI : 0), size = z * 1.15;
+        ctx.save(); ctx.translate(sx, sy); ctx.rotate(a); if (Math.cos(a) < -0.5) ctx.scale(1, -1);
+        ctx.drawImage(RAS.truck[1], -size / 2, -size / 2, size, size); ctx.restore();
+      } else {
+        const p = Math.max(2, z * 0.42);
+        ctx.fillStyle = 'rgba(20,26,37,0.9)'; ctx.fillRect(sx - p / 2 - 0.5, sy - p / 2 - 0.5, p + 1, p + 1);
+        ctx.fillStyle = r.mine ? '#f2c14e' : '#ffffff'; ctx.fillRect(sx - p / 2, sy - p / 2, p, p);
+      }
+    }
+  }
+}
+
 // ---------- settlements: the land holds the capacity, a settlement unlocks what's in its reach ----------
 const servStamp = new Int32Array(N), servD = new Uint16Array(N), servBy = new Int32Array(N);
 let servN = 0;
@@ -1251,6 +1352,7 @@ function recomputeLand() {
     if (b.dmg) b.base *= Math.max(0, 1 - b.dmg / hpOf(b));
   });
   game.landDirty = false;
+  roadsDirty = true;
 }
 // what a settlement holds right now: the part above `powerAbove` only counts as far as its country has power
 function settlementCap(b) {
@@ -1268,6 +1370,8 @@ function levelOfCap(cap) {
 const settlementLevel = b => levelOfCap(settlementCap(b));
 // hits a building can take; a settlement's toughness goes by the size it would be undamaged
 const hpOf = b => (b.type === 'settlement' ? CFG.hp.settlement[levelOfCap(b.full ?? b.base ?? 0)] : CFG.hp.other);
+// a settlement shelled down to nothing is a ruin: it stays on the map, houses nobody, and isn't worth another shell until it mends
+const isRuin = b => b.type === 'settlement' && hpOf(b) - (b.dmg || 0) < 1;
 // what a new settlement on tile i would add: the land in reach that nothing serves yet (and how much is already taken)
 function settlementGain(i) {
   const side = sideOf(i);
@@ -1985,6 +2089,7 @@ function tick(dt) {
   if (pop > game.peakPop + 0.5) { game.peakPop = pop; checkUnlocks(); }
 
   for (const p of game.pushes) stepPush(p, dt);
+  gunStep(dt);
   for (const r of game.raids) stepRaid(r, dt);
   game.raids = game.raids.filter(r => !r.done);
   for (const p of game.pushes) if (p.done && p.budget > 0) { const c = liveCountry(p.country); if (c) c.people += p.budget; }
@@ -2001,7 +2106,7 @@ function tick(dt) {
   game.scorch = game.scorch.filter(sc => sc.t < 1);
   aiTimer += dt; aiFireTimer += dt;
   if (aiFireTimer > 0.5) {
-    aiFireTimer = 0; aiFire();
+    aiFireTimer = 0; aiFire(); yourMortars();
     for (const b of game.buildings) if (b.dmg) {     // damage mends slowly, and a mending settlement holds more again
       b.dmg = Math.max(0, b.dmg - 0.5 / CFG.hp.repairSec);
       if (b.type === 'settlement') game.landDirty = true;
@@ -2136,15 +2241,16 @@ function newGame() {
 // ---------- weapons: mortars (short range, quick) and missile silos (long range, slow, powered) ----------
 const weaponOf = b => CFG.weapons[CFG.buildings[b.type].weapon];
 const weaponsOf = () => game.buildings.filter(b => owner[b.i] && CFG.buildings[b.type].weapon);
+const silosOf = () => game.buildings.filter(b => owner[b.i] && b.type === 'silo');
 const tileDist = (i, x, y) => Math.hypot(i % W - x, ((i / W) | 0) - y);
 function setAiming(on) {
-  if (on && !weaponsOf().length) return toast(isUnlocked('mortar') ? 'Build a mortar or a missile silo first' : `Weapons start with the mortar, which unlocks at ${CFG.buildings.mortar.unlock} people`);
+  if (on && !silosOf().length) return toast(isUnlocked('silo') ? 'Build a missile silo first: silos are the weapon you aim (mortars and turrets fire by themselves)' : `You aim missile silos, which unlock at ${CFG.buildings.silo.unlock} people. Mortars and turrets fire by themselves.`);
   game.aiming = on;
   if (on) { setTool(null); clearSelection(); toast('Aiming: click a target in range · F or Esc to stop'); }
 }
 // which of your weapons would fire at a spot: the lightest one in range that's loaded
 function pickWeapon(tx, ty) {
-  const inR = weaponsOf().map(b => ({ b, Wp: weaponOf(b), d: tileDist(b.i, tx, ty) })).filter(o => o.d <= o.Wp.range)
+  const inR = silosOf().map(b => ({ b, Wp: weaponOf(b), d: tileDist(b.i, tx, ty) })).filter(o => o.d <= o.Wp.range)
     .sort((p, q) => p.Wp.range - q.Wp.range || p.d - q.d);
   return { inR, ready: inR.find(o => (o.b.ready || 0) <= game.time) };
 }
@@ -2175,13 +2281,59 @@ function tryIntercept(m) {
     return;
   }
 }
+// Your mortars pick their own targets: the buildings of nations at war with you, weapons and defenses first,
+// then everything else, and settlements last (never ruins). They hold fire below the iron reserve.
+function yourMortars() {
+  const Wp = CFG.weapons.shell;
+  let theirs = null;
+  for (const b of game.buildings) {
+    if (b.type !== 'mortar' || !owner[b.i] || (b.ready || 0) > game.time) continue;
+    const C = countryAt(b.i);
+    if (!C || C.res.iron < Wp.cost.iron + CFG.mortarReserve) continue;
+    theirs = theirs || game.buildings.filter(q => aiOf[q.i] && game.nations[aiOf[q.i] - 1].hostile && !isRuin(q));
+    const bx = b.i % W, by = (b.i / W) | 0;
+    let tgt = null, best = Infinity;
+    for (const q of theirs) {
+      const d = tileDist(q.i, bx, by);
+      if (d > Wp.range) continue;
+      const def = CFG.buildings[q.type], score = d + (def.weapon || def.defense || def.gun ? 0 : q.type === 'settlement' ? 200 : 100);
+      if (score < best) { best = score; tgt = q; }
+    }
+    if (!tgt) continue;
+    C.res.iron -= Wp.cost.iron;
+    b.rd = Wp.reload; b.ready = game.time + b.rd;
+    launchShot(b, ...tileCenter(tgt.i), 'shell');
+  }
+}
+// Gun turrets: each one thins out an enemy push whose front is within its range, a few soldiers every tick,
+// paying a little iron per soldier. Yours shoot nations' waves; theirs shoot your pushes.
+function gunStep(dt) {
+  const T = CFG.turret;
+  for (const b of game.buildings) {
+    if (b.type !== 'turret') continue;
+    const bx = b.i % W + 0.5, by = ((b.i / W) | 0) + 0.5, mine = !!owner[b.i];
+    if (!mine && !aiOf[b.i]) continue;
+    const waves = mine ? game.raids : game.pushes;
+    for (const w of waves) {
+      if (w.done || w.lx == null || w.budget <= 0 || Math.hypot(w.lx - bx, w.ly - by) > T.range) continue;
+      const kill = Math.min(w.budget, T.kills * dt), cost = kill * T.iron;
+      if (mine) { const C = countryAt(b.i); if (!C || C.res.iron < cost) break; C.res.iron -= cost; }
+      else { const n = game.nations[aiOf[b.i] - 1]; if (!n.alive || (n.iron || 0) < cost) break; n.iron -= cost; }
+      w.budget -= kill;
+      b.fire = game.time; b.aim = [w.lx, w.ly];
+      b.acc = (b.acc || 0) + kill;
+      if (b.acc >= 5) { floatText(w.lx, w.ly - 1.2, `-${Math.round(b.acc)}`, mine ? '#7bd389' : '#ff7a6b'); b.acc = 0; }
+      break;                                       // one target at a time
+    }
+  }
+}
 function launchShot(b, x1, y1, w, nation = null) {
   const Wp = CFG.weapons[w], [x0, y0] = tileCenter(b.i);
   game.missiles.push({ x0, y0, x1, y1, t: 0, dur: Math.max(0.6, Math.hypot(x1 - x0, y1 - y0) / Wp.speed), w, ai: nation ? nation.id : -1 });
 }
 function fireMissile(tx, ty) {
   const { inR, ready } = pickWeapon(tx, ty);
-  if (!inR.length) return toast(`Out of range: mortars reach ${CFG.weapons.shell.range} tiles, missile silos ${CFG.weapons.missile.range}`);
+  if (!inR.length) return toast(`Out of range: missile silos reach ${CFG.weapons.missile.range} tiles`);
   if (!ready) return toast(`Reloading: ${Math.ceil(Math.min(...inR.map(o => o.b.ready)) - game.time)}s`);
   const s = ready.b, Wp = ready.Wp, C = countryAt(s.i), miss = missingFor(Wp.cost, C);
   if (miss) return toast(`${C.short} doesn't have enough ${miss} for a ${Wp.name.toLowerCase()}`);
@@ -2212,15 +2364,22 @@ function explode(x, y, m) {
   const Wp = CFG.weapons[m.w], R = Wp.radius, cx = Math.floor(x), cy = Math.floor(y), before = everyone();
   const foe = m.ai >= 0 ? game.nations[m.ai] : null;
   const hit = new Map();                           // nation or country -> tiles hit
-  let wrecked = 0, damaged = 0;
+  let wrecked = 0, damaged = 0, ruined = 0;
   for (let dy = -Math.ceil(R); dy <= Math.ceil(R); dy++) for (let dx = -Math.ceil(R); dx <= Math.ceil(R); dx++) {
     if (dx * dx + dy * dy > R * R + 0.5 || !inb(cx + dx, cy + dy)) continue;
     const i = idx(cx + dx, cy + dy);
     if (building[i]) {
-      const b = buildingAt(i), left = hpOf(b) - (b.dmg || 0);
-      loseSettlement(i, Math.min(1, Wp.damage / left));    // each hit kills its share of the people living there
-      b.dmg = (b.dmg || 0) + Wp.damage;
-      if (b.dmg >= hpOf(b)) { removeBuilding(i); wrecked++; } else damaged++;
+      const b = buildingAt(i), hp = hpOf(b), left = hp - (b.dmg || 0);
+      if (b.type === 'settlement') {               // never wiped off the map: at zero it's a ruin until it mends
+        if (left > 0.01) {
+          loseSettlement(i, Math.min(1, Wp.damage / left));    // each hit kills its share of the people living there
+          b.dmg = Math.min(hp, (b.dmg || 0) + Wp.damage);
+          if (b.dmg >= hp) ruined++; else damaged++;
+        }
+      } else {
+        b.dmg = (b.dmg || 0) + Wp.damage;
+        if (b.dmg >= hp) { removeBuilding(i); wrecked++; } else damaged++;
+      }
     }
     const who = nationAt(i) || countryAt(i);
     if (who) hit.set(who, (hit.get(who) || 0) + 1);
@@ -2240,6 +2399,7 @@ function explode(x, y, m) {
   const parts = [];
   if (killed) parts.push(`${killed} killed`);
   if (wrecked) parts.push(`${wrecked} building${wrecked === 1 ? '' : 's'} destroyed`);
+  if (ruined) parts.push(`${ruined} settlement${ruined === 1 ? '' : 's'} in ruins`);
   if (damaged) parts.push(`${damaged} damaged`);
   if (parts.length) floatText(x, y - R - 1.5, parts.join(' · '), '#ff7a6b');
 }
@@ -3636,6 +3796,7 @@ function render() {
     ctx.lineCap = 'butt';
   }
 
+  drawRoads(z);
   // rail lines (sea routes aren't drawn: the ships sailing them are enough)
   for (const L of game.links) if (L.kind === 'rail') strokeRoute(L.path, 'rail', z);
 
@@ -3659,31 +3820,22 @@ function render() {
       ctx.fillStyle = BLD_COLOR[b.type];
       ctx.fillRect(sx + z * 0.12, sy + z * 0.12, z * 0.76, z * 0.76);
     }
-    drawSettlementBadges(z);
+    drawSettlementPixels(z);
   } else {
-    // map view: settlement badges, station/port icons, deposit markers
-    for (const d of deposits) {
-      if (d.type === 'forest') continue;   // forests already show as dark green patches
-      if (z < 1.6 && d.type === 'stone') continue;   // very far out: only iron, to avoid clutter
-      if (z < 0.9) continue;                         // whole-disk view: no markers at all
-      const [sx, sy] = toScreen(d.cx + 0.5, d.cy + 0.5);
-      if (sx < -10 || sy < -10 || sx > cw + 10 || sy > ch + 10) continue;
-      ctx.beginPath(); ctx.arc(sx, sy, d.type === 'iron' ? 5 : 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = DEP_COLOR[d.type]; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
-      ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.stroke();
-    }
+    // map view: settlements as clusters of pixels, station/port icons. Deposits show as their own coloured ground.
     for (const b of game.buildings) {
       if (b.type !== 'station' && b.type !== 'port') continue;
       const [sx, sy] = toScreen(...tileCenter(b.i));
       ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill();
       if (SPR[b.type].complete) ctx.drawImage(SPR[b.type], sx - 8, sy - 8, 16, 16);
     }
-    drawSettlementBadges(z);
+    drawSettlementPixels(z);
   }
 
   drawVehicles(z);
   drawBuildPreview(z);
   drawReachHover(z);
+  drawSettlementHover(z);
   drawMissiles(z);
   drawSelection(z);
   drawDiskLabel(z);
@@ -3799,40 +3951,25 @@ function drawSettlementDetail(b, z) {
   const x = b.i % W, y = (b.i / W) | 0, lvl = settlementLevel(b);
   for (const h of sprawlOf(b)) drawSprite(h.type, h.x + 0.5, h.y + 0.5, z * (h.type === 'house' ? 1.2 : 1.0));
   drawSprite('settle' + (lvl + 1), x + 0.5, y + 0.3, z * (2.5 + lvl * 0.35));
-  const foe = nationAt(b.i), [sx, sy] = toScreen(x + 0.5, y + 0.5);
-  pill(sx, sy + z * (1.5 + lvl * 0.18) + 10, `${CFG.settlement.levels[lvl].name} · ${Math.round(settlementCap(b))}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
 }
-// Zoomed out, a settlement is one badge: bigger with each level, ringed in its owner's colour,
-// with a gold arc for how full its country is.
-function drawSettlementBadges(z) {
-  if (z < 0.15) return;                            // from orbit the whole disk is only a few pixels: no icons
+// Zoomed out, a settlement is drawn as what it is: a cluster of little coloured blocks, one per house, in the same
+// spots as its houses up close. Red roofs for houses, blue for apartments, pale grey for city blocks, and a bright
+// block at the centre. A hamlet is a few specks; a city is a patch you can't miss. No icons to cover the map.
+const PIXEL = { house: '#d9694a', house2: '#6f97c4', house3: '#d3dbe4' };
+function drawSettlementPixels(z) {
+  if (z < 0.15) return;                            // from orbit the whole disk is only a few pixels
+  const px = Math.max(z * 0.82, 1.7), edge = px >= 4 ? 1 : 0.5;
   for (const b of game.buildings) {
     if (b.type !== 'settlement') continue;
-    const [sx, sy] = toScreen(...tileCenter(b.i));
-    if (sx < -30 || sy < -30 || sx > cw + 30 || sy > ch + 30) continue;
-    const lvl = settlementLevel(b), foe = nationAt(b.i), who = foe || countryAt(b.i), col = foe ? foe.hex : OWN_HEX;
-    if (z < 1.2) {                                 // whole-disk view: just a dot, bigger for bigger places
-      ctx.beginPath(); ctx.arc(sx, sy, 2.2 + lvl * 0.9, 0, Math.PI * 2);
-      ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(20,26,37,0.9)'; ctx.stroke();
-      continue;
-    }
-    const r = 11 + lvl * 3, spr = RAS['settle' + (lvl + 1)];
-    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(20,26,37,0.88)'; ctx.fill();
-    ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.stroke();
-    if (spr) ctx.drawImage(spr[0], sx - r * 0.85, sy - r * 0.85, r * 1.7, r * 1.7);
-    const full = who && who.cap > 0 ? clamp(who.people / who.cap, 0, 1) : 0;
-    if (full > 0.01) {
-      ctx.beginPath(); ctx.arc(sx, sy, r + 3.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * full);
-      ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.stroke(); ctx.lineCap = 'butt';
-    }
-    if (z >= 2.5) {
-      const txt = String(Math.round(settlementCap(b)));
-      ctx.font = "700 10px 'Segoe UI', Arial, sans-serif"; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,26,37,0.9)';
-      ctx.strokeText(txt, sx, sy + r + 6); ctx.fillStyle = '#fff'; ctx.fillText(txt, sx, sy + r + 6);
-      ctx.textAlign = 'left';
-    }
+    const [cx, cy] = toScreen(...tileCenter(b.i));
+    if (cx < -60 || cy < -60 || cx > cw + 60 || cy > ch + 60) continue;
+    const dot = (wx, wy, size, color) => {
+      const [sx, sy] = toScreen(wx + 0.5, wy + 0.5);
+      ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fillRect(sx - size / 2 - edge, sy - size / 2 - edge, size + edge * 2, size + edge * 2);
+      ctx.fillStyle = color; ctx.fillRect(sx - size / 2, sy - size / 2, size, size);
+    };
+    for (const h of sprawlOf(b)) dot(h.x, h.y, px, PIXEL[h.type]);
+    dot(b.i % W, (b.i / W) | 0, px * 1.5, isRuin(b) ? '#6b6258' : '#f2d98a');
   }
 }
 function reachRing(i, color, z, dash = [7, 6], R = CFG.settlement.reach) {
@@ -3865,12 +4002,29 @@ function drawHarvestPreview(i, type, z) {
   }, CFG.collectorReach);
   reachRing(i, '#7bd389', z, [5, 5], CFG.collectorReach);
 }
+// pointing at (or near) a settlement shows what it is and how many people live there; nothing is written on it otherwise
+function drawSettlementHover(z) {
+  if (!mouse.in || mouse.down >= 0) return;
+  let best = null, bd = Math.max(20, z * 1.8);
+  for (const b of game.buildings) {
+    if (b.type !== 'settlement') continue;
+    const [sx, sy] = toScreen(...tileCenter(b.i)), d = Math.hypot(sx - mouse.x, sy - mouse.y);
+    if (d < bd) { bd = d; best = { b, sx, sy }; }
+  }
+  if (!best) return;
+  const b = best.b, foe = nationAt(b.i), who = foe || countryAt(b.i), cap = settlementCap(b), lvl = settlementLevel(b);
+  const living = who && who.cap > 0 ? who.people * cap / who.cap : 0;
+  const r = z >= CFG.detailZoom ? z * (1.5 + lvl * 0.18) : 11 + lvl * 3;
+  pill(best.sx, best.sy + r + 14, isRuin(b) ? `Ruins · mending (would hold ${Math.round(b.full)})` : `${CFG.settlement.levels[lvl].name} · ${fmtNum(living)} people · holds ${Math.round(cap)}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
+}
 // pointing at a settlement (with nothing else selected) shows the land it reaches
 function drawReachHover(z) {
   if (game.tool || game.aiming || blueprint || !mouse.in) return;
   const t = hoverTile();
   if (t && building[t.i] === BLD_CODE.settlement) reachRing(t.i, '#f2c14e', z);
   else if (t && building[t.i] && HARVESTS[buildingAt(t.i).type]) reachRing(t.i, '#f2c14e', z, [5, 5], CFG.collectorReach);
+  else if (t && building[t.i] === BLD_CODE.mortar) reachRing(t.i, aiOf[t.i] ? 'rgba(255,122,107,0.9)' : '#f2c14e', z, [4, 5], CFG.weapons.shell.range);
+  else if (t && building[t.i] === BLD_CODE.turret) reachRing(t.i, aiOf[t.i] ? 'rgba(255,122,107,0.9)' : '#f2c14e', z, [4, 5], CFG.turret.range);
   else if (t && building[t.i] === BLD_CODE.airdef) reachRing(t.i, aiOf[t.i] ? 'rgba(120,200,255,0.9)' : '#f2c14e', z, [6, 5], CFG.airDefense.range);
 }
 
@@ -3951,7 +4105,13 @@ function drawSelection(z) {
 
 // country names written across their territory when you're zoomed out (hidden up close, where you see the details)
 function drawCountryLabels(z) {
-  if (z >= CFG.detailZoom || z < 0.15) return;
+  if (z < 0.15) return;
+  const under = (people, sx, sy, size, color) => {   // the population, in smaller type under the name
+    const s2 = Math.max(10, size * 0.6), txt = `${fmtNum(people)} people`;
+    ctx.font = `700 ${s2}px 'Segoe UI', Inter, Arial, sans-serif`; ctx.letterSpacing = '0px';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,14,24,0.75)'; ctx.strokeText(txt, sx, sy + size * 0.55 + s2 * 0.7);
+    ctx.fillStyle = color; ctx.fillText(txt, sx, sy + size * 0.55 + s2 * 0.7);
+  };
   ctx.save();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const c of game.countries) {
@@ -3960,12 +4120,13 @@ function drawCountryLabels(z) {
     if (span < 18) continue;
     const [sx, sy0] = toScreen(c.lx, c.ly);
     const size = clamp(span * 0.16, 11, 26);
-    const sy = sy0 + (z < CFG.cityZoom ? 14 + size * 0.6 : 0);   // sit just below the city icon when zoomed out
+    const sy = sy0 + (z < CFG.detailZoom ? 14 + size * 0.6 : z * 3.2);   // sit below the settlement at the centre
     const text = (span > 140 ? c.full : c.short).toUpperCase();
     ctx.font = `800 ${size}px 'Segoe UI', Inter, Arial, sans-serif`;
     ctx.letterSpacing = `${Math.round(size * 0.12)}px`;
     ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10,14,24,0.75)'; ctx.strokeText(text, sx, sy);
     ctx.fillStyle = c.id === game.active ? '#ffffff' : 'rgba(214,228,255,0.88)'; ctx.fillText(text, sx, sy);
+    under(c.people, sx, sy, size, '#f2c14e');
   }
   for (const n of game.nations) {
     if (!n.alive) continue;
@@ -3980,6 +4141,7 @@ function drawCountryLabels(z) {
     ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10,14,24,0.75)'; ctx.strokeText(text, sx, sy);
     const [r, g, b] = n.col;
     ctx.fillStyle = `rgb(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)})`; ctx.fillText(text, sx, sy);
+    under(n.people, sx, sy, size, 'rgba(255,255,255,0.85)');
   }
   ctx.restore();
 }
@@ -4382,8 +4544,9 @@ function updateHud() {
   for (const r of ['wood', 'stone', 'iron']) {
     $('val-' + r).innerHTML = fmtNum(C.res[r]) + (inc[r] >= 1 ? `<span class="incoming" title="on its way by ship or train">+${fmtNum(inc[r])}</span>` : '');
     {                                               // every store has a ceiling: show it, and how full it is
+      $('val-' + r).style.whiteSpace = 'nowrap';
       const cap = C.store ? C.store[r] : CFG.storage[r].base, f = clamp(C.res[r] / cap, 0, 1);
-      $('val-' + r).innerHTML += `<span style="font-size:12px;font-weight:600;opacity:0.65"> / ${fmtNum(cap)}</span>
+      $('val-' + r).innerHTML += `<span style="font-size:12px;font-weight:600;opacity:0.65"> / ${cap >= 10000 ? (cap / 1000).toFixed(1) + 'k' : fmtNum(cap)}</span>
         <div title="Storage: grows with the people your settlements can house" style="height:4px;width:100%;min-width:70px;background:rgba(255,255,255,0.14);border-radius:2px;margin-top:3px">
         <div style="height:100%;width:${(f * 100).toFixed(0)}%;background:${f >= 0.999 ? '#f2c14e' : { wood: '#56963f', stone: '#9aa1a8', iron: '#bd7b56' }[r]};border-radius:2px"></div></div>`;
     }
@@ -4471,7 +4634,7 @@ function updateHover() {
     const { inR, ready } = pickWeapon(t.x, t.y), o = ready || inR[0], foe = nationAt(t.i), mine = countryAt(t.i);
     const cost = o ? Object.entries(o.Wp.cost).map(([r, n]) => `${n} ${r}`).join(' · ') : '';
     placeTip(`<div class="t">${o ? 'Fire a ' + o.Wp.name.toLowerCase() : 'Fire'}: click</div>
-      <div class="${ready ? 'g' : 'r'}">${ready ? `${Math.round(o.d)} tiles from your ${CFG.buildings[o.b.type].name.toLowerCase()}` : o ? `Reloading: ${Math.ceil(o.b.ready - game.time)}s` : `Out of range (mortar ${CFG.weapons.shell.range} tiles, silo ${CFG.weapons.missile.range})`}</div>
+      <div class="${ready ? 'g' : 'r'}">${ready ? `${Math.round(o.d)} tiles from your ${CFG.buildings[o.b.type].name.toLowerCase()}` : o ? `Reloading: ${Math.ceil(o.b.ready - game.time)}s` : `Out of range (silos reach ${CFG.weapons.missile.range} tiles)`}</div>
       ${foe ? `<div class="d">Target: ${foe.full} · ${fmtNum(foe.people)} people${foe.hostile ? '' : ' · not at war with you yet'}</div>` : mine ? `<div class="r">That's your own land!</div>` : ''}
       ${o ? `<div class="d">Cost: ${cost} · blast radius ${o.Wp.radius}</div>` : ''}
       <div class="d">F or Esc to stop aiming</div>`, !ready);
@@ -4525,6 +4688,10 @@ function updateHover() {
       if (g.shared) html += `<div class="d">${g.shared} more tiles here are already worked by another collector</div>`;
       html += `<div class="d">Works ${bdef.on.join(' and ')} within ${R} tiles · employs ${bdef.workers} people</div>`;
     }
+  } else if (bdef.gun) {
+    const T = CFG.turret;
+    html += `<div class="g">Guns down enemy soldiers within ${T.range} tiles: ${T.kills} a second</div>`;
+    html += `<div class="d">Fires by itself when a wave's front comes in range · ${T.iron} iron per soldier</div>`;
   } else if (bdef.defense) {
     const A = CFG.airDefense;
     html += `<div class="g">Covers everything within ${A.range} tiles</div>`;
@@ -4532,7 +4699,7 @@ function updateHover() {
   } else if (bdef.weapon) {
     const Wp = CFG.weapons[bdef.weapon];
     html += `<div class="g">Reaches ${Wp.range} tiles · reloads in ${Wp.reload}s · blast radius ${Wp.radius}</div>`;
-    html += `<div class="d">Each shot costs ${Object.entries(Wp.cost).map(([r, n]) => `${n} ${r}`).join(' and ')}${bdef.use ? ` · uses ${bdef.use} MW` : ''}. Press F to aim.</div>`;
+    html += `<div class="d">Each shot costs ${Object.entries(Wp.cost).map(([r, n]) => `${n} ${r}`).join(' and ')}${bdef.use ? ` · uses ${bdef.use} MW` : ''}. ${bdef.weapon === 'missile' ? 'Press F to aim.' : 'Fires by itself at nations you are at war with.'}</div>`;
   } else if (type === 'port') html += `<div class="d">Must be on the coast. Links to your other ports by sea.</div>`;
   else html += `<div class="d">Links to your nearest station by rail.</div>`;
   html += `<div class="d">Cost: ${costTxt}${bdef.people ? ` · ${bdef.people} people` : ''}${plan && plan.extra ? ' (incl. track)' : ''}${TC ? ', paid by ' + TC.short : ''}</div>`;
@@ -4569,6 +4736,16 @@ function drawMissiles(z) {
     ctx.fillStyle = owner[b.i] ? '#7bd389' : '#ff7a6b'; ctx.fillRect(sx - w / 2, sy + z * 0.75, w * f, 4);
   }
   const lifted = (x, y, air, zz) => { const [sx, sy] = toScreen(x, y); return [sx, sy - (air ? Math.sin(Math.PI * air.e) * Math.max(26, air.dist * zz * air.arc) : 0)]; };
+  for (const b of game.buildings) {                // a turret that's firing: flickering tracers and a muzzle flash
+    if (b.type !== 'turret' || !b.aim || game.time - (b.fire || -9) > 0.12) continue;
+    const [ax, ay] = toScreen(...tileCenter(b.i)), [bx, by] = toScreen(b.aim[0], b.aim[1]);
+    for (let j = 0; j < 3; j++) {
+      const jx = (Math.random() - 0.5) * z * 1.6, jy = (Math.random() - 0.5) * z * 1.6, f0 = Math.random() * 0.6, f1 = f0 + 0.25;
+      ctx.beginPath(); ctx.moveTo(lerp(ax, bx + jx, f0), lerp(ay, by + jy, f0)); ctx.lineTo(lerp(ax, bx + jx, f1), lerp(ay, by + jy, f1));
+      ctx.strokeStyle = 'rgba(255,236,150,0.95)'; ctx.lineWidth = 1.6; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(ax, ay, Math.max(3, z * 0.35), 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,220,120,0.9)'; ctx.fill();
+  }
   for (const tr of game.tracers) {                 // an interceptor's streak up to where it met the shot
     const [ax, ay] = toScreen(tr.x0, tr.y0), [bx, by] = lifted(tr.x1, tr.y1, tr.air, z);
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
@@ -4583,7 +4760,7 @@ function drawMissiles(z) {
       ctx.fillStyle = 'rgba(120,200,255,0.07)'; ctx.fill();
       ctx.setLineDash([3, 5]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(120,200,255,0.85)'; ctx.stroke(); ctx.setLineDash([]);
     }
-    for (const b of weaponsOf()) {
+    for (const b of silosOf()) {
       const [sx, sy] = toScreen(...tileCenter(b.i)), kind = CFG.buildings[b.type].weapon;
       ctx.beginPath(); ctx.arc(sx, sy, CFG.weapons[kind].range * z, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255,122,107,0.05)'; ctx.fill();
@@ -4679,6 +4856,8 @@ function drawBuildPreview(z) {
   if (plan && plan.path) strokeRoute(plan.path, type === 'station' ? 'rail' : 'sea', z, true);
   if (type === 'settlement') drawReachPreview(t.i, z);
   if (HARVESTS[type]) drawHarvestPreview(t.i, type, z);
+  if (type === 'mortar') reachRing(t.i, '#7bd389', z, [4, 5], CFG.weapons.shell.range);
+  if (type === 'turret') reachRing(t.i, '#7bd389', z, [4, 5], CFG.turret.range);
   if (CFG.buildings[type].defense) {              // what it would cover, and what your other air defenses already do
     for (const b of game.buildings) if (b.type === 'airdef' && owner[b.i]) reachRing(b.i, 'rgba(255,255,255,0.3)', z, [3, 7], CFG.airDefense.range);
     reachRing(t.i, '#7bd389', z, [6, 5], CFG.airDefense.range);
@@ -4757,5 +4936,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; } };
+window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, isRuin, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; } };
 init();
