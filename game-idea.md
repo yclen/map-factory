@@ -17,7 +17,7 @@ A Factorio-style growth game played entirely from a **map view**, like openfront
 
 ---
 
-## How the game works now (prototype v19)
+## How the game works now (prototype v21)
 
 The rules as they are in the playable prototype ([`prototype/`](prototype/), or [play it online](https://yclen.github.io/map-factory/)). Everything below is current; older versions are in the Archive at the end. All numbers live in `CFG` at the top of `prototype/game.js` and are placeholders until playtesting.
 
@@ -55,7 +55,7 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 
 **Weapons hit structures, not people.** A blast damages every building in it and destroys any expedition caught in it. It does nothing to open land. Buildings take hits before they go: a mortar shell does 1, a missile 5; most buildings take 2, and a settlement takes 8 / 12 / 18 / 25 as a hamlet / village / town / city. **A damaged settlement holds fewer people:** its capacity falls in step with its hit points, and each hit kills that share of the people living there, so shelling a city pays off long before it is destroyed. Damage shows as a bar over the building and mends by itself, one hit every 15 seconds, and the capacity comes back with it. People die when their **settlement** is hit, destroyed or captured.
 
-**Their weapons.** A nation's **mortars fire at your buildings and expeditions within 22 tiles**. Its **silos** fire at your buildings from up to 110 tiles away, but only once it is at war with you. AI weapons reload slower than yours (mortar 4 s, silo 30 s).
+**Their weapons.** A nation's **mortars fire at your buildings and expeditions within 22 tiles**. Its **silos** fire at your buildings from up to 110 tiles away, but only once it is at war with you. They pay iron for every shot, as you do (see below).
 
 **Your weapons.** Press **F**, then click a target; the lightest loaded weapon in range fires. A reload bar shows under any weapon that is reloading.
 
@@ -65,6 +65,12 @@ The rules as they are in the playable prototype ([`prototype/`](prototype/), or 
 | **Missile silo** | 600 people | 30 stone, 20 iron | 110 tiles | 10 s | 3 | 10 wood, 60 iron | 3 MW; reloads slower when short |
 
 Firing is paid for in **iron**, so a bombardment is something you save up for, and iron is what a war runs on.
+
+**Air defense** (500 people; 30 stone, 30 iron; 2 MW) covers everything within **14 tiles** of it: a shell or missile aimed inside that circle is shot down in the air, for 8 iron, after which the battery reloads for 3 seconds (longer when short on power). One battery stops a slow trickle of shots but not a salvo, and it only works while there is iron to pay. Nations build them too as they grow (up to 2); while you aim, their coverage shows as blue rings, so you can see where a shot will be wasted.
+
+**Every resource has a ceiling,** set by how many people the country's settlements can house: wood and stone 200 + 5 per person, iron 50 + 1 per person. Each shows as a meter in the top bar, and anything produced beyond it is lost. Collectors set how fast a store fills; settlements set how much it holds. Wood and stone are generous (a 100-person village holds 700 of each); iron is tighter, so the number of shots you can bank grows with your cities.
+
+**Nations pay what you pay.** Each nation has its own iron store under the same rule. It mines the iron in its land (it builds camps on it), plus a trickle of 0.15 a second so none is ever unarmed, and it pays the same iron for every shell, missile and silo. Its weapons reload as fast as yours. A nation's iron shows when you point at its land.
 
 **Unlocks and building.** Buildings unlock by your empire's **peak population**. **E** opens the build menu, grouped by category (Housing, Resources, Energy, Transport, Military). The bottom bar is a **hotbar** on keys 1–9, 0: new unlocks fill empty slots; in the E menu, hover any building and press a number to put it on that key, or right-click to add / remove it. Drag a box over solar panels or burners and press **C** to paste copies.
 
@@ -548,6 +554,7 @@ Settings to adjust in playtesting. All of them are in `CFG` at the top of `proto
 - **How rich** far-away deposits are compared to the ones near the start
 - **Unlock thresholds** for every building (`buildings.*.unlock`)
 - **Collector reach** (`collectorReach`) and output per tile (`prodPerTile`)
+- **Storage** per resource (`storage.*.base`, `storage.*.perCap`) and the nations' trickle and starting iron (`iron.aiTrickle`, `iron.aiStart`)
 - **Vehicle loads and the shipping reserve** (`vehicles`, `shipReserve`)
 - **Power** (`buildings.burner.gen`, `buildings.solar.gen`, `power.burnerWood`, `power.rigMult`)
 - **AI nations**: count, size, how hard they defend, how fast they expand and arm, how slowly they reload (`ai.*`)
@@ -607,6 +614,8 @@ python art/generate_art.py
 ---
 
 ## Design history
+- **v21 (2026-11-21), air defense:** a battery that shoots down shells and missiles aimed within 14 tiles of it, for 8 iron a time, with a 3 second reload; nations build them too. Sea routes no longer draw a dotted line.
+- **v20 (2026-11-21), storage caps and iron as the war currency:** every resource is capped by settlement capacity (wood and stone 200 + 5 per person housed, iron 50 + 1) with meters in the top bar; shells cost 5 iron and missiles 60. AI nations get an iron store under the same rule, mine the iron in their land, pay the same prices and reload as fast as you.
 - **v19 (2026-11-21), collectors have a reach:** a cabin or camp works the deposit tiles within 4 tiles instead of a whole deposit, each tile going to its nearest collector. Several can share one deposit, with diminishing returns where they overlap, and they can stand beside a deposit as well as on it.
 - **v18 (2026-11-21), soldiers first:** weapons only destroy structures (and expeditions); shelling open land does nothing, and people die when their settlement is destroyed or captured. Nations no longer shell bare land. Their main attack is soldiers: a neighbour may turn on you once borders touch, and at war it sends waves into your land the way your own pushes work, shown as a red number at the front.
 - **v17 (2026-11-21), invasion:** nations at war take your land tile by tile, and what's built on it; a boxed-in nation declares war by itself; countries can fall and the game can be lost.
