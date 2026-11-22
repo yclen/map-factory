@@ -45,6 +45,23 @@ Add `?seed=123` to the address to play a specific map (this starts that map, and
 | Click a body, or L V R Z P G U | Lock onto the Moon, Vulcan, Aries, Zeus, Poseidon, the seed world, the Sun |
 | H · N | Jump home · new random map (deletes your save) |
 
+## Map Conquest (a second game on the same world)
+
+[`conquest/`](conquest/) is a separate, faster game on the same seeded disk and solar system: a territory-conquest game against 22 AI nations. Open `conquest/index.html`, or once pushed, https://yclen.github.io/map-factory/conquest/ (`?seed=42` works here too).
+
+- **Spawn** anywhere on the disk with 25,000 troops. Troops, gold and combat follow OpenFront's published rules: the troop cap is 2 × (tiles^0.6 × 1,000 + 50,000) plus 250,000 per city, troops regrow fastest at about 42% full, and gold comes in at 1,000 a second.
+- **Click land to attack it** with a share of your troops (20% by default). One click picks the way there: over your border on foot, by **boat** if a sea route exists, or by **rocket** if the land is on another world.
+- **Attacks spread the way OpenFront's do:** tiles already hemmed in by your land fall first and rough ground last, so a front stays smooth. Free land is cheap; against a nation, losses and speed depend on how outnumbered the attack is and on the terrain. Land an attack cuts off falls at once, and a nation pushed under 100 tiles falls to its attacker, gold included.
+- **Buildings:** city (+250,000 troop cap), port (gold), fort (attackers lose 5× the troops and move 3× slower within 30 tiles), and the **launch pad**.
+- **Bombs:** a **missile silo** fires **atom bombs** (150k gold, about 22 tiles) and **hydrogen bombs** (1M gold, about 60 tiles) at targets on its own world. A blast razes land and buildings and kills the same share of the owner's troops. **Air defense** shoots at enemy bombs aimed within 70 tiles of it (90% against atom, 75% against hydrogen), then reloads for 7.5 seconds, so a salvo gets through.
+- **Troop counts on the front:** each attack you are part of shows its remaining troops on the map, yours in white and attacks on you in red.
+- **Mining rig:** strips the land within 9 tiles to bare rock and pays gold for the ore in it: nothing for grassland, some for rough ground, most for mountains. Other worlds are 2 to 4 times richer than the disk, so a rig on Vulcan's ridges can out-earn your whole base income. Mined rock stops counting toward your troop cap.
+- **Launch pads** send rocket expeditions to other worlds. Range grows with distance from the Sun, so the next orbit out is always in reach and each world is a stepping stone, and flight time depends on where the planets are when you launch.
+- **Every landable body is its own map:** the Moon, Vulcan, Aries, the moons of Zeus and Poseidon, and the seed world. The AI nations build pads and race you there.
+- **Win** by holding 70% of all land in the system. Not in yet: saving, trade ships, diplomacy, retreating an attack.
+
+All tuning numbers are in the `CFG` block at the top of [`conquest/game.js`](conquest/game.js).
+
 ## Repo layout
 
 - [`prototype/`](prototype/): the game (plain HTML, CSS and JavaScript, no build step). All tuning numbers live in the `CFG` block at the top of [`prototype/game.js`](prototype/game.js).

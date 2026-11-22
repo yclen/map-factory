@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map Conquest</title>
+  <link rel="stylesheet" href="style.css?v=10">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="topbar">
+    <div class="res"><span class="swatch" id="my-swatch"></span>
+      <div><div class="lbl">NATION</div><div class="val small" id="val-name">-</div></div></div>
+    <div class="res wide">
+      <div><div class="lbl">TROOPS <span class="rate" id="rate-troops"></span></div><div class="val" id="val-troops">0</div>
+        <div class="bar"><div class="fill" id="troop-fill"></div></div></div></div>
+    <div class="res"><div><div class="lbl">GOLD <span class="rate" id="rate-gold"></span></div><div class="val" id="val-gold">0</div></div></div>
+    <div class="res"><div><div class="lbl">LAND · WIN AT <span id="val-goal"></span></div><div class="val" id="val-land">0%</div></div></div>
+    <div class="spacer"></div>
+    <div class="res"><div><div class="lbl">VIEW</div><div class="val small" id="val-view">-</div></div></div>
+    <div class="res"><div><div class="lbl">TIME</div><div class="val" id="val-time">00:00</div></div></div>
+  </div>
+
+  <div id="worlds" class="panel"><div class="lbl">WORLDS</div><div id="world-list"></div></div>
+  <div id="leaders" class="panel"><div class="lbl">NATIONS</div><div id="leader-list"></div></div>
+  <div id="orders" class="panel"><div class="lbl">ORDERS</div><div id="order-list"></div></div>
+
+  <div id="bottom">
+    <div id="send" class="panel">
+      <div class="lbl">SEND PER CLICK <span id="send-n"></span></div>
+      <input type="range" id="send-pct" min="5" max="100" step="5" value="20">
+    </div>
+    <div id="build"></div>
+    <div id="help" class="panel">
+      <div class="help-row"><b>Click</b> land to attack it: over your border, by boat across water, or by rocket to another world (needs a launch pad)</div>
+      <div class="help-row"><b>1–7</b> build · <b>8 9</b> aim a bomb, then click the target · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>Scroll</b> zoom · <b>Drag</b> or <b>WASD</b> pan · <b>M</b> zoom out a level · <b>H</b> home · <b>Space</b> pause</div>
+      <div class="hover" id="hover-info">&nbsp;</div>
+    </div>
+  </div>
+
+  <div id="banner"></div>
+  <div id="toast"></div>
+  <div id="overlay"><div class="box"><h1 id="ov-title"></h1><p id="ov-sub"></p><button id="ov-btn">New map</button></div></div>
+  <div id="loading"><div class="spin"></div>Generating the solar system…</div>
+
+  <script src="game.js?v=10"></script>
+</body>
+</html>
