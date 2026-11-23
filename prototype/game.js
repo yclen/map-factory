@@ -5782,9 +5782,46 @@ function reachRing(i, color, z, dash = [7, 6], R = CFG.settlement.reach) {
   ctx.beginPath(); ctx.arc(sx, sy, (R + 0.5) * z, 0, Math.PI * 2);
   ctx.setLineDash(dash); ctx.lineWidth = 1.8; ctx.strokeStyle = color; ctx.stroke(); ctx.setLineDash([]);
 }
+// Many overlapping range circles drawn as ONE shape: the area they cover together, filled once, and only the
+// outer edge stroked (each circle's arcs that no other circle covers). circles = [[sx, sy, r], ...] on screen.
+function unionRings(circles, { color, dash = [7, 6], width = 1.8, fill = null }) {
+  const C = [];
+  for (const c of circles) if (c[2] > 0 && !C.some(o => Math.abs(o[0] - c[0]) < 0.5 && Math.abs(o[1] - c[1]) < 0.5 && Math.abs(o[2] - c[2]) < 0.5)) C.push(c);
+  if (!C.length) return;
+  if (fill) {                                      // all arcs wound the same way: the nonzero rule fills the union once
+    ctx.beginPath();
+    for (const [x, y, r] of C) { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2); }
+    ctx.fillStyle = fill; ctx.fill();
+  }
+  const TAU = Math.PI * 2;
+  ctx.beginPath();
+  C.forEach(([x, y, r], k) => {
+    const cov = [];                                // the angles of this circle that lie inside another one
+    for (let j = 0; j < C.length; j++) {
+      if (j === k) continue;
+      const [x2, y2, r2] = C[j], d = Math.hypot(x2 - x, y2 - y);
+      if (d + r <= r2) return;                     // swallowed whole by a bigger circle: no edge of its own
+      if (d >= r + r2 || d + r2 <= r) continue;    // apart, or the other one sits inside this one
+      const mid = Math.atan2(y2 - y, x2 - x), half = Math.acos(clamp((r * r + d * d - r2 * r2) / (2 * r * d), -1, 1));
+      let a = ((mid - half) % TAU + TAU) % TAU, b = a + 2 * half;
+      if (b > TAU) { cov.push([a, TAU], [0, b - TAU]); } else cov.push([a, b]);
+    }
+    cov.sort((p, q) => p[0] - q[0]);
+    let at = 0;
+    const open = [];
+    for (const [a, b] of cov) { if (a > at) open.push([at, a]); at = Math.max(at, b); }
+    if (at < TAU) open.push([at, TAU]);
+    // join the piece that ends at 2pi with the one that starts at 0, so a gap-free arc isn't split at the seam
+    if (open.length > 1 && open[0][0] === 0 && open[open.length - 1][1] === TAU) { const last = open.pop(); open[0] = [last[0], TAU + open[0][1]]; }
+    for (const [a, b] of open) if (b - a > 1e-3) { ctx.moveTo(x + r * Math.cos(a), y + r * Math.sin(a)); ctx.arc(x, y, r, a, b); }
+  });
+  ctx.setLineDash(dash); ctx.lineWidth = width; ctx.strokeStyle = color; ctx.stroke(); ctx.setLineDash([]);
+}
+const ringAt = (i, R, z) => { const [sx, sy] = toScreen(...tileCenter(i)); return [sx, sy, (R + 0.5) * z]; };
 // placing a settlement: the land it would add in green, land another settlement already serves in grey
 function drawReachPreview(i, z) {
-  for (const b of game.buildings) if (b.type === 'settlement' && owner[b.i]) reachRing(b.i, 'rgba(255,255,255,0.28)', z, [3, 7]);
+  unionRings(game.buildings.filter(b => b.type === 'settlement' && owner[b.i]).map(b => ringAt(b.i, CFG.settlement.reach, z)),
+    { color: 'rgba(255,255,255,0.28)', dash: [3, 7] });
   const side = sideOf(i);
   if (side > 0 && z >= 1.5) {
     eachInReach(i, t => {
@@ -7262,19 +7299,14 @@ function drawMissiles(z) {
     ctx.strokeStyle = `rgba(255,255,255,${1 - tr.t})`; ctx.lineWidth = 1; ctx.stroke();
   }
   if (game.aiming) {
-    for (const b of game.buildings) {              // their air defense: shots aimed inside these rings get knocked down
-      if (b.type !== 'airdef' || !aiOf[b.i]) continue;
-      const [sx, sy] = toScreen(...tileCenter(b.i));
-      ctx.beginPath(); ctx.arc(sx, sy, CFG.airDefense.range * z, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(120,200,255,0.07)'; ctx.fill();
-      ctx.setLineDash([3, 5]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(120,200,255,0.85)'; ctx.stroke(); ctx.setLineDash([]);
-    }
-    for (const b of silosOf()) {
-      const [sx, sy] = toScreen(...tileCenter(b.i)), kind = CFG.buildings[b.type].weapon;
-      ctx.beginPath(); ctx.arc(sx, sy, CFG.weapons[kind].range * z, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,122,107,0.05)'; ctx.fill();
-      ctx.setLineDash(kind === 'shell' ? [4, 5] : [8, 6]); ctx.lineWidth = 2; ctx.strokeStyle = WEAPON_RING[kind]; ctx.stroke(); ctx.setLineDash([]);
-    }
+    // their air defense: shots aimed inside this area get knocked down (one shape for all of them)
+    const ring = (b, R) => { const [sx, sy] = toScreen(...tileCenter(b.i)); return [sx, sy, R * z]; };
+    unionRings(game.buildings.filter(b => b.type === 'airdef' && aiOf[b.i]).map(b => ring(b, CFG.airDefense.range)),
+      { color: 'rgba(120,200,255,0.85)', dash: [3, 5], width: 2, fill: 'rgba(120,200,255,0.07)' });
+    // your reach: every silo's range merged into one outline, one per weapon kind
+    const byKind = {};
+    for (const b of silosOf()) { const kind = CFG.buildings[b.type].weapon; (byKind[kind] = byKind[kind] || []).push(ring(b, CFG.weapons[kind].range)); }
+    for (const kind in byKind) unionRings(byKind[kind], { color: WEAPON_RING[kind], dash: kind === 'shell' ? [4, 5] : [8, 6], width: 2, fill: 'rgba(255,122,107,0.05)' });
     const t = mouse.in ? hoverTile() : null;
     if (t) {
       const { inR, ready } = pickWeapon(t.x, t.y), o = ready || inR[0];
@@ -7389,7 +7421,8 @@ function drawBuildPreview(z) {
   if (type === 'mortar') reachRing(t.i, '#7bd389', z, [4, 5], CFG.weapons.shell.range);
   if (type === 'turret') reachRing(t.i, '#7bd389', z, [4, 5], CFG.turret.range);
   if (CFG.buildings[type].defense) {              // what it would cover, and what your other air defenses already do
-    for (const b of game.buildings) if (b.type === 'airdef' && owner[b.i]) reachRing(b.i, 'rgba(255,255,255,0.3)', z, [3, 7], CFG.airDefense.range);
+    unionRings(game.buildings.filter(b => b.type === 'airdef' && owner[b.i]).map(b => ringAt(b.i, CFG.airDefense.range, z)),
+      { color: 'rgba(255,255,255,0.3)', dash: [3, 7] });
     reachRing(t.i, '#7bd389', z, [6, 5], CFG.airDefense.range);
   }
   const [sx, sy] = toScreen(t.x, t.y);
