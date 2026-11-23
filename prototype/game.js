@@ -168,7 +168,8 @@ const CFG = {
         // `attackAt` full. A wave advances like one of your own pushes (at `raidSpeed` x the pace); each of your tiles costs it
         // the land price plus more the more crowded your country is. A nation boxed in for `boxedThinks` thinks declares war too.
         attackAt: 0.6, raidShare: 0.25, raidEvery: 20, raidSpeed: 0.5, aggression: 0.04, boxedThinks: 8 },
-  // weapons: range in tiles, reload in seconds, blast radius in tiles, flight speed, how high the arc is.
+  // weapons: range in tiles, reload in seconds, blast radius in tiles, flight speed (tiles a second across the ground),
+  // the shortest flight in seconds, and how high the arc is (its top, as a share of the distance; see flight()).
   // A blast damages the buildings in it (`damage` hits each). It doesn't kill people on open land.
   // Settlements are never damaged or destroyed: a hit kills `kill` (a share) of the people living there, so each hit
   // takes fewer and a settlement never empties. It keeps its capacity, but stops regrowing for `underFire` seconds
@@ -182,8 +183,8 @@ const CFG = {
   turret: { range: 9, kills: 6, iron: 0.15 },
   mortarReserve: 20,           // your mortars fire by themselves, but not below this much iron
   weapons: {
-    shell:   { name: 'Mortar shell', range: 22, reload: 2.5, radius: 1.5, damage: 1, kill: 0.04, speed: 24, arc: 0.75, cost: { iron: 5 } },
-    missile: { name: 'Missile', range: 110, reload: 10, radius: 3, damage: 5, kill: 0.2, speed: 36, arc: 0.3, cost: { wood: 10, iron: 60 } },
+    shell:   { name: 'Mortar shell', range: 22, reload: 2.5, radius: 1.5, damage: 1, kill: 0.04, speed: 9, minDur: 1.4, arc: 0.6, cost: { iron: 5 } },
+    missile: { name: 'Missile', range: 110, reload: 10, radius: 3, damage: 5, kill: 0.2, speed: 14, minDur: 3.5, arc: 0.35, cost: { wood: 10, iron: 60 } },
   },
 
   // rail: a new station links itself to the nearest station by the cheapest land route
@@ -683,7 +684,7 @@ const game = {
   sendPct: 25, tool: null, netDirty: true,
   nations: [],                     // AI nations
   hotbar: ['settlement', 'cabin', 'camp', null, null, null, null, null, null, null],   // the build bar: keys 1-9, 0
-  missiles: [], blasts: [], scorch: [], tracers: [], aiming: false,
+  missiles: [], blasts: [], scorch: [], tracers: [], smoke: [], aiming: false,
   raids: [],                       // waves of a nation's soldiers pushing into your land
   driving: null,                   // the expedition you're steering right now
   selection: [],   // tiles of selected buildings (box-select with left-drag)
@@ -3352,7 +3353,23 @@ function tick(dt) {
   game.pushes = game.pushes.filter(p => !p.done);
   for (const e of game.expeditions) stepExpedition(e, dt);
   game.expeditions = game.expeditions.filter(e => !e.done);
-  for (const m of game.missiles) { m.t += dt / m.dur; if (m.t >= 1) { m.done = true; explode(m.x1, m.y1, m); } else if (m.t > 0.45) tryIntercept(m); }
+  game.smoke = game.smoke || [];
+  for (const m of game.missiles) {
+    const t0 = m.t, big = m.w === 'missile', every = big ? 0.03 : 0.05;   // a puff of its trail every `every` seconds
+    m.t += dt / m.dur;
+    m.puff = (m.puff || 0) + dt;
+    for (let n = 0; m.puff >= every && n < 30; n++) {
+      m.puff -= every;
+      const f = flight(m, Math.min(1, t0 + (m.t - t0) * (1 - m.puff / Math.max(dt, 1e-6))));
+      addSmoke(f.x, f.y, f.s, f.H, big, { hot: big ? 1 : 0.4 });
+    }
+    if (m.t >= 1) { m.done = true; explode(m.x1, m.y1, m); continue; }
+    // air defense gets its chance in the back half of the flight, once the shot is coming down near its target
+    const f = flight(m, m.t);
+    if (m.t > 0.45 && Math.hypot(f.x - m.x1, f.y - m.y1) <= CFG.airDefense.range * 1.5) tryIntercept(m);
+  }
+  for (const p of game.smoke) { p.t += dt / p.life; p.x += p.vx * dt; p.y += p.vy * dt; }
+  game.smoke = game.smoke.filter(p => p.t < 1);
   for (const tr of game.tracers) tr.t += dt / 0.5;
   game.tracers = game.tracers.filter(tr => tr.t < 1);
   game.missiles = game.missiles.filter(m => !m.done);
@@ -3558,9 +3575,9 @@ function tryIntercept(m) {
       C.res.iron -= A.cost.iron; b.rd = A.reload / Math.max(0.25, C.sat); b.stops = (b.stops || 0) + 1;
     }
     b.ready = game.time + b.rd;
-    const gx = lerp(m.x0, m.x1, m.t), gy = lerp(m.y0, m.y1, m.t);
+    const f = flight(m, m.t), gx = f.x, gy = f.y;
     b.aim = [gx, gy]; b.fire = game.time;          // its launcher swings to face the shot
-    const air = { dist: Math.hypot(m.x1 - m.x0, m.y1 - m.y0), arc: CFG.weapons[m.w].arc, e: m.t };   // how high up it was
+    const air = { s: f.s, H: f.H };                // how high up it was
     game.blasts.push({ x: gx, y: gy, t: 0, R: 0.4, life: 0.8, big: false, seed: (gx * 13 + gy * 7) | 0, air });
     game.tracers.push({ x0: b.i % W + 0.5, y0: ((b.i / W) | 0) + 0.5, x1: gx, y1: gy, air, t: 0 });
     floatText(gx, gy - 2.5, byYou ? 'Shot down' : 'Intercepted', byYou ? '#ff7a6b' : '#7bd389');
@@ -3615,7 +3632,34 @@ function gunStep(dt) {
 function launchShot(b, x1, y1, w, nation = null) {
   const Wp = CFG.weapons[w], [x0, y0] = tileCenter(b.i);
   b.aim = [x1, y1]; b.fire = game.time;            // a mortar's tube swings to face it (drawDefence)
-  game.missiles.push({ x0, y0, x1, y1, t: 0, dur: Math.max(0.6, Math.hypot(x1 - x0, y1 - y0) / Wp.speed), w, ai: nation ? nation.id : -1 });
+  game.missiles.push({ x0, y0, x1, y1, t: 0, dur: Math.max(Wp.minDur || 0.6, Math.hypot(x1 - x0, y1 - y0) / Wp.speed), w, ai: nation ? nation.id : -1 });
+  // the launch kicks up smoke round the launcher: a big billow under a missile, a puff from a mortar's tube
+  const big = w === 'missile', n = big ? 12 : 4, seed = (x0 * 31 + y0 * 17 + game.time * 7) | 0;
+  for (let j = 0; j < n; j++) {
+    const a = hash2(seed, j, 71) * Math.PI * 2, v = (big ? 0.9 : 0.5) * (0.4 + hash2(seed, j, 72));
+    addSmoke(x0, y0, 0, 0, big, { vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.7, life: big ? 3 : 1.4, size: big ? 1.8 : 1, rise: big ? 4 : 6 });
+  }
+}
+// Where a shot is `t` (0..1) of the way through its flight: the spot on the ground under it (x, y), how far up its arc
+// it is (s: 0 on the ground, 1 at the top) and how high the top is (H, in tiles).
+// A mortar shell is lobbed: steady across the ground, up and down a parabola. A missile climbs straight up out of its
+// silo, slowly at first, turns over at the top, then dives onto its target, fastest at the end.
+function flight(m, t) {
+  const Wp = CFG.weapons[m.w], dist = Math.hypot(m.x1 - m.x0, m.y1 - m.y0);
+  let p = t, s = 4 * t * (1 - t);
+  if (m.w === 'missile') {
+    const u = Math.pow(t, 1.5), v = 1 - u;          // a cubic curve: up from the silo, over, then steeply down
+    p = 3 * v * u * u * 0.75 + 3 * v * v * u * 0.02 + u * u * u;
+    s = 3 * v * u * (v + u) * 1.25 / 0.9375;
+  }
+  return { x: lerp(m.x0, m.x1, p), y: lerp(m.y0, m.y1, p), s, H: Math.max(m.w === 'missile' ? 6 : 3, dist * Wp.arc) };
+}
+// Smoke: puffs left in the air along a shot's flight, kicked up by a launch, and hanging over a blast.
+// They sit where they were left (drifting by vx, vy tiles a second and rising `rise` px a second), grow and fade.
+function addSmoke(x, y, s, H, big, o = {}) {
+  if (game.smoke.length > 900) return;
+  game.smoke.push({ x, y, s, H, big, t: 0, life: o.life || (big ? 2.2 : 0.9), size: o.size || 1, vx: o.vx || 0, vy: o.vy || 0,
+    rise: o.rise || 3, hot: o.hot || 0, dark: o.dark || 0, seed: Math.random() * 6.283 });
 }
 function fireMissile(tx, ty) {
   const { inR, ready } = pickWeapon(tx, ty);
@@ -3677,8 +3721,16 @@ function explode(x, y, m) {
   }
   recomputeBuildings();                            // lost settlements: nations lose the people who lived there
   const killed = Math.round(before - everyone()) + lost;
-  game.blasts.push({ x, y, t: 0, R, life: m.w === 'missile' ? 1.7 : 1.1, big: m.w === 'missile', seed: (x * 31 + y * 17) | 0 });
+  const big = m.w === 'missile';
+  game.blasts.push({ x, y, t: 0, R, life: big ? 2 : 1.2, big, seed: (x * 31 + y * 17) | 0, debris: true });
   game.scorch.push({ x, y, R, t: 0 });
+  // dark smoke that hangs over the crater and climbs slowly after the fire is out
+  for (let j = 0; j < (big ? 14 : 5); j++) {
+    const a = Math.random() * Math.PI * 2, d = Math.random() * R * 0.7;
+    addSmoke(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.7, 0, 0, big,
+      { life: (big ? 4.5 : 2.6) * (0.7 + Math.random() * 0.5), size: big ? 2.6 : 1.5, rise: big ? 9 : 6, dark: 1,
+        vx: Math.cos(a) * 0.25, vy: Math.sin(a) * 0.15 });
+  }
   const parts = [];
   if (killed) parts.push(`${killed} killed`);
   if (wrecked) parts.push(`${wrecked} building${wrecked === 1 ? '' : 's'} destroyed`);
@@ -5273,12 +5325,12 @@ function drawVehicles(z) {
 function render() {
   const z = cam.zoom;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  // a missile landing on screen shakes the picture for a moment
+  // a missile landing on screen shakes the picture for a moment (a mortar shell, just a little)
   let shake = 0;
   for (const b of game.blasts) {
-    if (!b.big || b.t >= 0.3) continue;
+    if (b.air || !b.debris || b.t >= 0.3) continue;
     const [sx, sy] = toScreen(b.x, b.y);
-    if (sx > -150 && sy > -150 && sx < cw + 150 && sy < ch + 150) shake = Math.max(shake, (1 - b.t / 0.3) ** 2);
+    if (sx > -150 && sy > -150 && sx < cw + 150 && sy < ch + 150) shake = Math.max(shake, (b.big ? 1.15 : 0.22) * (1 - b.t / 0.3) ** 2);
   }
   if (shake > 0) {
     const k = shake * clamp(2 + z * 0.2, 3, 9);
@@ -7276,7 +7328,9 @@ function drawMissiles(z) {
     ctx.fillStyle = 'rgba(20,26,37,0.9)'; ctx.fillRect(sx - w / 2 - 1, sy + z * 0.75 - 1, w + 2, 6);
     ctx.fillStyle = owner[b.i] ? '#7bd389' : '#ff7a6b'; ctx.fillRect(sx - w / 2, sy + z * 0.75, w * f, 4);
   }
-  const lifted = (x, y, air, zz) => { const [sx, sy] = toScreen(x, y); return [sx, sy - (air ? Math.sin(Math.PI * air.e) * Math.max(26, air.dist * zz * air.arc) : 0)]; };
+  // how far up the screen something `s` of the way up an arc `H` tiles high is drawn (never flatter than 26 px)
+  const liftPx = (s, H) => s * Math.max(26, H * z);
+  const lifted = (x, y, air) => { const [sx, sy] = toScreen(x, y); return [sx, sy - (air ? liftPx(air.s, air.H) : 0)]; };
   for (const b of game.buildings) {                // a turret that's firing: flickering tracers and a muzzle flash
     if (b.type !== 'turret' || !b.aim || game.time - (b.fire || -9) > 0.12) continue;
     let [ax, ay] = toScreen(...tileCenter(b.i)), flash = Math.max(3, z * 0.35);
@@ -7317,30 +7371,26 @@ function drawMissiles(z) {
     }
   }
   for (const m of game.missiles) {
-    const Wp = CFG.weapons[m.w], dist = Math.hypot(m.x1 - m.x0, m.y1 - m.y0), lift = Math.max(26, dist * z * Wp.arc);
-    const ground = e => toScreen(lerp(m.x0, m.x1, e), lerp(m.y0, m.y1, e));
-    const at = e => { const [sx, sy] = ground(e); return [sx, sy - Math.sin(Math.PI * e) * lift]; };   // a ballistic arc, lifted towards the top of the screen
-    const big = m.w === 'missile', k = clamp(z / 9, 0.75, 2.4) * (big ? 1 : 0.8);
+    const Wp = CFG.weapons[m.w], big = m.w === 'missile';
     const mt = Math.min(1, m.t + lead / m.dur);       // its flight carried on past the last sim step, so it glides
-    const [hx, hy] = at(mt), [px, py] = at(Math.max(0, mt - 0.02)), ang = Math.atan2(hy - py, hx - px);
-    // where it will land, and its shadow racing along the ground
-    const [tx, ty] = toScreen(m.x1, m.y1);
-    ctx.lineWidth = 1.5; ctx.strokeStyle = m.ai >= 0 ? 'rgba(255,90,70,0.95)' : 'rgba(255,122,107,0.7)';
-    ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(tx, ty, Math.max(7, Wp.radius * z), 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-    const [gx, gy] = ground(mt);
-    ctx.beginPath(); ctx.ellipse(gx, gy, 5 * k, 2.5 * k, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fill();
-    // smoke trail: puffs left along the arc, older ones bigger and fainter
-    const puffs = big ? 22 : 9, span = big ? 0.5 : 0.22;
-    for (let j = 1; j <= puffs; j++) {
-      const e = mt - j / puffs * span;
-      if (e < 0) break;
-      const [qx, qy] = at(e), age = j / puffs;
-      ctx.beginPath(); ctx.arc(qx + Math.sin(j * 2.3 + m.x0) * 2 * k * age, qy, (1.6 + age * (big ? 5 : 2.5)) * k, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${big ? '225,225,225' : '150,150,150'},${0.5 * (1 - age)})`; ctx.fill();
-    }
+    const at = e => { const f = flight(m, e), [sx, sy] = toScreen(f.x, f.y); return [sx, sy - liftPx(f.s, f.H), sx, sy, f.s]; };
+    const [hx, hy, gx, gy, s] = at(mt), [px, py] = at(Math.max(0, mt - 0.01)), [qx, qy] = at(Math.min(1, mt + 0.01));
+    const ang = Math.atan2(qy - py, qx - px);
+    const k = clamp(z / 9, 0.75, 2.4) * (big ? 1 : 0.8) * (1 + 0.4 * s);   // it looms larger high up, nearer the eye
+    // where it will land: a ring that fills in as it comes down, flashing in the last moments
+    const [tx, ty] = toScreen(m.x1, m.y1), rr = Math.max(7, Wp.radius * z), foe = m.ai >= 0;
+    const blink = mt > 0.8 && Math.floor(game.time * 8) % 2 === 0;
+    ctx.lineWidth = blink ? 2.5 : 1.5; ctx.strokeStyle = foe ? 'rgba(255,90,70,0.95)' : 'rgba(255,122,107,0.7)';
+    ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(tx, ty, rr, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(tx, ty, rr * mt, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,90,70,${0.08 + 0.17 * mt})`; ctx.fill();
+    // its shadow on the ground under it: small and faint while it's high up
+    ctx.beginPath(); ctx.ellipse(gx, gy, 5 * k * (1 - 0.5 * s), 2.5 * k * (1 - 0.5 * s), 0, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0,0,0,${0.32 * (1 - 0.55 * s)})`; ctx.fill();
     ctx.save(); ctx.translate(hx, hy); ctx.rotate(ang); ctx.scale(k, k);
     if (big) {
-      const fl = 7 + Math.random() * 6;               // the flame flickers
+      const boost = mt < 0.3 ? 1.6 - mt * 2 : 1;      // it burns hardest climbing out of the silo
+      const fl = (7 + Math.random() * 6) * boost;     // the flame flickers
+      ctx.beginPath(); ctx.arc(-9, 0, 5 * boost, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,170,60,0.3)'; ctx.fill();
       ctx.beginPath(); ctx.moveTo(-8, -2.6); ctx.lineTo(-8 - fl, 0); ctx.lineTo(-8, 2.6); ctx.closePath(); ctx.fillStyle = '#ff9a3c'; ctx.fill();
       ctx.beginPath(); ctx.moveTo(-8, -1.4); ctx.lineTo(-8 - fl * 0.55, 0); ctx.lineTo(-8, 1.4); ctx.closePath(); ctx.fillStyle = '#fff3b0'; ctx.fill();
       ctx.fillStyle = '#59616b';                       // fins
@@ -7350,9 +7400,11 @@ function drawMissiles(z) {
       ctx.fillStyle = m.ai >= 0 ? game.nations[m.ai].hex : '#2f7de1'; ctx.fillRect(-3, -2.4, 3, 4.8);   // a band in its owner's colour
       ctx.beginPath(); ctx.moveTo(5, -2.4); ctx.quadraticCurveTo(10.5, -1.6, 11.5, 0); ctx.quadraticCurveTo(10.5, 1.6, 5, 2.4); ctx.closePath(); ctx.fillStyle = '#d64045'; ctx.fill();
       ctx.strokeStyle = 'rgba(30,36,44,0.7)'; ctx.lineWidth = 0.6; ctx.strokeRect(-8, -2.4, 13, 4.8);
-    } else {
-      ctx.beginPath(); ctx.ellipse(0, 0, 4.2, 2.8, 0, 0, Math.PI * 2); ctx.fillStyle = '#2b3038'; ctx.fill();
-      ctx.beginPath(); ctx.ellipse(1, -0.9, 1.8, 0.9, 0, 0, Math.PI * 2); ctx.fillStyle = '#8d969e'; ctx.fill();
+    } else {                                         // a finned mortar bomb, nose first
+      ctx.fillStyle = '#3a4048';
+      ctx.beginPath(); ctx.moveTo(-3, -1); ctx.lineTo(-6.5, -2.8); ctx.lineTo(-6.5, 2.8); ctx.lineTo(-3, 1); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0.6, 0, 4, 2.6, 0, 0, Math.PI * 2); ctx.fillStyle = '#2b3038'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(1.4, -0.9, 1.8, 0.8, 0, 0, Math.PI * 2); ctx.fillStyle = '#8d969e'; ctx.fill();
     }
     ctx.restore();
   }
@@ -7447,6 +7499,20 @@ function shownPos(e) {
   }
   return [e.x + (e.vx || 0) * lead, e.y + (e.vy || 0) * lead];
 }
+  // smoke: the trails shots leave in the air (they stay where they were left), launch billows, smoke over craters
+  const ks = clamp(z / 9, 0.75, 2.4);
+  for (const p of game.smoke || []) {
+    const age = p.t, [sx, sy0] = toScreen(p.x, p.y);
+    const sy = sy0 - liftPx(p.s, p.H) - age * p.life * p.rise * ks;
+    const r = (p.big ? 2.2 : 1.7) * p.size * ks * (1 + age * (p.big ? 2.6 : 2));
+    if (sx < -r || sy < -r || sx > cw + r || sy > ch + r) continue;
+    let c = p.dark ? [72, 67, 64] : p.big ? [230, 230, 228] : [170, 170, 168];
+    const heat = p.hot && age < 0.2 ? (1 - age / 0.2) * p.hot : 0;       // fresh exhaust still glows
+    if (heat) c = [lerp(c[0], 255, heat), lerp(c[1], 185, heat), lerp(c[2], 90, heat)];
+    const a = (p.dark ? 0.6 : p.big ? 0.5 : 0.5) * Math.pow(1 - age, 1.3) * Math.min(1, age * 12 + 0.4);
+    ctx.beginPath(); ctx.arc(sx + Math.sin(p.seed + age * 4) * ks * age * 3, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`; ctx.fill();
+  }
 
 function init() {
   resize();
@@ -7492,7 +7558,35 @@ function start() {
   const ld = $('loading');
   if (ld) ld.remove();
   if (RESUME && !noSave) toast(`Welcome back: game loaded (seed ${SEED}, ${fmtTime(game.time)} played). It autosaves every 10 s; ${say('N starts a new map', 'New map is in the Build menu')}.`);
+      const secs = b.t * b.life;
+      if (!b.air) {
+        if (secs < 0.5) {                          // the ground lit up round it
+          const gl = r0 * (b.big ? 3.2 : 2.2), g = ctx.createRadialGradient(sx, sy, 0, sx, sy, gl);
+          g.addColorStop(0, `rgba(255,200,110,${0.55 * (1 - secs / 0.5) ** 2})`); g.addColorStop(1, 'rgba(255,140,60,0)');
+          ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(sx, sy, gl, 0, Math.PI * 2); ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        const te = Math.min(1, secs / (b.big ? 0.7 : 0.45));
+        if (te < 1) {                              // a shockwave racing out over the ground
+          const rw = r0 * (0.4 + (b.big ? 2.8 : 1.8) * (1 - (1 - te) ** 3));
+          ctx.beginPath(); ctx.ellipse(sx, sy, rw, rw * 0.8, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255,245,225,${0.75 * (1 - te)})`; ctx.lineWidth = (b.big ? 5 : 3) * (1 - te) + 0.5; ctx.stroke();
+        }
+      }
   else toast(`Map seed ${SEED} · this seed's far planet: ${SEED_PLANET.name}, a ${SEED_PLANET.kind === 'gas' ? 'gas giant' : 'rocky world'}${say(' (press G to visit)', '')}`);
+      if (b.debris) {                              // dirt, stones and embers thrown up and falling back
+        const px = Math.max(2, Math.round(z * 0.14)) * (b.big ? 1.4 : 1);
+        for (let j = 0; j < (b.big ? 18 : 9); j++) {
+          const T = 0.45 + hash2(b.seed, j, 81) * 0.5;            // how long this bit is in the air
+          if (secs > T) continue;
+          const e = secs / T, a = hash2(b.seed, j, 82) * Math.PI * 2, d = r0 * (b.big ? 1.6 : 1.1) * (0.4 + hash2(b.seed, j, 83)) * e;
+          const up = r0 * (b.big ? 1.5 : 1) * (0.5 + hash2(b.seed, j, 84)) * 4 * e * (1 - e);
+          const ember = hash2(b.seed, j, 85) < 0.35;
+          ctx.fillStyle = ember ? `rgba(255,${170 + j * 5},70,${1 - e * 0.6})` : j % 2 ? '#4a3a2c' : '#6b6359';
+          ctx.fillRect(sx + Math.cos(a) * d - px / 2, sy + Math.sin(a) * d * 0.7 - up - px / 2, px, px);
+        }
+      }
 
   const step = 1 / CFG.tickHz;
   let last = performance.now(), acc = 0, hudT = 0;
