@@ -7370,6 +7370,20 @@ function drawMissiles(z) {
       ctx.beginPath(); ctx.moveTo(sx - r - 6, sy); ctx.lineTo(sx + r + 6, sy); ctx.moveTo(sx, sy - r - 6); ctx.lineTo(sx, sy + r + 6); ctx.stroke();
     }
   }
+  // smoke: the trails shots leave in the air (they stay where they were left), launch billows, smoke over craters
+  const ks = clamp(z / 9, 0.75, 2.4);
+  for (const p of game.smoke || []) {
+    const age = p.t, [sx, sy0] = toScreen(p.x, p.y);
+    const sy = sy0 - liftPx(p.s, p.H) - age * p.life * p.rise * ks;
+    const r = (p.big ? 2.2 : 1.7) * p.size * ks * (1 + age * (p.big ? 2.6 : 2));
+    if (sx < -r || sy < -r || sx > cw + r || sy > ch + r) continue;
+    let c = p.dark ? [72, 67, 64] : p.big ? [230, 230, 228] : [170, 170, 168];
+    const heat = p.hot && age < 0.2 ? (1 - age / 0.2) * p.hot : 0;       // fresh exhaust still glows
+    if (heat) c = [lerp(c[0], 255, heat), lerp(c[1], 185, heat), lerp(c[2], 90, heat)];
+    const a = (p.dark ? 0.6 : p.big ? 0.5 : 0.5) * Math.pow(1 - age, 1.3) * Math.min(1, age * 12 + 0.4);
+    ctx.beginPath(); ctx.arc(sx + Math.sin(p.seed + age * 4) * ks * age * 3, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`; ctx.fill();
+  }
   for (const m of game.missiles) {
     const Wp = CFG.weapons[m.w], big = m.w === 'missile';
     const mt = Math.min(1, m.t + lead / m.dur);       // its flight carried on past the last sim step, so it glides
@@ -7413,7 +7427,35 @@ function drawMissiles(z) {
     const [sx, sy] = lifted(b.x, b.y, b.air, z), r0 = Math.max(b.big ? 16 : 9, (b.R + 1) * z);
     const fx = FX[b.air ? 'blastA' : b.big ? 'blastM' : 'blastS'];
     if (fx) {                                      // the pixel strip: flash, fireball, smoke, one frame per slice of its life
+      const secs = b.t * b.life;
+      if (!b.air) {
+        if (secs < 0.5) {                          // the ground lit up round it
+          const gl = r0 * (b.big ? 3.2 : 2.2), g = ctx.createRadialGradient(sx, sy, 0, sx, sy, gl);
+          g.addColorStop(0, `rgba(255,200,110,${0.55 * (1 - secs / 0.5) ** 2})`); g.addColorStop(1, 'rgba(255,140,60,0)');
+          ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(sx, sy, gl, 0, Math.PI * 2); ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        const te = Math.min(1, secs / (b.big ? 0.7 : 0.45));
+        if (te < 1) {                              // a shockwave racing out over the ground
+          const rw = r0 * (0.4 + (b.big ? 2.8 : 1.8) * (1 - (1 - te) ** 3));
+          ctx.beginPath(); ctx.ellipse(sx, sy, rw, rw * 0.8, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255,245,225,${0.75 * (1 - te)})`; ctx.lineWidth = (b.big ? 5 : 3) * (1 - te) + 0.5; ctx.stroke();
+        }
+      }
       drawFx(fx, Math.min(fx.frames - 1, Math.floor(b.t * fx.frames)), sx, sy, r0 * (b.air ? 1.9 : 2.5), 0.56);
+      if (b.debris) {                              // dirt, stones and embers thrown up and falling back
+        const px = Math.max(2, Math.round(z * 0.14)) * (b.big ? 1.4 : 1);
+        for (let j = 0; j < (b.big ? 18 : 9); j++) {
+          const T = 0.45 + hash2(b.seed, j, 81) * 0.5;            // how long this bit is in the air
+          if (secs > T) continue;
+          const e = secs / T, a = hash2(b.seed, j, 82) * Math.PI * 2, d = r0 * (b.big ? 1.6 : 1.1) * (0.4 + hash2(b.seed, j, 83)) * e;
+          const up = r0 * (b.big ? 1.5 : 1) * (0.5 + hash2(b.seed, j, 84)) * 4 * e * (1 - e);
+          const ember = hash2(b.seed, j, 85) < 0.35;
+          ctx.fillStyle = ember ? `rgba(255,${170 + j * 5},70,${1 - e * 0.6})` : j % 2 ? '#4a3a2c' : '#6b6359';
+          ctx.fillRect(sx + Math.cos(a) * d - px / 2, sy + Math.sin(a) * d * 0.7 - up - px / 2, px, px);
+        }
+      }
       continue;
     }
     const tf = Math.min(1, b.t * 2.2), ease = 1 - (1 - tf) * (1 - tf);     // the fire is over in under half the blast's life
@@ -7499,20 +7541,6 @@ function shownPos(e) {
   }
   return [e.x + (e.vx || 0) * lead, e.y + (e.vy || 0) * lead];
 }
-  // smoke: the trails shots leave in the air (they stay where they were left), launch billows, smoke over craters
-  const ks = clamp(z / 9, 0.75, 2.4);
-  for (const p of game.smoke || []) {
-    const age = p.t, [sx, sy0] = toScreen(p.x, p.y);
-    const sy = sy0 - liftPx(p.s, p.H) - age * p.life * p.rise * ks;
-    const r = (p.big ? 2.2 : 1.7) * p.size * ks * (1 + age * (p.big ? 2.6 : 2));
-    if (sx < -r || sy < -r || sx > cw + r || sy > ch + r) continue;
-    let c = p.dark ? [72, 67, 64] : p.big ? [230, 230, 228] : [170, 170, 168];
-    const heat = p.hot && age < 0.2 ? (1 - age / 0.2) * p.hot : 0;       // fresh exhaust still glows
-    if (heat) c = [lerp(c[0], 255, heat), lerp(c[1], 185, heat), lerp(c[2], 90, heat)];
-    const a = (p.dark ? 0.6 : p.big ? 0.5 : 0.5) * Math.pow(1 - age, 1.3) * Math.min(1, age * 12 + 0.4);
-    ctx.beginPath(); ctx.arc(sx + Math.sin(p.seed + age * 4) * ks * age * 3, sy, r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`; ctx.fill();
-  }
 
 function init() {
   resize();
@@ -7558,35 +7586,7 @@ function start() {
   const ld = $('loading');
   if (ld) ld.remove();
   if (RESUME && !noSave) toast(`Welcome back: game loaded (seed ${SEED}, ${fmtTime(game.time)} played). It autosaves every 10 s; ${say('N starts a new map', 'New map is in the Build menu')}.`);
-      const secs = b.t * b.life;
-      if (!b.air) {
-        if (secs < 0.5) {                          // the ground lit up round it
-          const gl = r0 * (b.big ? 3.2 : 2.2), g = ctx.createRadialGradient(sx, sy, 0, sx, sy, gl);
-          g.addColorStop(0, `rgba(255,200,110,${0.55 * (1 - secs / 0.5) ** 2})`); g.addColorStop(1, 'rgba(255,140,60,0)');
-          ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(sx, sy, gl, 0, Math.PI * 2); ctx.fill();
-          ctx.globalCompositeOperation = 'source-over';
-        }
-        const te = Math.min(1, secs / (b.big ? 0.7 : 0.45));
-        if (te < 1) {                              // a shockwave racing out over the ground
-          const rw = r0 * (0.4 + (b.big ? 2.8 : 1.8) * (1 - (1 - te) ** 3));
-          ctx.beginPath(); ctx.ellipse(sx, sy, rw, rw * 0.8, 0, 0, Math.PI * 2);
-          ctx.strokeStyle = `rgba(255,245,225,${0.75 * (1 - te)})`; ctx.lineWidth = (b.big ? 5 : 3) * (1 - te) + 0.5; ctx.stroke();
-        }
-      }
   else toast(`Map seed ${SEED} · this seed's far planet: ${SEED_PLANET.name}, a ${SEED_PLANET.kind === 'gas' ? 'gas giant' : 'rocky world'}${say(' (press G to visit)', '')}`);
-      if (b.debris) {                              // dirt, stones and embers thrown up and falling back
-        const px = Math.max(2, Math.round(z * 0.14)) * (b.big ? 1.4 : 1);
-        for (let j = 0; j < (b.big ? 18 : 9); j++) {
-          const T = 0.45 + hash2(b.seed, j, 81) * 0.5;            // how long this bit is in the air
-          if (secs > T) continue;
-          const e = secs / T, a = hash2(b.seed, j, 82) * Math.PI * 2, d = r0 * (b.big ? 1.6 : 1.1) * (0.4 + hash2(b.seed, j, 83)) * e;
-          const up = r0 * (b.big ? 1.5 : 1) * (0.5 + hash2(b.seed, j, 84)) * 4 * e * (1 - e);
-          const ember = hash2(b.seed, j, 85) < 0.35;
-          ctx.fillStyle = ember ? `rgba(255,${170 + j * 5},70,${1 - e * 0.6})` : j % 2 ? '#4a3a2c' : '#6b6359';
-          ctx.fillRect(sx + Math.cos(a) * d - px / 2, sy + Math.sin(a) * d * 0.7 - up - px / 2, px, px);
-        }
-      }
 
   const step = 1 / CFG.tickHz;
   let last = performance.now(), acc = 0, hudT = 0;
