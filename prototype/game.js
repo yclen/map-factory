@@ -35,20 +35,28 @@ const CFG = {
   landCap: { grass: 0.5, desert: 0.2, mountain: 0.1, ice: 0.05 },
   // ...but only if a settlement is within `reach` tiles of it. Each tile counts for its nearest settlement,
   // so settlements packed together share the same land. A settlement's level is read off the capacity it serves.
-  // Capacity above `powerAbove` only counts with power (`cityUse` MW per settlement that big).
+  // Power builds housing on top of the land: the power a country makes beyond what its machines use lets its
+  // settlements hold `perMW` more people per MW, up to `boost` x what their land holds. Cities only draw power
+  // for the people actually living in that extra housing, so burners burn wood as the cities fill up.
   // People above a country's capacity die off slowly (`shrink` = share of the excess per second).
-  settlement: { reach: 12, powerAbove: 170, cityUse: 2, shrink: 0.01,
-                levels: [{ name: 'Hamlet', cap: 0 }, { name: 'Village', cap: 50 }, { name: 'Town', cap: 110 }, { name: 'City', cap: 175 }] },
+  settlement: { reach: 12, perMW: 10, boost: 1, shrink: 0.01,
+                levels: [{ name: 'Hamlet', cap: 0 }, { name: 'Village', cap: 50 }, { name: 'Town', cap: 110 }, { name: 'City', cap: 175 },
+                         { name: 'Metropolis', cap: 300 }] },
   startResources: { wood: 50, stone: 50, iron: 0 },
   // An expedition takes the same share of its country's stockpile as of its people (the send %),
   // and at least this much if home has it: enough for a station with some track, or a cabin and a camp.
   expeditionKit: { wood: 40, stone: 40 },
   // what one train / ship carries per trip. Goods and people ride the vehicle, so long routes deliver slower and later.
-  vehicles: { rail: { cargo: 30, people: 12 }, sea: { cargo: 40, people: 10 } },
+  vehicles: { rail: { cargo: 30, people: 20 }, sea: { cargo: 40, people: 16 } },
   // Smart shipments: each country wants `base` of each resource in stock (or `keep` x its storage, if that's more);
   // an ice colony (polar ice, drills or a launch pad) wants `ice` on top. Trains and ships carry goods from countries
   // with more than they want to the ones down the line that are short (see loadAt).
-  supply: { base: { wood: 100, stone: 100, iron: 30 }, keep: 0.3, ice: { wood: 0, stone: 200, iron: 250 } },
+  supply: { base: { wood: 100, stone: 100, iron: 30 }, keep: 0.3, ice: { wood: 0, stone: 200, iron: 250 },
+  // People too: every country wants a crew of `crew` free people (on top of its workers) to claim land and build
+  // with, an ice colony `iceCrew` (ice is costly to claim and holds almost nobody). Trains and ships bring people
+  // from countries with more than their crew to the ones short of theirs, hop by hop like goods. A crew never
+  // dies off for lack of housing: only people above both housing and crew do.
+             crew: 40, iceCrew: 100 },
 
   // people regrowth:  growth/sec = rate * P * (1 - P/C) + base
   growthRate: 0.06, growthBase: 0.3,
@@ -218,7 +226,7 @@ const CFG = {
   },
 
   tickHz: 20,
-  zoomMin: 0.0001, zoomMax: 40, startZoom: 14,
+  zoomMin: 0.0001, zoomMax: 160, startZoom: 14,   // all the way in: close enough to watch the workers swing
   detailZoom: 10,              // >= this: full sprites
   cityZoom: 5,                 // <  this: map view (city icons + deposit markers)
 };
@@ -1009,7 +1017,7 @@ function titleFor(c) {
   return opts[Math.floor(hash2(SEED, c.id * 7 + c.tier, 5151) * opts.length)].replace('{}', c.short);
 }
 function retitle(c, quiet) {
-  const full = c.capBase + c.pw.capPow;                // housing with full power
+  const full = c.cap ?? c.capBase;                     // housing right now, powered part included
   let tier = c.tier;
   while (tier + 1 < TITLE_TIERS.length && full >= TITLE_TIERS[tier + 1].cap) tier++;
   const grew = tier > c.tier;
@@ -1860,12 +1868,12 @@ function recomputeLand() {
   game.landDirty = false;
   roadsDirty = true;
 }
-// what a settlement holds right now: the part above `powerAbove` only counts as far as its country has power
+// what a settlement holds right now: its land, plus its share of the housing its country's spare power builds
 function settlementCap(b) {
-  const T = CFG.settlement.powerAbove, base = b.base || 0;
-  if (base <= T || !owner[b.i]) return base;
+  const base = b.base || 0;
+  if (!owner[b.i]) return base;
   const c = countryAt(b.i);
-  return T + (base - T) * (c ? c.sat : 1);
+  return c && c.capBase > 0 ? base * (1 + (c.powCap || 0) / c.capBase) : base;
 }
 function levelOfCap(cap) {
   const L = CFG.settlement.levels;
@@ -1920,12 +1928,17 @@ function recomputeHarvest() {
   for (let k = 0; k < list.length; k++) {
     const b = list[k], cx = b.i % W, cy = (b.i / W) | 0;
     const mine = owner[b.i], pw = mine ? game.countries[countryOf[b.i]].pw : null, into = mine ? (b.type === 'rig' ? pw.rigDep : pw.colDep) : null;
+    let d1 = 1e9, d2b = 1e9;
+    b.spots = [];                                  // the two nearest tiles it works: where its workers stand (not saved)
     for (let j = 0; j < n; j++) {
       const x = cx + dx[j], y = cy + dy[j];
       if (x < 0 || y < 0 || x >= W || y >= H) continue;
       const t = y * W + x;
       if (harvStamp[t] !== harvN || harvBy[t] !== k || depositOf[t] < 0) continue;
       const kind = deposits[depositOf[t]].type;
+      if (building[t]) { /* a building stands there (its own, or another): nowhere for a worker to stand */ }
+      else if (d2[j] < d1) { d2b = d1; b.spots[1] = b.spots[0]; d1 = d2[j]; b.spots[0] = t; }
+      else if (d2[j] < d2b) { d2b = d2[j]; b.spots[1] = t; }
       b.work[kind]++;
       if (mine) into[kind]++; else if (kind === 'iron') game.nations[aiOf[b.i] - 1].ironTiles++;
     }
@@ -1949,9 +1962,7 @@ function recomputeBuildings() {
     if (!owner[b.i]) continue;                    // an AI nation's building
     const def = CFG.buildings[b.type], c = game.countries[countryOf[b.i]];
     if (b.type === 'settlement') {
-      const T = CFG.settlement.powerAbove;
-      c.capBase += Math.min(b.base, T); c.pw.capPow += Math.max(0, b.base - T);
-      if (b.base > T) c.pw.need += CFG.settlement.cityUse;
+      c.capBase += b.base; c.pw.capPow += b.base * CFG.settlement.boost;   // land housing, and the most power can add
       const lvl = settlementLevel(b);              // tell the player when one grows up (not on the first look, and never twice)
       if (b.peak !== undefined && lvl > b.peak && game.started) {
         floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, `Now a ${CFG.settlement.levels[lvl].name}`, '#f2c14e');
@@ -1968,7 +1979,7 @@ function recomputeBuildings() {
   }
   recomputeHarvest();
   pipesDirty = true;
-  for (const c of game.countries) c.cap = c.capBase + c.pw.capPow * c.sat;
+  for (const c of game.countries) { c.powCap = Math.min(c.powCap || 0, c.pw.capPow); c.cap = c.capBase + c.powCap; }
   for (const c of game.countries) if (c.alive && c.tiles) retitle(c, !game.started);
   for (const d of deposits) for (const t of d.tiles) if (owner[t]) game.countries[countryOf[t]].ownedDep[d.type]++;
   recomputeNations();
@@ -1994,10 +2005,12 @@ function unloadAt(L, C) {
   L.cargo = null; L.to = -1;
 }
 const isRocketCountry = C => C.geo.ice > 0 || C.pw.drills > 0 || C.pw.pads > 0;
+// how many people a country keeps on hand: its workers plus a crew to expand with (see CFG.supply)
+const crewOf = C => C.pw.workers + (isRocketCountry(C) ? CFG.supply.iceCrew : CFG.supply.crew);
 // what a country wants in stock: enough to keep building, a reserve once it's established, and for an
 // ice colony the stone and iron for drills, a launch pad and rockets. Never more than it can store.
 function supplyWish(C) {
-  const S = CFG.supply, w = {};
+  const S = CFG.supply, w = { people: crewOf(C) };
   for (const r of CARGO_RES) {
     const store = C.store ? C.store[r] : CFG.storage[r].base;
     w[r] = Math.min(store, Math.max(S.base[r], store * S.keep) + (isRocketCountry(C) ? S.ice[r] : 0));
@@ -2012,13 +2025,14 @@ function needBeyond(src, dst) {
     const A = countryAt(L.a), B = countryAt(L.b);
     if (A && B && A !== B) { link(A, B); link(B, A); }
   }
-  const seen = new Set([src, dst]), q = [dst], need = { wood: 0, stone: 0, iron: 0 };
+  const seen = new Set([src, dst]), q = [dst], need = { wood: 0, stone: 0, iron: 0, people: 0 };
   for (let h = 0; h < q.length; h++) {
     const C = q[h], w = supplyWish(C), inc = incomingTo(C);
     for (const r of CARGO_RES) need[r] += w[r] - C.res[r] - inc[r];
+    need.people += w.people - C.people - inc.people;   // a country with more than its crew passes the rest on
     for (const n of adj.get(C) || []) if (!seen.has(n)) { seen.add(n); q.push(n); }
   }
-  for (const r of CARGO_RES) need[r] = Math.max(0, need[r]);
+  for (const r in need) need[r] = Math.max(0, need[r]);
   return need;
 }
 function loadAt(L, src, dst) {
@@ -2030,11 +2044,14 @@ function loadAt(L, src, dst) {
   for (const r of CARGO_RES) { want[r] = Math.max(0, Math.min(need[r], src.res[r] - wish[r])); total += want[r]; }
   const k = total > V.cargo ? V.cargo / total : 1; // a full load is split across what's wanted
   for (const r of CARGO_RES) { cargo[r] = Math.floor(want[r] * k); src.res[r] -= cargo[r]; }
+  // people: first to the countries down the line short of their crew, out of what this one has above its own crew
+  const spare = Math.max(0, src.people - wish.people);
+  let ppl = Math.min(V.people, need.people, spare);
+  // then, if there's room left on board, toward empty housing: from a fuller country to an emptier one next door
   const full = c => (c.cap > 0 ? c.people / c.cap : 0);   // people in a country with no settlement stay put
-  if (full(src) > full(dst) + 0.05) {
-    cargo.people = Math.floor(Math.min(V.people, Math.max(0, dst.cap - dst.people), freePeople(src) * 0.5));
-    src.people -= cargo.people;
-  }
+  if (full(src) > full(dst) + 0.05) ppl = Math.max(ppl, Math.min(V.people, Math.max(0, dst.cap - dst.people), spare * 0.5));
+  cargo.people = Math.floor(ppl);
+  src.people -= cargo.people;
   if (cargo.wood + cargo.stone + cargo.iron + cargo.people > 0) { L.cargo = cargo; L.to = dst.id; }
 }
 // goods (and people) on their way to a country right now, and from where (bySrc: country -> amount of goods)
@@ -2800,15 +2817,25 @@ function tick(dt) {
   let pop = 0;
   for (const c of game.countries) {
     if (!c.alive) continue;
-    // power: solar first (free), burners fill the rest and burn wood for it; short power slows every user evenly
-    const P = c.pw, B = CFG.buildings, solar = P.solar * B.solar.gen, burnMax = P.burners * B.burner.gen;
-    let fromBurn = Math.min(Math.max(0, P.need - solar), burnMax);
+    // power: solar first (free), burners fill the rest and burn wood for it. Machines get power first (short of it,
+    // they all slow down evenly); whatever is left over houses people: `perMW` more per spare MW, up to capPow.
+    // The cities draw only for the people living in that powered housing, so the wood burns as they fill up.
+    const P = c.pw, B = CFG.buildings, S = CFG.settlement, solar = P.solar * B.solar.gen, burnMax = P.burners * B.burner.gen;
+    // with no wood in stock, the burners can only burn what the loggers bring in
+    const burnCan = c.res.wood > 1 ? burnMax : Math.min(burnMax, (c.prod?.wood || 0) / CFG.power.burnerWood * B.burner.gen);
+    const spare = Math.max(0, solar + burnCan - P.need);
+    c.powCap = Math.min(P.capPow, spare * S.perMW);
+    const cityMW = clamp(c.people - c.capBase, 0, c.powCap) / S.perMW;   // power the cities use right now
+    let fromBurn = Math.min(Math.max(0, P.need + cityMW - solar), burnMax);
     let burn = burnMax ? fromBurn / B.burner.gen * CFG.power.burnerWood : 0;   // wood per second
     if (burn * dt > c.res.wood) { const k = burn ? c.res.wood / (burn * dt) : 0; burn *= k; fromBurn *= k; }
     c.res.wood -= burn * dt;
-    c.sat = P.need > 0 ? Math.min(1, (solar + Math.min(fromBurn, P.need)) / P.need) : 1;
-    c.mw = { gen: Math.min(P.need, solar + fromBurn), max: solar + burnMax, need: P.need, burn };
-    c.cap = c.capBase + P.capPow * c.sat;
+    const made = solar + fromBurn;
+    c.sat = P.need > 0 ? Math.min(1, made / P.need) : 1;
+    c.mw = { gen: Math.min(P.need + cityMW, made), max: solar + burnMax, need: P.need + cityMW, burn,
+             machines: P.need, city: Math.max(0, Math.min(cityMW, made - P.need)) };
+    c.cap = c.capBase + c.powCap;
+    if (c.tier + 1 < TITLE_TIERS.length && c.cap >= TITLE_TIERS[c.tier + 1].cap) retitle(c);
     c.store = {};                                  // how much of each resource this country can hold
     for (const r in CFG.storage) c.store[r] = CFG.storage[r].base + CFG.storage[r].perCap * c.cap;
     c.staff = P.workers > 0 ? Math.min(1, c.people / P.workers) : 1;   // too few people: collectors slow down
@@ -2829,9 +2856,10 @@ function tick(dt) {
     if (c.cap > 0 && c.people < c.cap) {
       c.growth = (CFG.growthRate * c.people * (1 - c.people / c.cap) + CFG.growthBase) * growing(c);
       c.people = Math.min(c.cap, c.people + c.growth * dt);
-    } else if (c.people > c.cap + 0.5) {           // more people than the land in reach of its settlements can hold
-      c.growth = -(c.people - c.cap) * CFG.settlement.shrink - 0.05;
-      c.people = Math.max(c.cap, c.people + c.growth * dt);
+    } else if (c.people > Math.max(c.cap, crewOf(c)) + 0.5) {   // more people than its housing (or crew) holds
+      const keep = Math.max(c.cap, crewOf(c));
+      c.growth = -(c.people - keep) * CFG.settlement.shrink - 0.05;
+      c.people = Math.max(keep, c.people + c.growth * dt);
     } else c.growth = 0;
     pop += c.people;
   }
@@ -2890,6 +2918,7 @@ function tick(dt) {
   if (game.flights.some(f => f.done)) game.flights = game.flights.filter(f => !f.done);
   for (const f of game.floats) f.t += dt;
   game.floats = game.floats.filter(f => f.t < 2.4);
+  stepPops(dt);
 }
 
 // ---------- saving ----------
@@ -3154,6 +3183,163 @@ function explode(x, y, m) {
 }
 
 function floatText(x, y, text, color) { game.floats.push({ x, y, text, color, t: 0 }); }
+
+// ---------- what each collector is doing ----------
+// A cabin, camp or rig's own share of its country's output: the tiles it works times the yield, slowed by too few
+// people (cabins, camps) or too little power (rigs). An AI nation's collectors just work.
+function outputOf(b) {
+  if (!HARVESTS[b.type] || !b.work) return null;
+  const c = owner[b.i] ? game.countries[countryOf[b.i]] : null, out = {};
+  const k = !c ? 1 : b.type === 'rig' ? CFG.power.rigMult * (c.sat ?? 1) : (c.staff ?? 1);
+  for (const t of ['forest', 'stone', 'iron']) if (b.work[t]) out[DEP_RES[t]] = b.work[t] * CFG.prodPerTile[t] * k;
+  return out;
+}
+const isFull = (c, r) => !!(c && c.store && !(c.res[r] < c.store[r] - 0.01));   // no room left for any more of it
+// how hard its crew is going, 0..1: 0 when there's nobody, no power, nothing to work, or nowhere left to put it
+function effortOf(b) {
+  if (!b.work || !(b.work.forest + b.work.stone + b.work.iron)) return 0;
+  if (!owner[b.i]) return 1;
+  const c = game.countries[countryOf[b.i]], out = outputOf(b);
+  if (!Object.keys(out).some(r => !isFull(c, r))) return 0;     // storage full: they down tools
+  return b.type === 'rig' ? (c.sat ?? 1) : (c.staff ?? 1);
+}
+// The hover card for a building: what it is and what it's doing right now. [html, bad]
+function buildingCard(b) {
+  const def = CFG.buildings[b.type], foe = nationAt(b.i), c = owner[b.i] ? game.countries[countryOf[b.i]] : null;
+  const rows = [`<div class="t">${def.name}${foe ? ` · ${foe.full}` : ''}</div>`], line = (cls, s) => rows.push(`<div class="${cls}">${s}</div>`);
+  let bad = false;
+  const verb = { cabin: 'Chopping', camp: 'Mining', rig: 'Drilling' }[b.type];
+  if (verb) {
+    const tiles = ['forest', 'stone', 'iron'].filter(k => b.work && b.work[k]).map(k => `${b.work[k]} ${k}`).join(', ');
+    if (!tiles) { line('r', 'Nothing in reach to work'); bad = true; }
+    else {
+      line('d', `${verb} ${tiles} tile${tiles === '1 forest' || tiles === '1 stone' || tiles === '1 iron' ? '' : 's'}`);
+      const out = outputOf(b);
+      for (const r in out) {
+        const full = isFull(c, r);
+        line(full ? 'r' : 'g', full ? `${r}: storage full, nothing coming in` : `+${out[r].toFixed(2)} ${r} / sec`);
+        if (full) bad = true;
+      }
+      if (c && b.type !== 'rig') {
+        if (c.staff < 0.999) { line('r', `Short of people: working at ${Math.round(c.staff * 100)}%`); bad = true; }
+        else line('d', `${def.workers} of ${c.short}'s people at work here`);
+      }
+      if (c && b.type === 'rig') {
+        if (c.sat < 0.999) { line('r', `Short of power: running at ${Math.round(c.sat * 100)}%`); bad = true; }
+        else line('d', `Fully powered · ${def.use} MW`);
+      }
+    }
+  } else if (b.type === 'burner' && c && c.mw) {
+    const per = c.pw.burners ? c.mw.burn / c.pw.burners : 0, load = per / CFG.power.burnerWood;
+    if (per > 0.001) {
+      line('g', `Burning ${per.toFixed(2)} wood / sec for ${(load * def.gen).toFixed(1)} MW`);
+      line('d', `Running at ${Math.round(load * 100)}%`);
+    } else if (c.res.wood < 1 && c.mw.need > c.mw.gen) { line('r', 'Out of wood: the fire is out'); bad = true; }
+    else line('d', 'Idle: nothing needs its power right now');
+  } else if (b.type === 'solar') line('g', `Making ${def.gen} MW from the sun, for free`);
+  else if (def.desc) line('d', def.desc.split('. ')[0] + '.');
+  return [rows.join(''), bad];
+}
+// "+2 wood" popping up over the tile a collector works, each time it has brought in a few more
+const RES_COLOR = { wood: '#e0a96d', stone: '#d6dade', iron: '#ef9a6a' };
+const pops = [], popAcc = new WeakMap();
+function stepPops(dt) {
+  for (const p of pops) p.t += dt;
+  while (pops.length && pops[0].t > 1.6) pops.shift();
+  for (const b of game.buildings) {
+    if (!b.spots || !owner[b.i] || !HARVESTS[b.type]) continue;
+    const c = game.countries[countryOf[b.i]], out = outputOf(b);
+    let acc = popAcc.get(b);
+    if (!acc) popAcc.set(b, acc = {});
+    for (const r in out) {
+      if (!c.store || isFull(c, r)) continue;         // full (or before the first tick): nothing is coming in
+      const step = Math.max(1, Math.round(out[r] * 2.5));   // a pop every two or three seconds, whatever the rate
+      acc[r] = (acc[r] || Math.random() * step) + out[r] * dt;   // start part-way, so neighbours don't pop together
+      if (acc[r] >= step) {
+        acc[r] -= step;
+        const t = b.spots[0] ?? b.i;
+        if (pops.length < 240) pops.push({ x: t % W + 0.5, y: ((t / W) | 0) + 0.1, text: `+${step} ${r}`, color: RES_COLOR[r], t: 0 });
+      }
+    }
+  }
+}
+function drawPops(z) {
+  if (z < CFG.cityZoom) return;
+  ctx.font = `800 ${clamp(z * 0.2, 10, 22)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(14,18,26,0.85)';
+  for (const p of pops) {
+    const [sx, sy] = toScreen(p.x, p.y);
+    if (sx < -40 || sy < -40 || sx > cw + 40 || sy > ch + 40) continue;
+    const y = sy - p.t * z * 0.55 - 4;
+    ctx.globalAlpha = clamp(Math.min(p.t * 8, (1.6 - p.t) * 2.5), 0, 1);
+    ctx.strokeText(p.text, sx, y); ctx.fillStyle = p.color; ctx.fillText(p.text, sx, y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// A worker out on the nearest tile a cabin or camp works: a lumberjack swinging an axe into a tree, a miner
+// bringing a pickaxe down on rock. Slow wind-up, fast strike, chips flying off on the hit. Fewer people means a
+// slower swing; nobody, or full storage, and the tool rests. A rig (powered) shakes its tile with dust instead.
+const SWING = { cabin: 1.15, camp: 0.95 };
+function drawWorkers(b, z) {
+  const spots = b.spots;
+  if (!spots || spots[0] === undefined) return;
+  const effort = effortOf(b), bx = b.i % W, by = (b.i / W) | 0;
+  if (b.type === 'rig') {                          // dust kicked up off the worked tiles
+    if (effort <= 0) return;
+    for (const t of spots) {
+      if (t === undefined) continue;
+      const [sx, sy] = toScreen(t % W + 0.5, ((t / W) | 0) + 0.7), u = z / 16;
+      for (let k = 0; k < 4; k++) {
+        const f = (game.time * 0.9 * effort + k / 4 + hash2(t, k, 76)) % 1, s = u * (1.5 + f * 3);
+        ctx.fillStyle = `rgba(150,128,100,${0.55 * (1 - f)})`;
+        ctx.fillRect(sx + (hash2(t, k, 77) - 0.5) * z * 0.6 + f * u * 3 - s / 2, sy - f * z * 0.4 - s / 2, s, s);
+      }
+    }
+    return;
+  }
+  const u = Math.max(1, z / 14), cabin = b.type === 'cabin';
+  spots.forEach((t, w) => {
+    if (t === undefined || (w === 1 && (b.work.forest + b.work.stone + b.work.iron) < 4)) return;
+    const tx = t % W, ty = (t / W) | 0, face = tx > bx || (tx === bx && ty > by) ? 1 : -1;   // face the tile, away from home
+    const [fx, fy] = toScreen(tx + 0.5 - face * 0.1, ty + 0.8);                                    // feet: out at the tree or rock
+    const iron = depositOf[t] >= 0 && deposits[depositOf[t]].type === 'iron';
+    const period = SWING[b.type] / Math.max(0.35, effort), v = hash2(t, w, 78);
+    const p = effort > 0 ? (game.time / period + v) % 1 : 0.9;
+    // tool angle (0 = straight ahead, negative = raised back over the head)
+    const a = p < 0.62 ? -0.3 - 2.0 * Math.sin(p / 0.62 * Math.PI / 2)           // wind up
+      : p < 0.72 ? -2.3 + 3.2 * ((p - 0.62) / 0.1)                                // strike
+      : 0.9 - 1.2 * ((p - 0.72) / 0.28);                                           // lift back off
+    ctx.save();
+    ctx.translate(Math.round(fx), Math.round(fy)); ctx.scale(face, 1);
+    const R = (x, y, w2, h, c) => { ctx.fillStyle = c; ctx.fillRect(x * u, y * u, w2 * u, h * u); };
+    R(-2.5, 0, 5, 1, 'rgba(0,0,0,0.25)');                                       // shadow
+    R(-1.5, -3, 1, 3, '#3a3f4a'); R(0.5, -3, 1, 3, '#3a3f4a');                  // legs
+    R(-1.5, -7, 3, 4, cabin ? '#b8433a' : '#3f6ea8');                           // shirt: lumberjack red, miner blue
+    if (cabin) R(-1.5, -5, 3, 1, '#7a2a24');                                    // plaid stripe
+    R(-1, -9, 2, 2, '#f0c08a');                                                 // head
+    if (cabin) R(-1.2, -10, 2.4, 1, '#5a3a22'); else R(-1.5, -10, 3, 1.2, '#f2c14e');   // cap / hard hat
+    // the tool, swung from the shoulder
+    ctx.save(); ctx.translate(0.5 * u, -6.5 * u); ctx.rotate(a);
+    R(0, -0.4, 6, 0.8, '#8a5a34');                                              // handle
+    if (cabin) { R(5, -2, 1.6, 2.4, '#c9ced6'); R(5, -2, 1.6, 0.6, '#eef2f8'); }   // axe head
+    else { R(5.2, -2.6, 0.9, 5.2, '#9aa3ad'); R(5.2, -2.6, 0.9, 0.8, '#d6dade'); } // pick head
+    ctx.restore();
+    // chips flying off the hit
+    if (effort > 0 && p >= 0.72 && p < 0.95) {
+      const q = (p - 0.72) / 0.23, ix = 6 * u, iy = -3 * u, cyc = Math.floor(game.time / period + v);
+      for (let k = 0; k < 5; k++) {
+        const h1 = hash2(cyc, k, 79 + w), h2 = hash2(k, cyc, 80 + w);
+        const cx = ix + (h1 - 0.25) * 9 * u * q, cy = iy - (2 + h2 * 4) * u * q + 9 * u * q * q;
+        const col = cabin ? (k % 2 ? '#d9a066' : '#8a5a3c') : iron && k < 2 ? '#ffd166' : k % 2 ? '#b8bdc2' : '#7d848c';
+        ctx.globalAlpha = 1 - q * 0.6;
+        R(cx / u - 0.5, cy / u - 0.5, k < 2 && !cabin && iron ? 0.8 : 1.1, k < 2 && !cabin && iron ? 0.8 : 1.1, col);
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  });
+}
 
 // ======================================================================
 // terrain image
@@ -4657,7 +4843,12 @@ function render() {
       if (DEFENCE_TOPS[b.type]) { drawDefence(b, z); continue; }
       drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : 1.25));
     }
-    for (const b of game.buildings) {               // smoke on top of everything, so a puff isn't hidden by the sprite behind it
+    for (const b of game.buildings) {               // workers out on the tiles, then smoke on top of everything
+      const x = b.i % W, y = (b.i / W) | 0;
+      if (x < x0 - 5 || x > x1 + 5 || y < y0 - 5 || y > y1 + 5) continue;
+      if (HARVESTS[b.type]) drawWorkers(b, z);
+    }
+    for (const b of game.buildings) {
       const x = b.i % W, y = (b.i / W) | 0;
       if (b.type === 'burner' && x >= x0 && x <= x1 && y >= y0 - 2 && y <= y1) drawBurnerSmoke(b, z * 1.25);
     }
@@ -4682,6 +4873,7 @@ function render() {
     drawSettlementPixels(z);
   }
 
+  drawPops(z);
   drawVehicles(z);
   drawFlights(z);
   drawBuildPreview(z);
@@ -4781,7 +4973,7 @@ function drawDepositsDetail(x0, y0, x1, y1, z) {
 // The houses around a settlement are drawn, not built: more of them (and bigger ones) as it grows.
 // Always the same spots for the same settlement, skipping water, deposits and real buildings.
 function sprawlOf(b) {
-  const lvl = settlementLevel(b), n = Math.min(26, Math.floor(settlementCap(b) / 8));
+  const lvl = settlementLevel(b), n = Math.min(lvl >= 4 ? 36 : 26, Math.floor(settlementCap(b) / 8));
   if (b._n === n && b._lvl === lvl) return b.sprawl;
   const side = sideOf(b.i), cx = b.i % W, cy = (b.i / W) | 0, out = [], used = new Set([b.i]);
   for (let k = 0; k < 90 && out.length < n; k++) {
@@ -4791,7 +4983,7 @@ function sprawlOf(b) {
     const t = idx(x, y);
     if (used.has(t) || !isLand(t) || sideOf(t) !== side || building[t] || depositOf[t] >= 0) continue;
     used.add(t);
-    out.push({ x, y, type: lvl >= 3 && rad < 3.2 ? 'house3' : lvl >= 2 && rad < 3.8 ? 'house2' : 'house', v: hash2(x, y, 73) });
+    out.push({ x, y, type: lvl >= 3 && rad < (lvl >= 4 ? 4.6 : 3.2) ? 'house3' : lvl >= 2 && rad < 3.8 ? 'house2' : 'house', v: hash2(x, y, 73) });
   }
   out.sort((p, q) => p.y - q.y);
   b._n = n; b._lvl = lvl; b.sprawl = out;
@@ -4808,7 +5000,7 @@ function drawSettlementDetail(b, z) {
   // front-on, so back rows first: the houses behind the centre, the centre, then the houses in front of it
   const house = h => { const look = lookOf(h); drawSprite(RAS[look] ? look : h.type, h.x + 0.5, h.y + 0.5, size); };
   for (const h of houses) if (h.y <= y) house(h);
-  drawSprite('settle' + (lvl + 1), x + 0.5, y + 0.3, z * (2.5 + lvl * 0.35));
+  drawSprite('settle' + (Math.min(lvl, 3) + 1), x + 0.5, y + 0.3, z * (2.5 + lvl * 0.35));
   for (const h of houses) if (h.y > y) house(h);
   // chimney smoke: a few soft puffs rising and drifting off, each house on its own beat
   const px = Math.max(1.5, size / 32 * 1.6);
@@ -4835,13 +5027,24 @@ function drawBurnerSmoke(b, size) {
   const x = b.i % W, y = (b.i / W) | 0, v = hash2(x, y, 75);
   const [sx, sy] = toScreen(x + 0.5, y + 0.5);
   const cx = sx + (19.5 / 32 - 0.5) * size, cy = sy + (2 / 32 - 0.5) * size;   // the chimney's mouth on the sprite
-  const px = Math.max(1.5, size / 32 * 1.8), n = 3 + Math.round(load * 4);
+  // Dirty wood smoke: sooty black out of the chimney, thinning to a brown-grey smear that hangs over the plant.
+  // Each puff is a lump of a few squares, so it reads as billowing smoke, not a row of dots.
+  const px = Math.max(2, size / 32 * 2.6), n = 5 + Math.round(load * 6), a0 = 0.7 + 0.25 * load;
   for (let k = 0; k < n; k++) {
-    const f = (game.time * 0.38 + v * 5 + k / n) % 1, s = px * (1.2 + f * 3.2);
-    const g = Math.round(205 - f * 70);            // fresh smoke is pale, it greys as it spreads
-    ctx.fillStyle = `rgba(${g},${g},${g + 4},${(0.45 + 0.4 * load) * (1 - f) * Math.min(1, f * 6)})`;
-    const wob = Math.sin(f * 5 + v * 11 + k) * px * 1.2;
-    ctx.fillRect(cx + wob + f * f * size * 0.45 - s / 2, cy - f * size * 0.85 - s / 2, s, s);
+    const f = (game.time * 0.36 + v * 5 + k / n) % 1, s = px * (1.1 + f * 3.8);
+    const r = Math.round(28 + f * 92), g = Math.round(26 + f * 84), bl = Math.round(24 + f * 74);   // soot to dirty haze
+    const a = a0 * Math.pow(1 - f, 0.6) * Math.min(1, f * 8);
+    const wob = Math.sin(f * 5 + v * 11 + k) * px * 1.1;
+    const x = cx + wob + f * f * size * 0.7, y = cy - f * size * 1.15;
+    ctx.fillStyle = `rgba(${r},${g},${bl},${a})`;
+    ctx.fillRect(x - s / 2, y - s / 2, s, s);
+    ctx.fillStyle = `rgba(${r},${g},${bl},${a * 0.7})`;           // the lumps that make it billow
+    ctx.fillRect(x - s * 0.95, y - s * 0.1, s * 0.6, s * 0.6);
+    ctx.fillRect(x + s * 0.3, y - s * 0.75, s * 0.55, s * 0.55);
+  }
+  if (load > 0.3) {                                // a working plant leaves a dirty smudge hanging over it
+    ctx.fillStyle = `rgba(60,52,44,${0.12 * load})`;
+    ctx.beginPath(); ctx.ellipse(cx + size * 0.45, cy - size * 1.05, size * 0.75, size * 0.28, 0, 0, Math.PI * 2); ctx.fill();
   }
 }
 // Zoomed out, a settlement is drawn as what it is: a cluster of little coloured blocks, one per house, in the same
@@ -4934,6 +5137,14 @@ function drawSettlementHover(z) {
 function drawReachHover(z) {
   if (game.tool || game.aiming || blueprint || !mouse.in) return;
   const t = hoverTile();
+  if (t && building[t.i] && building[t.i] !== BLD_CODE.settlement && z >= CFG.cityZoom) {   // gold corners: this is the one the card is about
+    const [sx, sy] = toScreen(t.x, t.y), s = z, k = Math.max(4, z * 0.28);
+    ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.beginPath();
+    for (const [cx, cy, dx, dy] of [[sx, sy, 1, 1], [sx + s, sy, -1, 1], [sx, sy + s, 1, -1], [sx + s, sy + s, -1, -1]]) {
+      ctx.moveTo(cx + dx * k, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + dy * k);
+    }
+    ctx.stroke();
+  }
   if (t && building[t.i] === BLD_CODE.settlement) reachRing(t.i, '#f2c14e', z);
   else if (t && building[t.i] && HARVESTS[buildingAt(t.i).type]) reachRing(t.i, '#f2c14e', z, [5, 5], CFG.collectorReach);
   else if (t && building[t.i] === BLD_CODE.mortar) reachRing(t.i, aiOf[t.i] ? 'rgba(255,122,107,0.9)' : '#f2c14e', z, [4, 5], CFG.weapons.shell.range);
@@ -5653,10 +5864,10 @@ function updateHud() {
     }
   }
   flightHud();
-  const M = C.mw, short = M.need > 0 && C.sat < 0.999;
+  const M = C.mw, short = M.machines > 0 && C.sat < 0.999;
   $('val-power').textContent = M.need || M.max ? `${fmtNum(M.need)} / ${fmtNum(M.max)} MW` : '-';
   $('val-power').classList.toggle('short', short);
-  $('rate-power').textContent = short ? `${Math.round(C.sat * 100)}% POWERED` : M.need ? 'OK' : '';
+  $('rate-power').textContent = short ? `${Math.round(C.sat * 100)}% POWERED` : M.city >= 0.05 ? `CITIES ${fmtNum(M.city)}` : M.need ? 'OK' : '';
   $('rate-power').classList.toggle('neg', short);
   $('val-terr').textContent = (game.ownedCount / game.landTiles * 100).toFixed(1) + '%';
   $('val-time').textContent = fmtTime(game.time);
@@ -5666,8 +5877,9 @@ function updateHud() {
     : cam.zoom > fitZoom() * 0.8 ? 'Map' : 'Orbit';
   $('people-lbl').textContent = alive > 1 ? `PEOPLE · EMPIRE ${fmtNum(game.population)}` : 'PEOPLE';
   $('val-people').textContent = `${fmtNum(C.people)} / ${fmtNum(C.cap)}`;
+  $('val-people').title = `Land holds ${fmtNum(C.capBase)}; power adds ${fmtNum(C.powCap || 0)} of up to ${fmtNum(C.pw.capPow)} more (${CFG.settlement.perMW} people per spare MW). Keeps a crew of ${fmtNum(crewOf(C))}: trains and ships bring people when it's short.`;
   $('people-fill').style.width = (C.cap ? clamp(C.people / C.cap, 0, 1) * 100 : 0) + '%';
-  $('people-rate').innerHTML = (inc.people >= 1 ? `<span class="incoming">+${fmtNum(inc.people)} arriving</span> ` : '') + (C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : C.growth < 0 ? `<span style="color:var(--bad)">Overcrowded: ${C.growth.toFixed(1)} / sec</span>` : (C.people >= C.cap - 0.5 ? 'Full' : '')) + (C.fireCap > 0 ? ` <span style="color:var(--bad)">Under fire</span>` : '');
+  $('people-rate').innerHTML = (inc.people >= 1 ? `<span class="incoming">+${fmtNum(inc.people)} arriving</span> ` : '') + (C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : C.growth < 0 ? `<span style="color:var(--bad)">Overcrowded: ${C.growth.toFixed(1)} / sec</span>` : (C.people > C.cap + 0.5 ? 'Crew on hand' : C.people >= C.cap - 0.5 ? 'Full' : '')) + (C.fireCap > 0 ? ` <span style="color:var(--bad)">Under fire</span>` : '');
   $('send-n').textContent = `= ${sendFrom(C)} people`;
   $('bar-note').textContent = C.pw.workers
     ? `${fmtNum(Math.min(C.people, C.pw.workers))} at work${C.staff < 0.999 ? ` (need ${C.pw.workers})` : ''} · regrows fastest at half full`
@@ -5733,8 +5945,8 @@ function updateHover() {
       : ` · ${tileCost(t.i)} people/tile`;
     if (depositOf[t.i] >= 0) info += ` · ${deposits[depositOf[t.i]].type}`;
     if (building[t.i] === BLD_CODE.settlement) {
-      const sb = buildingAt(t.i), dark = owner[t.i] && sb.base > CFG.settlement.powerAbove && countryAt(t.i).sat < 0.999;
-      info += ` · ${CFG.settlement.levels[settlementLevel(sb)].name} · holds ${Math.round(settlementCap(sb))} people from ${sb.tiles} tiles in reach${dark ? ' (short of power: could hold ' + Math.round(sb.base) + ')' : ''}${underFire(sb) ? ` · under fire: not growing for ${fireLeft(sb)}s` : ''}`;
+      const sb = buildingAt(t.i), lit = owner[t.i] ? settlementCap(sb) - sb.base : 0;
+      info += ` · ${CFG.settlement.levels[settlementLevel(sb)].name} · holds ${Math.round(settlementCap(sb))} people: ${Math.round(sb.base)} from ${sb.tiles} tiles in reach${lit >= 0.5 ? ` + ${Math.round(lit)} powered` : ''}${underFire(sb) ? ` · under fire: not growing for ${fireLeft(sb)}s` : ''}`;
     } else if (building[t.i]) {
       const hb = buildingAt(t.i);
       info += ` · ${CFG.buildings[hb.type].name}`;
@@ -5790,7 +6002,11 @@ function updateHover() {
     return;
   }
 
-  if (!game.tool) { tip.style.display = 'none'; return; }
+  if (!game.tool) {                                // pointing at a building: a card saying what it's up to
+    const hb = building[t.i] && building[t.i] !== BLD_CODE.settlement && !mouse.dragged ? buildingAt(t.i) : null;
+    if (hb && CFG.buildings[hb.type]) { const [html, bad] = buildingCard(hb); placeTip(html, bad); return; }
+    tip.style.display = 'none'; return;
+  }
   if (game.tool === 'bridge') { const [html, bad] = bridgeTip(t); placeTip(html, bad); return; }
   const type = game.tool, bdef = CFG.buildings[type];
   const why = canBuild(t.i, type);
@@ -5811,7 +6027,7 @@ function updateHover() {
     const g = owner[t.i] ? settlementGain(t.i) : { gain: 0, fresh: 0, shared: 0 }, S = CFG.settlement;
     html += `<div class="${g.gain >= 1 ? 'g' : 'r'}">+${Math.round(g.gain)} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
     html += `<div class="d">${g.fresh} new tiles in reach${g.shared ? ` · ${g.shared} already served by another settlement` : ''}</div>`;
-    html += `<div class="d">Grows as you claim more land within ${S.reach} tiles. Above ${S.powerAbove} it needs ${S.cityUse} MW.</div>`;
+    html += `<div class="d">Grows as you claim more land within ${S.reach} tiles. Spare power adds up to ${Math.round(S.boost * 100)}% more housing (${S.perMW} people per MW).</div>`;
   } else if (plan) {
     if (plan.route) {
       html += type === 'station'
