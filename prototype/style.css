@@ -187,6 +187,7 @@ canvas#game.building { cursor: copy; }
 #inspect .ibar i { display: block; height: 100%; border-radius: 3px; background: var(--good); transition: width 0.3s ease; }
 #inspect .ibar.gold i { background: var(--accent); }
 #inspect .ibar.power i { background: #8fd3ff; }
+#inspect .ibar.bad i { background: var(--bad); }
 
 #toast {
   position: fixed; left: 50%; top: 74px; transform: translateX(-50%); z-index: 6;

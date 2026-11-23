@@ -3051,7 +3051,7 @@ function tryIntercept(m) {
     } else {
       const C = countryAt(b.i);
       if (!C || C.res.iron < A.cost.iron) continue;
-      C.res.iron -= A.cost.iron; b.rd = A.reload / Math.max(0.25, C.sat);
+      C.res.iron -= A.cost.iron; b.rd = A.reload / Math.max(0.25, C.sat); b.stops = (b.stops || 0) + 1;
     }
     b.ready = game.time + b.rd;
     const gx = lerp(m.x0, m.x1, m.t), gy = lerp(m.y0, m.y1, m.t);
@@ -3082,7 +3082,7 @@ function yourMortars() {
     }
     if (!tgt) continue;
     C.res.iron -= Wp.cost.iron;
-    b.rd = Wp.reload; b.ready = game.time + b.rd;
+    b.rd = Wp.reload; b.ready = game.time + b.rd; b.shots = (b.shots || 0) + 1;
     launchShot(b, ...tileCenter(tgt.i), 'shell');
   }
 }
@@ -3098,7 +3098,7 @@ function gunStep(dt) {
     for (const w of waves) {
       if (w.done || w.lx == null || w.budget <= 0 || Math.hypot(w.lx - bx, w.ly - by) > T.range) continue;
       const kill = Math.min(w.budget, T.kills * dt), cost = kill * T.iron;
-      if (mine) { const C = countryAt(b.i); if (!C || C.res.iron < cost) break; C.res.iron -= cost; }
+      if (mine) { const C = countryAt(b.i); if (!C || C.res.iron < cost) break; C.res.iron -= cost; b.killed = (b.killed || 0) + kill; }
       else { const n = game.nations[aiOf[b.i] - 1]; if (!n.alive || (n.iron || 0) < cost) break; n.iron -= cost; }
       w.budget -= kill;
       b.fire = game.time; b.aim = [w.lx, w.ly];
@@ -3122,7 +3122,7 @@ function fireMissile(tx, ty) {
   for (const [r, n] of Object.entries(Wp.cost)) C.res[r] -= n;
   // a powered weapon reloads slower when its country is short of power
   s.rd = Wp.reload / (CFG.buildings[s.type].use ? Math.max(0.25, C.sat) : 1);
-  s.ready = game.time + s.rd;
+  s.ready = game.time + s.rd; s.shots = (s.shots || 0) + 1;
   launchShot(s, tx + 0.5, ty + 0.5, CFG.buildings[s.type].weapon);
 }
 function removeBuilding(i) {
@@ -5223,14 +5223,24 @@ function drawSettlementHover(z) {
   const r = z >= CFG.detailZoom ? z * (1.5 + lvl * 0.18) : 11 + lvl * 3;
   pill(best.sx, best.sy + r + 14, `${CFG.settlement.levels[lvl].name} · ${fmtNum(living)} people · holds ${Math.round(cap)}${underFire(b) ? ` · under fire, not growing (${fireLeft(b)}s)` : ''}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
 }
-// ---------- pointing and picking: a ring glides to whatever building you point at; clicking one of yours opens its card ----------
-// the building at a screen point: the one on the tile (zoomed in, or a station/port/pad icon from far out), else the
-// nearest settlement within reach of the pointer, so the big ones are easy to hit
-function buildingNear(x, y) {
+// ---------- pointing and picking: a ring glides to whatever you point at; clicking one of yours opens its card ----------
+// Anything can be picked: a building, a truck or boat you drove out, a train or cargo ship on its route, a bridge.
+const kindOf = o => !o ? null : o.type ? 'building' : o.supplies !== undefined ? 'exp' : o.path && o.dir !== undefined ? 'link' : o.tiles && o.s !== undefined ? 'bridge' : null;
+const expSize = () => clamp(cam.zoom * 2.6, 26, 60);
+// what's at a screen point: a vehicle first (they move over everything), then the building on the tile (zoomed in,
+// or a station/port/pad icon from far out), then a bridge under the pointer, else the nearest settlement within reach
+function pickAt(x, y) {
   const z = cam.zoom, [wx, wy] = toWorld(x, y), tx = Math.floor(wx), ty = Math.floor(wy);
-  if (inb(tx, ty) && building[idx(tx, ty)] && building[idx(tx, ty)] !== BLD_CODE.settlement) {
-    const b = buildingAt(idx(tx, ty));
-    if (b && (z >= CFG.cityZoom || b.type === 'station' || b.type === 'port' || b.type === 'pad')) return b;
+  const near = (p, r) => { const [sx, sy] = toScreen(p[0], p[1]); return Math.hypot(sx - x, sy - y) < r; };
+  for (const e of game.expeditions) if (!e.auto && !e.done && near(shownPos(e), expSize() * 0.55)) return e;
+  if (z >= 1) for (const L of game.links) if (near(vehiclePos(L), Math.max(10, z * 1.1))) return L;
+  if (inb(tx, ty)) {
+    const t = idx(tx, ty);
+    if (building[t] && building[t] !== BLD_CODE.settlement) {
+      const b = buildingAt(t);
+      if (b && (z >= CFG.cityZoom || b.type === 'station' || b.type === 'port' || b.type === 'pad')) return b;
+    }
+    if (bridgeAt[t] && z >= 1) { const br = game.bridges.find(q => q.tiles.includes(t)); if (br) return br; }
   }
   let best = null, bd = Math.max(18, z * 1.6);
   for (const b of game.buildings) {
@@ -5241,25 +5251,46 @@ function buildingNear(x, y) {
   return best;
 }
 // what the mouse is pointing at right now (nothing while you build, aim, paste, drag or drive)
-const pointedBuilding = () => !mouse.in || mouse.dragged || mouse.down >= 0 || game.tool || game.aiming || blueprint || game.driving
-  ? null : buildingNear(mouse.x, mouse.y);
-let inspected = null;                              // the building whose card is open
+const pointedAt = () => !mouse.in || mouse.dragged || mouse.down >= 0 || game.tool || game.aiming || blueprint || game.driving
+  ? null : pickAt(mouse.x, mouse.y);
+// is it still there (and still yours)?
+function stillThere(o) {
+  switch (kindOf(o)) {
+    case 'building': return building[o.i] && buildingAt(o.i) === o && owner[o.i];
+    case 'exp': return game.expeditions.includes(o) && !o.done;
+    case 'link': return game.links.includes(o);
+    case 'bridge': return game.bridges.includes(o);
+  }
+  return false;
+}
+const mineOf = o => kindOf(o) !== 'building' || !!owner[o.i];   // vehicles, routes and bridges are always yours
+let inspected = null;                              // whatever's card is open
 const ringFx = { hover: { x: 0, y: 0, r: 0, a: 0, b: null }, sel: { x: 0, y: 0, r: 0, a: 0, b: null }, t: performance.now() };
-// where a building's ring sits (world) and how big it is (pixels)
-function ringGeom(b, z) {
-  const [cx, cy] = tileCenter(b.i);
-  if (b.type !== 'settlement') return [cx, cy, Math.max(0.8 * z, 12)];
-  const lvl = settlementLevel(b);
+// where something's ring sits (world) and how big it is (pixels)
+function ringGeom(o, z) {
+  switch (kindOf(o)) {
+    case 'exp': { const [x, y] = shownPos(o); return [x, y, expSize() * 0.68]; }
+    case 'link': { const [x, y] = vehiclePos(o); return [x, y, o.kind === 'sea' ? Math.max(14, z * 1.1) : Math.max(12, z * 1.3)]; }
+    case 'bridge': {
+      const [ax, ay] = tileCenter(o.s), [bx, by] = tileCenter(o.b);
+      return [(ax + bx) / 2, (ay + by) / 2, Math.max(14, Math.hypot(bx - ax, by - ay) * z * 0.5 + z * 0.6)];
+    }
+  }
+  const [cx, cy] = tileCenter(o.i);
+  if (o.type !== 'settlement') return [cx, cy, Math.max(0.8 * z, 12)];
+  const lvl = settlementLevel(o);
   return [cx, cy - 0.15, z >= CFG.cityZoom ? Math.max((1.3 + lvl * 0.22) * z, 16) : 15 + lvl * 3];
 }
-// ease a ring toward its building: it slides from one building to the next and fades in and out
-function stepRing(R, b, dt, z) {
+// ease a ring toward its target: it slides from one thing to the next, follows a moving one, and fades in and out
+function stepRing(R, o, dt, z) {
   const k = 1 - Math.exp(-dt * 18);
-  if (b) {
-    const [x, y, r] = ringGeom(b, z), [ax, ay] = toScreen(R.x, R.y), [bx, by] = toScreen(x, y);
-    if (!R.b || R.a < 0.05 || Math.hypot(ax - bx, ay - by) > 260) { R.x = x; R.y = y; R.r = r * 0.7; }   // far away: just appear there
+  if (o) {
+    const [x, y, r] = ringGeom(o, z), [ax, ay] = toScreen(R.x, R.y), [bx, by] = toScreen(x, y);
+    const fresh = !R.b || R.a < 0.05, moving = kindOf(o) === 'exp' || kindOf(o) === 'link';
+    if (fresh || Math.hypot(ax - bx, ay - by) > 260) { R.x = x; R.y = y; if (fresh) R.r = r * 0.7; }   // far away: just appear there
+    else if (moving && R.b === o) { R.x = x; R.y = y; }   // stay on a moving vehicle
     else { R.x += (x - R.x) * k; R.y += (y - R.y) * k; }
-    R.r += (r - R.r) * k; R.a += (1 - R.a) * k; R.b = b;
+    R.r += (r - R.r) * k; R.a += (1 - R.a) * k; R.b = o;
   } else { R.a -= R.a * k; R.r *= 1 + 0.4 * dt; if (R.a < 0.01) { R.a = 0; R.b = null; } }
 }
 function drawRing(R, col, spin, sel) {
@@ -5283,39 +5314,65 @@ function drawRing(R, col, spin, sel) {
 function drawRings(z) {
   const now = performance.now(), dt = Math.min(0.1, (now - ringFx.t) / 1000);
   ringFx.t = now;
-  const hb = pointedBuilding();
+  if (inspected && !stillThere(inspected)) inspect(null);
+  const hb = pointedAt();
   stepRing(ringFx.sel, inspected, dt, z);
   stepRing(ringFx.hover, hb && hb !== inspected ? hb : null, dt, z);
   drawRing(ringFx.sel, [242, 193, 78], 0.7, true);
-  const foe = ringFx.hover.b && !owner[ringFx.hover.b.i];
+  const foe = ringFx.hover.b && !mineOf(ringFx.hover.b);
   drawRing(ringFx.hover, foe ? [255, 122, 107] : [238, 242, 248], -0.9, false);
 }
-// open (or close, with null) a building's card
-function inspect(b) {
-  inspected = b;
+// open (or close, with null) a card
+function inspect(o) {
+  inspected = o;
   updateInspect();
 }
-// the card: a settlement's level, people, housing and power; any other building's card from buildingCard
+const secs = s => s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.ceil(s)}s`;
+const listRes = (o, keys = ['wood', 'stone', 'iron', 'people']) => keys.filter(r => (o[r] || 0) >= 1).map(r => `${Math.floor(o[r])} ${r}`).join(' · ');
+// The card: everything there is to know about the thing you clicked, refreshed ten times a second.
+// Each builder fills `rows` and returns [title, icon, subtitle].
 function updateInspect() {
   const el = $('inspect');
   if (!el) return;
-  const b = inspected, alive = b && building[b.i] && buildingAt(b.i) === b && owner[b.i];
-  if (!alive) { inspected = null; el.classList.remove('open'); return; }
-  const c = countryAt(b.i), def = CFG.buildings[b.type], S = CFG.settlement;
-  const rows = [], row = (k, v, cls = '') => rows.push(`<div class="ir"><span>${k}</span><b class="${cls}">${v}</b></div>`);
+  const o = inspected;
+  if (!o || !stillThere(o)) { inspected = null; el.classList.remove('open'); return; }
+  const rows = [];
+  const row = (k, v, cls = '') => rows.push(`<div class="ir"><span>${k}</span><b class="${cls}">${v}</b></div>`);
   const bar = (f, cls = '') => rows.push(`<div class="ibar ${cls}"><i style="width:${(clamp(f, 0, 1) * 100).toFixed(1)}%"></i></div>`);
   const note = (s, cls = 'd') => rows.push(`<div class="in ${cls}">${s}</div>`);
-  let title, icon;
+  const sep = () => rows.push('<div class="isep"></div>');
+  const ui = { row, bar, note, sep };
+  const kind = kindOf(o);
+  const [title, icon, sub] = kind === 'exp' ? cardExpedition(o, ui) : kind === 'link' ? cardLink(o, ui) : kind === 'bridge' ? cardBridge(o, ui) : cardBuilding(o, ui);
+  const key = `${kind}:${o.i ?? ''}:${icon}`;
+  if (el.dataset.key !== key) {                    // something new (or a settlement that levelled up): redo the icon
+    el.dataset.key = key;
+    el.querySelector('.iicon').innerHTML = SVG[icon] || '';
+  }
+  el.querySelector('.it').textContent = title;
+  el.querySelector('.isub').textContent = sub;
+  const body = rows.join(''), ib = el.querySelector('.ibody');
+  if (ib.dataset.html !== body) { ib.innerHTML = body; ib.dataset.html = body; }   // only touch the page when something changed
+  el.classList.add('open');
+}
+// reloading weapons: ready, or how long until they are, with a bar
+function reloadRows(b, { row, bar }) {
+  const left = (b.ready || 0) - game.time;
+  if (left > 0.05 && b.rd) { row('Status', `Reloading · ${left.toFixed(1)}s`, 'r'); bar(1 - left / b.rd, 'gold'); }
+  else row('Status', 'Loaded', 'g');
+}
+function cardBuilding(b, ui) {
+  const { row, bar, note, sep } = ui;
+  const c = countryAt(b.i), def = CFG.buildings[b.type], S = CFG.settlement;
   if (b.type === 'settlement') {
     const L = S.levels, lvl = settlementLevel(b), cap = settlementCap(b), next = L[lvl + 1];
     const share = c.capBase > 0 ? b.base / c.capBase : 0, living = c.cap > 0 ? c.people * cap / c.cap : 0;
     const powered = Math.max(0, cap - b.base), maxPow = b.base * S.boost, draw = ((c.mw && c.mw.city) || 0) * share;
-    title = L[lvl].name; icon = 'settle' + (Math.min(lvl, 3) + 1);
     row('People', `${fmtNum(living)} / ${Math.round(cap)}`);
     bar(cap > 0 ? living / cap : 0);
     if (next) { row('Next level', `${next.name} at ${next.cap}`); bar((cap - L[lvl].cap) / (next.cap - L[lvl].cap), 'gold'); }
     else row('Level', 'Top level');
-    rows.push('<div class="isep"></div>');
+    sep();
     row('Housing from land', `${Math.round(b.base)}`);
     note(`${b.tiles} tiles within ${S.reach} of it`);
     row('Housing from power', `+${Math.round(powered)} of ${Math.round(maxPow)}`, powered > 0.5 ? 'g' : '');
@@ -5325,28 +5382,175 @@ function updateInspect() {
       const mw = Math.max(0, (c.pw.capPow - (c.powCap || 0)) / S.perMW);
       note(`${fmtNum(Math.ceil(mw))} MW more spare power in ${c.short} would add ${Math.round(maxPow - powered)} more homes here`);
     } else note('Fully powered: claim more land around it to grow', 'g');
-    rows.push('<div class="isep"></div>');
+    sep();
     if (underFire(b)) row('Growth', `Under fire (${fireLeft(b)}s)`, 'r');
     else row('Growth', c.growth > 0.005 ? `+${(c.growth * share).toFixed(2)} / sec` : c.growth < -0.005 ? `${(c.growth * share).toFixed(2)} / sec` : 'Full',
       c.growth < -0.005 ? 'r' : c.growth > 0.005 ? 'g' : '');
-  } else {
-    title = def.name; icon = b.type;
-    const [html] = buildingCard(b);
-    rows.push(`<div class="icard">${html.replace(/^<div class="t">.*?<\/div>/, '')}</div>`);
-    if (def.use) row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
-    if (def.gen) row('Power made', `up to ${def.gen} MW`, 'p');
-    if (def.workers) row('Workers', `${def.workers}`, c.staff < 0.999 ? 'r' : '');
+    return [L[lvl].name, 'settle' + (Math.min(lvl, 3) + 1), c.full];
   }
-  const key = `${b.i}:${icon}`;
-  if (el.dataset.key !== key) {                    // a new building (or a settlement that levelled up): redo the header
-    el.dataset.key = key;
-    el.querySelector('.iicon').innerHTML = SVG[icon] || '';
+  const M = c.mw || { gen: 0, max: 0, need: 0 };
+  switch (b.type) {
+    case 'cabin': case 'camp': case 'rig': {
+      const tiles = ['forest', 'stone', 'iron'].filter(k => b.work && b.work[k]);
+      if (!tiles.length) note('Nothing in reach to work: build it next to a deposit', 'r');
+      for (const k of tiles) row(`${k[0].toUpperCase() + k.slice(1)} tiles worked`, `${b.work[k]}`);
+      const out = outputOf(b);
+      for (const r in out) {
+        const full = isFull(c, r);
+        row(`${r[0].toUpperCase() + r.slice(1)} made`, `+${out[r].toFixed(2)} / sec`, full ? 'r' : 'g');
+        if (full) note(`${c.short}'s ${r} storage is full: nothing is coming in until it's used`, 'r');
+      }
+      if (b.type !== 'rig') {
+        row('Workers', `${def.workers} people`, c.staff < 0.999 ? 'r' : '');
+        if (c.staff < 0.999) note(`${c.short} is short of people: working at ${Math.round(c.staff * 100)}%`, 'r');
+      } else {
+        row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+        if (c.sat < 0.999) note(`Short of power: running at ${Math.round(c.sat * 100)}%`, 'r');
+        note(`${CFG.power.rigMult}x a crew's output, no workers`);
+      }
+      row('Reach', `${CFG.collectorReach} tiles`);
+      sep();
+      row(`${c.short} stock`, tiles.map(k => DEP_RES[k]).filter((r, i, a) => a.indexOf(r) === i).map(r => `${fmtNum(c.res[r])} / ${fmtNum(c.store[r])} ${r}`).join(' · ') || '-');
+      break;
+    }
+    case 'burner': {
+      const per = c.pw.burners ? M.burn / c.pw.burners : 0, load = per / CFG.power.burnerWood;
+      row('Power made', `${(load * def.gen).toFixed(1)} of ${def.gen} MW`, 'p');
+      bar(load, 'power');
+      row('Wood burned', `${per.toFixed(2)} / sec`, per > 0.001 ? '' : 'd');
+      if (per <= 0.001) note(c.res.wood < 1 && M.need > M.gen ? 'Out of wood: the fire is out' : 'Idle: nothing needs its power right now', c.res.wood < 1 && M.need > M.gen ? 'r' : 'd');
+      sep();
+      row(`${c.short} power`, `${fmtNum(M.need)} / ${fmtNum(M.max)} MW`);
+      if (M.machines) row('· machines', `${fmtNum(M.machines)} MW`);
+      if (M.city >= 0.05) row('· cities', `${fmtNum(M.city)} MW`);
+      row(`${c.short} wood`, `${fmtNum(c.res.wood)} (${(c.rates.wood || 0) >= 0 ? '+' : ''}${(c.rates.wood || 0).toFixed(2)} / sec)`, (c.rates.wood || 0) < 0 ? 'r' : '');
+      break;
+    }
+    case 'solar': {
+      row('Power made', `${def.gen} MW`, 'p');
+      note('Free, from the sun: used before any burner');
+      sep();
+      row(`${c.short} power`, `${fmtNum(M.need)} / ${fmtNum(M.max)} MW`);
+      row(`${c.short} panels`, `${c.pw.solar} · ${fmtNum(c.pw.solar * def.gen)} MW`);
+      break;
+    }
+    case 'station': case 'port': {
+      const links = game.links.filter(L => L.a === b.i || L.b === b.i), V = CFG.vehicles[b.type === 'station' ? 'rail' : 'sea'];
+      if (!links.length) note(`No route yet: it links to your nearest ${b.type} when one is built ${b.type === 'station' ? `within ${CFG.railMaxLength} tiles of track` : 'across the water'}`, 'r');
+      for (const L of links) {
+        const other = countryAt(L.a === b.i ? L.b : L.a), here = L.a === b.i ? 0 : L.path.length - 1;
+        const toHere = (L.dir > 0 ? L.path.length - 1 : 0) === here, eta = Math.abs((toHere ? here : (here ? 0 : L.path.length - 1)) - L.t) / (L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed);
+        row(`Route to ${other ? other.short : '?'}`, `${L.path.length} tiles`);
+        row(`· ${L.kind === 'rail' ? 'train' : 'ship'}`, toHere ? `arriving in ${secs(eta)}` : `leaving, there in ${secs(eta)}`);
+        row('· carrying', L.cargo ? listRes(L.cargo) || 'nothing' : 'nothing', L.cargo && listRes(L.cargo) ? 'g' : 'd');
+      }
+      sep();
+      row('Each trip', `${V.cargo} goods · ${V.people} people`);
+      note(`${say('Click', 'Tap')} it with a ${b.type === 'station' ? 'truck' : 'boat'} picked in the build menu to send an expedition from here`);
+      break;
+    }
+    case 'mortar': {
+      const Wp = CFG.weapons.shell;
+      reloadRows(b, ui);
+      if (c.res.iron < Wp.cost.iron + CFG.mortarReserve) note(`Holding fire: ${c.short} keeps ${CFG.mortarReserve} iron back`, 'r');
+      row('Range', `${Wp.range} tiles`); row('Reload', `${Wp.reload}s`); row('Each shell', listRes(Wp.cost, ['wood', 'iron']));
+      row('Shells fired', `${b.shots || 0}`);
+      note('Fires by itself at the weapons of nations at war with you');
+      break;
+    }
+    case 'silo': {
+      const Wp = CFG.weapons.missile;
+      reloadRows(b, ui);
+      row('Range', `${Wp.range} tiles`); row('Reload', `${Wp.reload}s${c.sat < 0.999 ? ` (slower: ${Math.round(c.sat * 100)}% power)` : ''}`, c.sat < 0.999 ? 'r' : '');
+      row('Each missile', listRes(Wp.cost, ['wood', 'iron'])); row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+      row('Missiles fired', `${b.shots || 0}`);
+      note(say('Press F, then click a target to fire', 'Tap Fire, then tap a target'));
+      break;
+    }
+    case 'turret': {
+      const T = CFG.turret, firing = b.fire != null && game.time - b.fire < 0.6;
+      row('Status', firing ? 'Firing' : 'Watching', firing ? 'r' : 'g');
+      row('Range', `${T.range} tiles`); row('Fire rate', `${T.kills} soldiers / sec`); row('Each soldier', `${T.iron} iron`);
+      row('Soldiers stopped', `${Math.floor(b.killed || 0)}`);
+      break;
+    }
+    case 'airdef': {
+      const A = CFG.airDefense;
+      reloadRows(b, ui);
+      row('Covers', `${A.range} tiles around it`); row('Reload', `${A.reload}s${c.sat < 0.999 ? ' (slower: short of power)' : ''}`, c.sat < 0.999 ? 'r' : '');
+      row('Each interception', `${A.cost.iron} iron`); row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+      row('Shots stopped', `${b.stops || 0}`);
+      break;
+    }
+    case 'drill': {
+      if (pipesDirty) buildPipes();
+      const pp = pipeOf(b.i), rate = pp ? def.fuel * c.sat : 0;
+      row('Fuel made', pp ? `+${rate.toFixed(2)} / sec` : 'None', pp ? 'g' : 'r');
+      if (!pp) note('No launch pad in this country to pipe it to', 'r');
+      else row('Pipe to pad', `${Math.round(pp.len)} tile${Math.round(pp.len) === 1 ? '' : 's'}${c.fuelFlow ? '' : ' · tanks full'}`);
+      row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+      if (c.sat < 0.999) note(`Short of power: running at ${Math.round(c.sat * 100)}%`, 'r');
+      break;
+    }
+    case 'pad': {
+      const R = CFG.rocket, st = rocketState(b), k = b.rocket;
+      row(`${c.short} fuel tanks`, `${fmtNum(c.res.fuel || 0)} / ${fmtNum(c.store.fuel || 0)}`, 'p');
+      bar(c.store.fuel ? (c.res.fuel || 0) / c.store.fuel : 0, 'power');
+      sep();
+      row('Rocket', b.paused ? 'Paused' : { none: 'Starting', building: 'Building', fuelling: 'Fuelling', ready: 'Ready to launch' }[st], st === 'ready' ? 'g' : b.paused ? 'r' : '');
+      row('· iron', `${Math.floor(k ? k.iron : 0)} / ${R.iron}`); bar(k ? k.iron / R.iron : 0, 'gold');
+      row('· fuel', `${Math.floor(k ? k.fuel : 0)} / ${R.tank}`); bar(k ? k.fuel / R.tank : 0, 'power');
+      if (st === 'building' && c.res.iron <= R.ironReserve + 0.5) note(`Waiting for iron: it keeps ${R.ironReserve} back`, 'r');
+      if (st === 'fuelling' && (c.res.fuel || 0) < 1) note('Waiting for fuel from the ice drills', 'r');
+      note(st === 'ready' ? `${say('Click', 'Tap')} the pad to launch` : `${say('Click', 'Tap')} the pad to ${b.paused ? 'resume' : 'pause'}`);
+      break;
+    }
+    default: if (def.desc) note(def.desc.split('. ')[0] + '.');
   }
-  el.querySelector('.it').textContent = title;
-  el.querySelector('.isub').textContent = c.full;
-  const body = rows.join(''), ib = el.querySelector('.ibody');
-  if (ib.dataset.html !== body) { ib.innerHTML = body; ib.dataset.html = body; }   // only touch the page when something changed
-  el.classList.add('open');
+  if (b.dmg > 0.01) {
+    sep();
+    const hp = hpOf(b);
+    row('Damage', `${(hp - b.dmg).toFixed(1)} / ${hp} hits left`, 'r');
+    bar(1 - b.dmg / hp, 'bad');
+    note(`Mends one hit every ${CFG.hp.repairSec}s`);
+  }
+  return [def.name, b.type, c.full];
+}
+function cardExpedition(e, { row, bar, note, sep }) {
+  const home = liveCountry(e.from), mine = game.driving === e, speed = Math.hypot(e.vx || 0, e.vy || 0);
+  row('Status', mine ? 'Driving' : 'Parked', mine ? 'g' : '');
+  row('People', `${Math.floor(e.n)}`);
+  row('Cargo', listRes(e.kit, ['wood', 'stone', 'iron']) || 'nothing');
+  row('Supplies', e.supplies > 0 ? secs(e.supplies) : 'Out: losing a person a second', e.supplies > CFG.drive.supplies * 0.25 ? '' : 'r');
+  bar(e.supplies / CFG.drive.supplies, e.supplies > CFG.drive.supplies * 0.25 ? 'gold' : 'bad');
+  row('Speed', `${speed.toFixed(1)} tiles / sec`);
+  sep();
+  note(mine ? say('Space settles here · Esc lets go of the wheel', 'Tap Settle to found a colony here') : say('Press X to take the wheel', 'Tap Drive to take the wheel'));
+  return [e.kind === 'boat' ? 'Boat' : 'Truck', e.kind === 'boat' ? 'boat' : 'truck', home ? `From ${home.short}` : 'Expedition'];
+}
+function cardLink(L, { row, note, sep }) {
+  const A = countryAt(L.a), B = countryAt(L.b), to = L.dir > 0 ? B : A, end = L.dir > 0 ? L.path.length - 1 : 0;
+  const speed = L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed, V = CFG.vehicles[L.kind];
+  row('Heading to', to ? to.short : '?');
+  row('Arrives in', secs(Math.abs(end - L.t) / speed));
+  row('Carrying', L.cargo ? listRes(L.cargo) || 'nothing' : 'nothing', L.cargo && listRes(L.cargo) ? 'g' : 'd');
+  sep();
+  row('Route', `${L.path.length} tiles`);
+  row('Speed', `${speed} tiles / sec`);
+  row('Round trip', secs(2 * (L.path.length - 1) / speed));
+  row('Each trip', `${V.cargo} goods · ${V.people} people`);
+  note('Loads what the countries down the line are short of, people included');
+  return [L.kind === 'rail' ? 'Train' : 'Cargo ship', L.kind === 'rail' ? 'engine' : 'ship', `${A ? A.short : '?'} ⇄ ${B ? B.short : '?'}`];
+}
+function cardBridge(br, { row, note }) {
+  const n = br.tiles.length, B = CFG.bridge, on = new Set(br.tiles);
+  const A = countryAt(br.s), Z = countryAt(br.b), rails = game.links.filter(L => L.kind === 'rail' && L.path.some(t => on.has(t))).length;
+  row('Over the water', `${n} tiles`);
+  row('Built for', `${B.stone * n + B.grow * n * (n - 1) / 2} stone`);
+  row('Joins', A && Z && A !== Z ? `${A.short} and ${Z.short}` : A ? `${A.short}, both shores` : '-');
+  row('Rail lines on it', `${rails}`);
+  note('Trucks drive over it; rail follows it');
+  return ['Bridge', 'bridge', A ? A.full : 'Bridge'];
 }
 
 // pointing at a settlement (with nothing else selected) shows the land it reaches
@@ -5381,6 +5585,7 @@ function drawVehicle(e, z) {
   }
   const size = clamp(z * 2.6, 26, 60), spr = e.kind === 'boat' ? SPR.boat : SPR.truck, left = Math.cos(e.a) < 0;
   ctx.save();
+const buildingNear = (x, y) => { const o = pickAt(x, y); return kindOf(o) === 'building' ? o : null; };
   ctx.translate(sx, sy);
   if (mine) { ctx.beginPath(); ctx.arc(0, 0, size * 0.62, 0, Math.PI * 2); ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.stroke(); }
   // a small arrow for the heading, then the vehicle (a truck turns with it; a boat just faces left or right)
@@ -5566,12 +5771,14 @@ function clickAt(btn, x, y) {
     if (game.tool === 'bridge') bridgeClick(t.i);
     else if (game.tool) tryBuild(t.i, game.tool);
     else if (blueprint) clearSelection();          // with a selection, a click just deselects
-    else if ((pb = buildingNear(x, y)) && owner[pb.i]) {   // one of your buildings: open its card (and view its country)
+    else if ((pb = pickAt(x, y)) && mineOf(pb)) {   // anything of yours: open its card
       inspect(pb);
-      const c = countryAt(pb.i);
-      if (pb.type === 'pad' && cam.zoom >= CFG.cityZoom) padClick(pb);
-      if (c && cam.zoom < CFG.cityZoom) flyToCountry(c);
-      else if (c) game.active = c.id;
+      if (kindOf(pb) === 'building') {             // a building: view its country too
+        const c = countryAt(pb.i);
+        if (pb.type === 'pad' && cam.zoom >= CFG.cityZoom) padClick(pb);
+        if (c && cam.zoom < CFG.cityZoom) flyToCountry(c);
+        else if (c) game.active = c.id;
+      }
     }
     else if (owner[t.i]) {                         // clicking inside one of your countries selects it
       inspect(null);
@@ -6586,5 +6793,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { TOUCH, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt };
+window.__game = { TOUCH, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt };
 init();
