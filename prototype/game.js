@@ -126,11 +126,12 @@ const CFG = {
     drill:   { cat: 'Space', name: 'Ice drill', cap: 0, unlock: 800, cost: { stone: 20, iron: 25 }, use: 6, fuel: 0.5,
                desc: 'Only on polar ice. Drills ice and splits it into rocket fuel: 0.5 fuel/s on full power, and it draws 6 MW. A pipe lays itself to your nearest launch pad in the same country; with no pad, it waits.' },
     pad:     { cat: 'Space', name: 'Launch pad', cap: 0, unlock: 800, cost: { stone: 80, iron: 60 }, tank: 500,
-               desc: 'Holds 500 rocket fuel, piped in by your ice drills in the same country, and builds rockets by itself: 150 iron each, taken as you have it, then fuelled from the tanks. Click a pad to pause or resume it.' },
+               desc: 'Holds 500 rocket fuel, piped in by your ice drills in the same country, and builds rockets by itself: 150 iron each, taken as you have it, then fuelled as fast as your ice drills make fuel (0.5/s for each drill). Click a pad to pause or resume it.' },
   },
   // Rockets: a launch pad assembles one by itself, taking `iron` a little at a time (`ironRate` a second, never
-  // below `ironReserve`, so your mortars keep firing), then fills its `tank` from the country's fuel at `fillRate` a second.
-  rocket: { iron: 150, ironRate: 1.5, ironReserve: 20, tank: 400, fillRate: 8,
+  // below `ironReserve`, so your mortars keep firing), then fills its `tank` from the pads' fuel tanks as fast as the
+  // country's ice drills make fuel (drill.fuel a second each, shared by the pads fuelling at once).
+  rocket: { iron: 150, ironRate: 1.5, ironReserve: 20, tank: 400,
     // Flight, in tiles and seconds. Gravity pulls toward the middle of the disk: mu / r^2 beyond the rim, and weaker
     // toward the middle inside it (as inside a solid ball). A circular orbit just above the air takes about 100 s.
     // The air: full thickness over the disk, thinning out over `atm` tiles past the rim (scale height `scaleH`), none beyond.
@@ -1514,17 +1515,21 @@ const rocketState = b => !b.rocket ? 'none' : b.rocket.iron < CFG.rocket.iron ? 
 function stepRockets(c, dt) {
   const R = CFG.rocket;
   let ironUse = 0, fuelUse = 0;
+  // the rockets being fuelled share what the drills make: more ice drills, faster fuelling
+  const fuelling = c.pw.padList.filter(b => !b.paused && b.rocket && b.rocket.iron >= R.iron && b.rocket.fuel < R.tank).length;
+  const perPad = fuelling ? c.pw.drills * CFG.buildings.drill.fuel / fuelling : 0;
   for (const b of c.pw.padList) {
+    b.useIron = 0; b.useFuel = 0;                  // what it's taking right now, for its card
     if (b.paused) continue;
     if (!b.rocket) b.rocket = { iron: 0, fuel: 0 };
     const k = b.rocket;
     if (k.iron < R.iron) {                         // assembling: iron goes in as the country can spare it
       const take = Math.max(0, Math.min(R.ironRate * dt, R.iron - k.iron, c.res.iron - R.ironReserve));
-      c.res.iron -= take; k.iron += take; ironUse += take;
+      c.res.iron -= take; k.iron += take; ironUse += take; b.useIron = dt > 0 ? take / dt : 0;
       if (k.iron >= R.iron - 1e-6) { k.iron = R.iron; floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, 'Rocket built: fuelling', '#f2c14e'); }
     } else if (k.fuel < R.tank) {                  // built: fill it from the pads' tanks
-      const take = Math.max(0, Math.min(R.fillRate * dt, R.tank - k.fuel, c.res.fuel));
-      c.res.fuel -= take; k.fuel += take; fuelUse += take;
+      const take = Math.max(0, Math.min(perPad * dt, R.tank - k.fuel, c.res.fuel));
+      c.res.fuel -= take; k.fuel += take; fuelUse += take; b.useFuel = dt > 0 ? take / dt : 0;
       if (k.fuel >= R.tank - 1e-6) { k.fuel = R.tank; floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, 'Rocket ready', '#f2c14e'); }
     }
   }
@@ -2993,6 +2998,13 @@ function tick(dt) {
 
 // ---------- saving ----------
 let noSave = false;
+// what a building remembers across a reload besides where it is: its tallies, and a launch pad's rocket and pause
+const KEPT = ['shots', 'stops', 'killed', 'rocket', 'paused'];
+function keptState(b) {
+  let out = null;
+  for (const k of KEPT) if (b[k]) (out || (out = {}))[k] = k === 'rocket' ? { iron: b.rocket.iron, fuel: b.rocket.fuel } : b[k];
+  return out;
+}
 function saveGame() {
   if (noSave || !game.started) return;
   try {
@@ -3017,7 +3029,7 @@ function saveGame() {
       countries: game.countries.map(c => ({ short: c.short, full: c.full, tier: c.tier, alive: c.alive, mergedInto: c.mergedInto,
         people: c.people + back[c.id].people, res: { wood: c.res.wood + back[c.id].wood, stone: c.res.stone + back[c.id].stone, iron: c.res.iron + back[c.id].iron, fuel: c.res.fuel || 0 } })),
       nations: game.nations.map(n => ({ people: n.people, alive: n.alive, hostile: !!n.hostile, iron: n.iron ?? CFG.iron.aiStart })),
-      buildings: game.buildings.map(b => [b.i, b.type, b.ready || 0]),
+      buildings: game.buildings.map(b => { const x = keptState(b); return x ? [b.i, b.type, b.ready || 0, x] : [b.i, b.type, b.ready || 0]; }),
       links: game.links.map(L => ({ kind: L.kind, a: L.a, b: L.b, path: L.path, t: L.t, dir: L.dir, cargo: L.cargo || null, to: L.to ?? -1, out: L.out || null })),
       routes: game.routes,
       bridges: game.bridges.map(br => [br.s, br.b, br.len, br.tiles]),
@@ -3049,7 +3061,12 @@ function loadGame(sv) {
       if (v > 0) { owner[i] = 1; countryOf[i] = v - 1; game.ownedCount++; } else if (v < 0) aiOf[i] = -v;
     }
   }
-  for (const [bi, type, ready] of sv.buildings) { placeBuilding(bi, type); if (ready) game.buildings[game.buildings.length - 1].ready = ready; }
+  for (const [bi, type, ready, kept] of sv.buildings) {
+    placeBuilding(bi, type);
+    const nb = game.buildings[game.buildings.length - 1];
+    if (ready) nb.ready = ready;
+    if (kept) for (const k of KEPT) if (kept[k] !== undefined) nb[k] = kept[k];
+  }
   game.flights = (sv.flights || []).map(([x, y, vx, vy, a, fuel, landed, everOrbit, n]) => ({ x, y, vx, vy, a, fuel, throttle: 0,
     landed: !!landed, left: Math.hypot(x - DISK.cx, y - DISK.cy) > DISK.R, orbit: false, everOrbit: !!everOrbit, t: 10, trail: [[x, y]], n: n || ++rocketCount }));
   rocketCount = Math.max(rocketCount, ...game.flights.map(f => f.n), 0);
@@ -5530,7 +5547,7 @@ function cardBuilding(b, ui) {
     note(`${b.tiles} tiles within ${S.reach} of it`);
     row('Housing from power', `+${Math.round(powered)} of ${Math.round(maxPow)}`, powered > 0.5 ? 'g' : '');
     bar(maxPow > 0 ? powered / maxPow : 0, 'power');
-    row('Power used', `${draw.toFixed(1)} MW`, draw > 0.05 ? 'p' : '');
+    row('Uses', `${draw.toFixed(1)} MW`, draw > 0.05 ? 'u' : '');
     if (maxPow - powered > 0.5) {
       const mw = Math.max(0, (c.pw.capPow - (c.powCap || 0)) / S.perMW);
       note(`${fmtNum(Math.ceil(mw))} MW more spare power in ${c.short} would add ${Math.round(maxPow - powered)} more homes here`);
@@ -5550,14 +5567,14 @@ function cardBuilding(b, ui) {
       const out = outputOf(b);
       for (const r in out) {
         const full = isFull(c, r);
-        row(`${r[0].toUpperCase() + r.slice(1)} made`, `+${out[r].toFixed(2)} / sec`, full ? 'r' : 'g');
+        row('Makes', `+${out[r].toFixed(2)} ${r} / sec`, full ? 'r' : 'g');
         if (full) note(`${c.short}'s ${r} storage is full: nothing is coming in until it's used`, 'r');
       }
       if (b.type !== 'rig') {
-        row('Workers', `${def.workers} people`, c.staff < 0.999 ? 'r' : '');
+        row('Uses', `${def.workers} workers`, c.staff < 0.999 ? 'r' : 'u');
         if (c.staff < 0.999) note(`${c.short} is short of people: working at ${Math.round(c.staff * 100)}%`, 'r');
       } else {
-        row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+        row('Uses', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'u');
         if (c.sat < 0.999) note(`Short of power: running at ${Math.round(c.sat * 100)}%`, 'r');
         note(`${CFG.power.rigMult}x a crew's output, no workers`);
       }
@@ -5568,9 +5585,9 @@ function cardBuilding(b, ui) {
     }
     case 'burner': {
       const per = c.pw.burners ? M.burn / c.pw.burners : 0, load = per / CFG.power.burnerWood;
-      row('Power made', `${(load * def.gen).toFixed(1)} of ${def.gen} MW`, 'p');
+      row('Makes', `${(load * def.gen).toFixed(1)} of ${def.gen} MW`, 'p');
       bar(load, 'power');
-      row('Wood burned', `${per.toFixed(2)} / sec`, per > 0.001 ? '' : 'd');
+      row('Uses', `${per.toFixed(2)} wood / sec`, per > 0.001 ? 'u' : 'd');
       if (per <= 0.001) note(c.res.wood < 1 && M.need > M.gen ? 'Out of wood: the fire is out' : 'Idle: nothing needs its power right now', c.res.wood < 1 && M.need > M.gen ? 'r' : 'd');
       sep();
       row(`${c.short} power`, `${fmtNum(M.need)} / ${fmtNum(M.max)} MW`);
@@ -5580,7 +5597,8 @@ function cardBuilding(b, ui) {
       break;
     }
     case 'solar': {
-      row('Power made', `${def.gen} MW`, 'p');
+      row('Makes', `${def.gen} MW`, 'p');
+      row('Uses', 'Nothing', 'd');
       note('Free, from the sun: used before any burner');
       sep();
       row(`${c.short} power`, `${fmtNum(M.need)} / ${fmtNum(M.max)} MW`);
@@ -5606,7 +5624,8 @@ function cardBuilding(b, ui) {
       const Wp = CFG.weapons.shell;
       reloadRows(b, ui);
       if (c.res.iron < Wp.cost.iron + CFG.mortarReserve) note(`Holding fire: ${c.short} keeps ${CFG.mortarReserve} iron back`, 'r');
-      row('Range', `${Wp.range} tiles`); row('Reload', `${Wp.reload}s`); row('Each shell', listRes(Wp.cost, ['wood', 'iron']));
+      row('Uses', `${Wp.cost.iron} iron a shell · up to ${(Wp.cost.iron / Wp.reload).toFixed(1)} / sec`, 'u');
+      row('Range', `${Wp.range} tiles`); row('Reload', `${Wp.reload}s`);
       row('Shells fired', `${b.shots || 0}`);
       note('Fires by itself at the weapons of nations at war with you');
       break;
@@ -5615,7 +5634,7 @@ function cardBuilding(b, ui) {
       const Wp = CFG.weapons.missile;
       reloadRows(b, ui);
       row('Range', `${Wp.range} tiles`); row('Reload', `${Wp.reload}s${c.sat < 0.999 ? ` (slower: ${Math.round(c.sat * 100)}% power)` : ''}`, c.sat < 0.999 ? 'r' : '');
-      row('Each missile', listRes(Wp.cost, ['wood', 'iron'])); row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+      row('Uses', `${def.use} MW · ${listRes(Wp.cost, ['wood', 'iron'])} a missile`, c.sat < 0.999 ? 'r' : 'u');
       row('Missiles fired', `${b.shots || 0}`);
       note(say('Press F, then click a target to fire', 'Tap Fire, then tap a target'));
       break;
@@ -5623,7 +5642,8 @@ function cardBuilding(b, ui) {
     case 'turret': {
       const T = CFG.turret, firing = b.fire != null && game.time - b.fire < 0.6;
       row('Status', firing ? 'Firing' : 'Watching', firing ? 'r' : 'g');
-      row('Range', `${T.range} tiles`); row('Fire rate', `${T.kills} soldiers / sec`); row('Each soldier', `${T.iron} iron`);
+      row('Uses', `${firing ? (T.kills * T.iron).toFixed(2) : '0'} iron / sec${firing ? '' : ` (${(T.kills * T.iron).toFixed(2)} firing)`}`, 'u');
+      row('Range', `${T.range} tiles`); row('Fire rate', `${T.kills} soldiers / sec`);
       row('Soldiers stopped', `${Math.floor(b.killed || 0)}`);
       break;
     }
@@ -5631,30 +5651,35 @@ function cardBuilding(b, ui) {
       const A = CFG.airDefense;
       reloadRows(b, ui);
       row('Covers', `${A.range} tiles around it`); row('Reload', `${A.reload}s${c.sat < 0.999 ? ' (slower: short of power)' : ''}`, c.sat < 0.999 ? 'r' : '');
-      row('Each interception', `${A.cost.iron} iron`); row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+      row('Uses', `${def.use} MW · ${A.cost.iron} iron a shot stopped`, c.sat < 0.999 ? 'r' : 'u');
       row('Shots stopped', `${b.stops || 0}`);
       break;
     }
     case 'drill': {
       if (pipesDirty) buildPipes();
-      const pp = pipeOf(b.i), rate = pp ? def.fuel * c.sat : 0;
-      row('Fuel made', pp ? `+${rate.toFixed(2)} / sec` : 'None', pp ? 'g' : 'r');
-      if (!pp) note('No launch pad in this country to pipe it to', 'r');
-      else row('Pipe to pad', `${Math.round(pp.len)} tile${Math.round(pp.len) === 1 ? '' : 's'}${c.fuelFlow ? '' : ' · tanks full'}`);
-      row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+      const pp = pipeOf(b.i), rate = pp && c.fuelFlow ? def.fuel * c.sat : 0;
+      row('Makes', `+${rate.toFixed(2)} fuel / sec`, rate > 0 ? 'g' : 'r');
+      if (!pp) note(`Waiting: no launch pad in ${c.short} to pipe it to`, 'r');
+      else if (!c.fuelFlow) note(`Waiting: ${c.short}'s fuel tanks are full`, 'r');
+      row('Uses', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'u');
+      if (pp) row('Pipe to pad', `${Math.round(pp.len)} tile${Math.round(pp.len) === 1 ? '' : 's'}`);
       if (c.sat < 0.999) note(`Short of power: running at ${Math.round(c.sat * 100)}%`, 'r');
       break;
     }
     case 'pad': {
-      const R = CFG.rocket, st = rocketState(b), k = b.rocket;
-      row(`${c.short} fuel tanks`, `${fmtNum(c.res.fuel || 0)} / ${fmtNum(c.store.fuel || 0)}`, 'p');
-      bar(c.store.fuel ? (c.res.fuel || 0) / c.store.fuel : 0, 'power');
-      sep();
+      const R = CFG.rocket, st = rocketState(b), k = b.rocket, drills = c.pw.drills, perDrill = CFG.buildings.drill.fuel;
       row('Rocket', b.paused ? 'Paused' : { none: 'Starting', building: 'Building', fuelling: 'Fuelling', ready: 'Ready to launch' }[st], st === 'ready' ? 'g' : b.paused ? 'r' : '');
-      row('· iron', `${Math.floor(k ? k.iron : 0)} / ${R.iron}`); bar(k ? k.iron / R.iron : 0, 'gold');
-      row('· fuel', `${Math.floor(k ? k.fuel : 0)} / ${R.tank}`); bar(k ? k.fuel / R.tank : 0, 'power');
-      if (st === 'building' && c.res.iron <= R.ironReserve + 0.5) note(`Waiting for iron: it keeps ${R.ironReserve} back`, 'r');
-      if (st === 'fuelling' && (c.res.fuel || 0) < 1) note('Waiting for fuel from the ice drills', 'r');
+      row('Uses', st === 'building' && !b.paused ? `${(b.useIron || 0).toFixed(2)} iron / sec` : st === 'fuelling' && !b.paused ? `${(b.useFuel || 0).toFixed(2)} fuel / sec` : 'Nothing right now', 'u');
+      sep();
+      row('Step 1 · build it', `${Math.floor(k ? k.iron : 0)} / ${R.iron} iron`); bar(k ? k.iron / R.iron : 0, 'gold');
+      if (st === 'building' && !b.paused) note(c.res.iron <= R.ironReserve + 0.5 ? `Waiting for iron: ${c.short} keeps ${R.ironReserve} back` : `Takes up to ${R.ironRate} iron / sec as ${c.short} has it`, c.res.iron <= R.ironReserve + 0.5 ? 'r' : 'd');
+      row('Step 2 · fuel it', `${Math.floor(k ? k.fuel : 0)} / ${R.tank} fuel`); bar(k ? k.fuel / R.tank : 0, 'power');
+      note(drills ? `Fuels at ${perDrill} / sec for each ice drill in ${c.short}: ${drills} drill${drills > 1 ? 's' : ''}, ${fmtNum(drills * perDrill)} / sec${st === 'fuelling' && b.useFuel > 0 ? ` · full in ${secs((R.tank - k.fuel) / b.useFuel)}` : ''}`
+        : `No ice drills in ${c.short}: build some on polar ice to fuel it`, drills ? 'd' : 'r');
+      if (st === 'fuelling' && drills && (c.res.fuel || 0) < 0.5 && (b.useFuel || 0) < 0.01) note('Waiting for the drills to pump fuel in', 'r');
+      sep();
+      row(`${c.short} fuel tanks`, `${fmtNum(c.res.fuel || 0)} / ${fmtNum(c.store.fuel || 0)}`, 'p');
+      note('The drills pump into these; the rocket fills from them');
       note(st === 'ready' ? `${say('Click', 'Tap')} the pad to launch` : `${say('Click', 'Tap')} the pad to ${b.paused ? 'resume' : 'pause'}`);
       break;
     }

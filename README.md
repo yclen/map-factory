@@ -37,7 +37,7 @@ Add `?seed=123` to the address to play a specific map (this starts that map, and
 | F, then click | Fire a missile from a silo in range (mortars and turrets fire by themselves) |
 | Settlement tool, then hover | Shows the land a new settlement would add (green) and land already served (grey) |
 | Point at anything | A ring glides onto it (a building, a city, a truck or boat, a train or cargo ship, a bridge) |
-| Click anything of yours | Open its card on the left with live stats: a city's level, people, housing from land and power and MW used; what a collector makes per second; a burner's MW and wood burned; a weapon's range, reload and shots fired; a drill's fuel; a pad's rocket; a station's routes and trains; a train's cargo and arrival; a truck's people, cargo and supplies; a bridge's length and cost · Esc or × closes it |
+| Click anything of yours | Open its card on the left with live stats, starting with what it makes and uses per second: a city's level, people, housing from land and power and MW used; what a collector makes per second; a burner's MW and wood burned; a weapon's range, reload and shots fired; a drill's fuel; a pad's rocket; a station's routes and trains; a train's cargo and arrival; a truck's people, cargo and supplies; a bridge's length and cost · Esc or × closes it |
 | Click inside one of your countries | View that country in the top bar (zoomed out: fly the camera to it) |
 | Tab · Shift+Tab | Fly to your next / previous country |
 | Drag a box · C | Select solar panels or burners · paste a copy at the cursor |

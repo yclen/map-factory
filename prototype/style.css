@@ -180,6 +180,7 @@ canvas#game.building { cursor: copy; }
 #inspect .g { color: var(--good); }
 #inspect .r { color: var(--bad); }
 #inspect .p { color: #8fd3ff; }
+#inspect .u { color: #f0a868; }
 #inspect .d { color: var(--dim); }
 #inspect .icard > div { margin-top: 3px; }
 #inspect .isep { height: 1px; background: var(--line); margin: 10px 0 4px; }
