@@ -14,6 +14,10 @@ const CFG = {
   diskSize: 1000, continentScale: 115, climateScale: 150,
   iceWall: { min: 2.5, extra: 4 }, waterFraction: 0.5, mountainShare: 0.13, desertShare: 0.24,
 
+  // polar ice: land north and south of this share of the radius is ice, with its edge wandering by `wobble`;
+  // a strait about `strait` wide is carved in front of each cap so the ice reads as its own continent
+  poles: { start: 0.83, wobble: 0.05, strait: 0.04 },
+
   bots: 22, botSpacing: 60, spawnTiles: 120,
   peace: 60,                    // seconds before AI nations start attacking other nations
 
@@ -26,9 +30,9 @@ const CFG = {
   growBase: 10, growPow: 0.73, growDiv: 4,
   goldPerTick: 100, portGoldPerTick: 25,       // ports pay a flat bonus until trade ships exist
 
-  // per terrain [space, water, plain, rough, peak]:
+  // per terrain [space, water, plain, rough, peak, ice]: ice is as hard to take as mountains
   // mag = troops an attack loses on the tile, tileCost = how slow it is to take, prio = how late it is taken
-  mag: [0, 0, 80, 100, 120], tileCost: [0, 0, 16.5, 20, 25], prio: [0, 0, 1, 1.5, 2],
+  mag: [0, 0, 80, 100, 120, 120], tileCost: [0, 0, 16.5, 20, 25, 25], prio: [0, 0, 1, 1.5, 2, 2],
   fortRadius: 30, fortMag: 5, fortSlow: 3,     // a fort makes its owner's land in range cost 5x the troops and take 3x as long
   pocketMax: 1500,                             // enemy land cut off by an attack falls at once if it is this many tiles or fewer
   aimBias: 0.4,                                // your attacks reach land near where you clicked sooner: ticks of delay per tile of distance
@@ -54,8 +58,8 @@ const CFG = {
   },
 
   // Mining rig: gold per tick = gold x (ore in reach) x the world's richness. Ore per tile by terrain
-  // [space, water, plain, rough, peak]. Tiles already mined by another rig pay nothing.
-  rig: { radius: 9, gold: 0.2, ore: [0, 0, 0, 0.4, 1], richSpace: 3,
+  // [space, water, plain, rough, peak, ice]. Tiles already mined by another rig pay nothing.
+  rig: { radius: 9, gold: 0.2, ore: [0, 0, 0, 0.4, 1, 0], richSpace: 3,
     rich: { 'the Disk': 1, 'the Moon': 2, 'Vulcan': 4, 'Aries': 2.5, 'the Seed World': 3 } },
 
   boatSpeed: 10, maxBoats: 3,    // tiles per second; boats at sea per nation
@@ -168,15 +172,21 @@ const svgIcon = (name, size) => `<svg viewBox="0 0 24 24" width="${size}" height
 // ======================================================================
 // terrain
 // ======================================================================
-const VOID = 0, WATER = 1, PLAIN = 2, ROUGH = 3, PEAK = 4, WALL = 5;
-const isLandT = t => t >= PLAIN && t <= PEAK;
+const VOID = 0, WATER = 1, PLAIN = 2, ROUGH = 3, PEAK = 4, ICE = 5, WALL = 6;
+const isLandT = t => t >= PLAIN && t <= ICE;
 
-// The home disk: continents inside an ice wall. Same recipe as Map Factory's generateTerrain.
+// The home disk: continents inside an ice wall, the same recipe as Map Factory's generateTerrain,
+// plus an ice continent at the north and south poles (the top and bottom of the disk).
 function genDisk() {
   const S = CFG.diskSize, N = S * S, s = SEED, cx = S / 2, cy = S / 2, R = S / 2 - 2;
   const terr = new Uint8Array(N), rgb = new Uint8ClampedArray(N * 4);
-  const elev = new Float32Array(N), moist = new Float32Array(N);
-  const cs = CFG.continentScale;
+  const elev = new Float32Array(N), moist = new Float32Array(N), polar = new Uint8Array(N);
+  const cs = CFG.continentScale, P = CFG.poles, strait = R * P.strait;
+  // how far tile (x, y) lies inside its polar cap, in tiles (negative: outside it)
+  const poleDepth = (x, y, dy) => {
+    const north = dy < 0, line = R * (P.start + (fbm(x / 90, north ? 3.5 : 9.5, s + 91, 3) - 0.5) * 2 * P.wobble);
+    return Math.abs(dy) - line + (fbm(x / 18, y / 18, s + 93, 3) - 0.5) * R * 0.05;
+  };
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
     const i = y * S + x, dx = x + 0.5 - cx, dy = y + 0.5 - cy, r = Math.hypot(dx, dy);
     if (r > R) continue;
@@ -192,15 +202,18 @@ function genDisk() {
     let e = fbm(wx / cs, wy / cs, s, 5) * 0.7 + fbm(wx / 32, wy / 32, s + 51, 4) * 0.3;
     const edge = clamp((R - wall - r) / (R * 0.07), 0, 1);
     e = e * (0.7 + 0.3 * edge) - (1 - edge) * 0.09;
+    const pd = poleDepth(x, y, dy);
+    if (pd > 0) polar[i] = 1;
+    else if (pd > -strait) e -= 0.22 * (1 + pd / strait);   // sink the land in front of the cap into a strait
     elev[i] = e;
     moist[i] = fbm(x / CFG.climateScale, y / CFG.climateScale, s + 77, 4);
   }
   const es = [];
-  for (let i = 0; i < N; i += 7) if (terr[i] === 255) es.push(elev[i]);
+  for (let i = 0; i < N; i += 7) if (terr[i] === 255 && !polar[i]) es.push(elev[i]);
   const sea = quant(es, CFG.waterFraction);
   const le = [], lm = [];
   let maxE = 0;
-  for (let i = 0; i < N; i += 3) if (terr[i] === 255 && elev[i] > sea) { le.push(elev[i]); lm.push(moist[i]); if (elev[i] > maxE) maxE = elev[i]; }
+  for (let i = 0; i < N; i += 3) if (terr[i] === 255 && !polar[i] && elev[i] > sea) { le.push(elev[i]); lm.push(moist[i]); if (elev[i] > maxE) maxE = elev[i]; }
   const mtn = quant(le, 1 - CFG.mountainShare), dry = quant(lm, CFG.desertShare);
   for (let i = 0; i < N; i++) {
     const t = terr[i], k = i * 4;
@@ -208,13 +221,14 @@ function genDisk() {
     const tex = vnoise((i % S) / 3, ((i / S) | 0) / 3, s + 33);
     let c;
     if (t === WALL) c = mix([214, 230, 242], [238, 246, 252], tex);
+    else if (polar[i]) { terr[i] = ICE; c = mix([170, 204, 228], [226, 240, 250], clamp(tex * 0.35 + (elev[i] - 0.3) * 1.6, 0, 1)); }
     else if (elev[i] <= sea) { terr[i] = WATER; c = mix([96, 152, 192], [55, 108, 158], clamp((sea - elev[i]) / 0.1, 0, 1)); }
     else if (elev[i] >= mtn) { terr[i] = PEAK; c = mix([126, 122, 116], [240, 240, 244], clamp((elev[i] - mtn) / Math.max(0.001, maxE - mtn), 0, 1)); }
     else if (moist[i] <= dry) { terr[i] = ROUGH; c = mix([224, 202, 142], [202, 174, 114], tex); }
     else { terr[i] = PLAIN; c = mix([122, 170, 90], [94, 142, 74], tex); }
     rgb[k] = c[0]; rgb[k + 1] = c[1]; rgb[k + 2] = c[2]; rgb[k + 3] = 255;
   }
-  return { S, R, terr, rgb, names: ['Space', 'Ocean', 'Grassland', 'Desert', 'Mountains', 'Ice wall'], tint: [110, 160, 140] };
+  return { S, R, terr, rgb, names: ['Space', 'Ocean', 'Grassland', 'Desert', 'Mountains', 'Ice', 'Ice wall'], tint: [110, 160, 140] };
 }
 
 // A round body seen face-on. o: { R, seed, scale, waterShare, roughShare, roughHigh, peakShare, pal, craters, names }
@@ -294,7 +308,9 @@ function addWorld(b, map) {
   w.ownCanvas.width = w.ownCanvas.height = w.S;
   w.ownCtx = w.ownCanvas.getContext('2d');
   w.own = w.ownCtx.createImageData(w.S, w.S);
-  w.d0x = w.S; w.d0y = w.S; w.d1x = -1; w.d1y = -1;   // dirty rectangle of the ownership overlay
+  // which 64 x 64 chunks of the ownership overlay changed since the last frame: only those are uploaded
+  // (one box around every change would cover most of the map while wars run all over it)
+  w.cs = Math.ceil(w.S / 64); w.dirty = new Uint8Array(w.cs * w.cs); w.dirtyList = [];
   b.world = w; b.r = w.R; b.tint = w.tint;
   worlds.push(w);
   return w;
@@ -412,8 +428,28 @@ function paintTile(w, i) {
       d[k] = c[0] * f; d[k + 1] = c[1] * f; d[k + 2] = c[2] * f; d[k + 3] = 150;
     }
   }
-  const x = i % S, y = (i / S) | 0;
-  if (x < w.d0x) w.d0x = x; if (x > w.d1x) w.d1x = x; if (y < w.d0y) w.d0y = y; if (y > w.d1y) w.d1y = y;
+  const c = ((((i / S) | 0) >> 6) * w.cs) + ((i % S) >> 6);
+  if (!w.dirty[c]) { w.dirty[c] = 1; w.dirtyList.push(c); }
+}
+// Each changed chunk is copied into a small 64 x 64 image and uploaded on its own. (Uploading part of the big
+// overlay image directly costs as much as uploading all of it: the browser converts the whole image every call.)
+const CHUNK = new ImageData(64, 64);
+function flushOwnership(w) {
+  if (w.dirtyList.length > 40) {                  // changes all over: one upload of the box around them is cheaper
+    let x0 = w.cs, y0 = w.cs, x1 = 0, y1 = 0;
+    for (const c of w.dirtyList) { const cx = c % w.cs, cy = (c / w.cs) | 0; w.dirty[c] = 0; if (cx < x0) x0 = cx; if (cx > x1) x1 = cx; if (cy < y0) y0 = cy; if (cy > y1) y1 = cy; }
+    w.ownCtx.putImageData(w.own, 0, 0, x0 * 64, y0 * 64, Math.min(w.S, (x1 + 1) * 64) - x0 * 64, Math.min(w.S, (y1 + 1) * 64) - y0 * 64);
+    w.dirtyList.length = 0;
+    return;
+  }
+  const src = w.own.data, dst = CHUNK.data, S4 = w.S * 4;
+  for (const c of w.dirtyList) {
+    const x = (c % w.cs) * 64, y = ((c / w.cs) | 0) * 64, cw = Math.min(64, w.S - x), chh = Math.min(64, w.S - y);
+    for (let r = 0; r < chh; r++) { const o = (y + r) * S4 + x * 4; dst.set(src.subarray(o, o + cw * 4), r * 256); }
+    w.ownCtx.putImageData(CHUNK, x, y, 0, 0, cw, chh);
+    w.dirty[c] = 0;
+  }
+  w.dirtyList.length = 0;
 }
 function repaintAround(w, b) {
   const S = w.S, R = CFG.fortRadius;
@@ -687,6 +723,44 @@ function seaRoute(w, pid, dest) {
   }
   return null;
 }
+// The same search as seaRoute, a slice at a time: the bots use this, so a search across a whole ocean is
+// spread over a few ticks instead of freezing a frame. It has its own buffers (marked by a generation
+// number, so they never need clearing), since other searches run while it is in progress.
+function seaSearch(w, pid, dest) {
+  const S = w.S, terr = w.terr, step = [-1, 1, -S, S];
+  let shore = -1, water = -1;
+  const seen = new Set([dest]), q = [dest];
+  for (let h = 0; h < q.length && h < 6000 && shore < 0; h++) {
+    for (const d of step) {
+      const n = q[h] + d;
+      if (terr[n] === WATER) { shore = q[h]; water = n; break; }
+      if (isLandT(terr[n]) && !seen.has(n)) { seen.add(n); q.push(n); }
+    }
+  }
+  if (shore < 0) return null;
+  if (!w.sMark) { w.sMark = new Uint32Array(w.N); w.sPrev = new Int32Array(w.N); w.sQueue = new Int32Array(w.N); w.sGen = 0; }
+  const g = ++w.sGen;
+  w.sMark[water] = g; w.sPrev[water] = water; w.sQueue[0] = water;
+  return { w, pid, shore, water, g, head: 0, tail: 1, step };
+}
+// work on a sea search for up to `budget` tiles: returns the path, null if there is none, undefined if not done yet
+function seaSearchStep(s, budget) {
+  const { w, pid, step, g } = s, own = w.owner, terr = w.terr, mark = w.sMark, prev = w.sPrev, Q = w.sQueue;
+  while (s.head < s.tail && budget-- > 0) {
+    const c = Q[s.head++];
+    for (let k = 0; k < 4; k++) {
+      const n = c + step[k];
+      if (terr[n] === WATER) { if (mark[n] !== g) { mark[n] = g; prev[n] = c; Q[s.tail++] = n; } }
+      else if (own[n] === pid) {
+        const path = [n];
+        for (let t = c; ; t = prev[t]) { path.push(t); if (t === s.water) break; }
+        path.push(s.shore);
+        return path;
+      }
+    }
+  }
+  return s.head < s.tail ? undefined : null;
+}
 function sendBoat(pid, w, path, troops) {
   players[pid].troops -= troops;
   game.boats.push({ pid, w, path, pos: 0, troops });
@@ -729,8 +803,8 @@ function launchRocket(pid, found, w, i, troops) {
   const T = R.timeBase + R.timeK * Math.sqrt(bodyDist(found.src.body, w.body));
   game.rockets.push({ pid, src: found.src, from: found.pad.i, w, i, troops, t0: game.time, t1: game.time + T });
 }
-function rocketPos(r) {
-  const s = clamp((game.time - r.t0) / (r.t1 - r.t0), 0, 1), e = s * s * (3 - 2 * s);
+function rocketPos(r, t = game.time) {
+  const s = clamp((t - r.t0) / (r.t1 - r.t0), 0, 1), e = s * s * (3 - 2 * s);
   const a = tilePos(r.src, r.from), b = tilePos(r.w, r.i);
   return [lerp(a[0], b[0], e), lerp(a[1], b[1], e)];
 }
@@ -921,7 +995,7 @@ function scanRows(sc, y0, y1) {
       if (q) { if (q !== last[o]) { last[o] = q; (enemies[o] || (enemies[o] = new Set())).add(q); } continue; }
       const t = terr[i + (k === 0 ? -1 : k === 1 ? 1 : k === 2 ? -S : S)];
       if (t === WATER) isCoast = true;
-      else if (t >= PLAIN && t <= PEAK) neutral[o] = 1;
+      else if (isLandT(t)) neutral[o] = 1;
     }
     if (isCoast && h < coastH[o]) { coastH[o] = h; coast[o] = i; }
   }
@@ -1040,11 +1114,10 @@ function botThink(p) {
   }
   // boxed in or out of free land next door: look across the water
   const coastal = mine.filter(w => p.nb[w.ix].coast >= 0);
-  if (coastal.length && game.time >= game.botSeaAt && game.boats.filter(b => b.pid === p.id).length < 2) {
+  if (coastal.length && !game.seaJob && game.time >= game.botSeaAt && game.boats.filter(b => b.pid === p.id).length < 2) {
     game.botSeaAt = game.time + 1.5;
     const w = pick(coastal), i = randomLand(w, p.id, true);
-    const path = i >= 0 ? seaRoute(w, p.id, i) : null;
-    if (path) sendBoat(p.id, w, path, Math.floor(p.troops * 0.2));
+    game.seaJob = i >= 0 ? seaSearch(w, p.id, i) : null;   // searched a slice per tick (see tick); it sails when found
   }
 }
 
@@ -1081,6 +1154,14 @@ function tick(dt) {
   stepNukes();
 
   scanStep(CFG.scanTiles);
+  if (game.seaJob) {                               // a bot's sea search, a slice per tick
+    const s = game.seaJob, path = seaSearchStep(s, 25000);
+    if (path !== undefined) {
+      game.seaJob = null;
+      const p = players[s.pid];
+      if (path && p.alive && game.boats.filter(b => b.pid === p.id).length < 2) sendBoat(p.id, s.w, path, Math.floor(p.troops * 0.2));
+    }
+  }
   for (let k = 2; k < players.length; k++) {
     const p = players[k];
     if (p.alive && game.time >= p.nextThink) { p.nextThink = game.time + CFG.botThink * (0.7 + rng() * 0.6); botThink(p); }
@@ -1111,11 +1192,24 @@ const mouse = { x: 0, y: 0, down: false, drag: false, sx: 0, sy: 0 };
 const keys = new Set();
 const TOUCH = window.matchMedia('(pointer: coarse)').matches;   // a phone or tablet: fingers, no keyboard
 const stars = Array.from({ length: 320 }, () => [Math.random(), Math.random(), Math.random()]);
+// The simulation steps 10 times a second, the screen 60+. `rt` is the time the picture shows: the sim's time plus
+// how far we are into the next step, so orbits, boats, rockets and bombs glide instead of hopping 10 times a second.
+let rt = 0;
+// the starfield, painted once per window size instead of 320 rectangles every frame
+const starCanvas = document.createElement('canvas');
+function paintStars() {
+  starCanvas.width = canvas.width; starCanvas.height = canvas.height;
+  const g = starCanvas.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#04050b'; g.fillRect(0, 0, cw, ch);
+  for (const s of stars) { g.fillStyle = `rgba(255,255,255,${0.25 + s[2] * 0.6})`; g.fillRect(s[0] * cw, s[1] * ch, s[2] > 0.85 ? 2 : 1, s[2] > 0.85 ? 2 : 1); }
+}
 
 function resize() {
   dpr = Math.min(2, window.devicePixelRatio || 1);   // phones report 3: not worth 2.25x the pixels
   cw = window.innerWidth; ch = window.innerHeight;
   canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+  paintStars();
 }
 const SX = wx => (wx - ox) * cam.zoom + cw / 2;
 const SY = wy => (wy - oy) * cam.zoom + ch / 2;
@@ -1306,9 +1400,9 @@ function pill(text, x, y, fg, border, iconName) {
 function draw() {
   const z = cam.zoom;
   ox = cam.body.x + cam.x; oy = cam.body.y + cam.y;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(starCanvas, 0, 0);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#04050b'; ctx.fillRect(0, 0, cw, ch);
-  for (const s of stars) { ctx.fillStyle = `rgba(255,255,255,${0.25 + s[2] * 0.6})`; ctx.fillRect(s[0] * cw, s[1] * ch, s[2] > 0.85 ? 2 : 1, s[2] > 0.85 ? 2 : 1); }
 
   // orbits
   ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(150,170,210,0.2)';
@@ -1345,7 +1439,7 @@ function draw() {
       const w = b.world;
       if (rr < 2.5) { ctx.fillStyle = css(b.tint); ctx.beginPath(); ctx.arc(x, y, 2.5, 0, TAU); ctx.fill(); }
       else {
-        if (w.d1x >= 0) { w.ownCtx.putImageData(w.own, 0, 0, w.d0x, w.d0y, w.d1x - w.d0x + 1, w.d1y - w.d0y + 1); w.d0x = w.S; w.d0y = w.S; w.d1x = -1; w.d1y = -1; }
+        if (w.dirtyList.length) flushOwnership(w);
         ctx.imageSmoothingEnabled = z < 1;
         const left = SX(b.x - w.S / 2), top = SY(b.y - w.S / 2);
         drawMap(w.terrCanvas, w.S, left, top, z);
@@ -1369,8 +1463,8 @@ function draw() {
         const x = left + (d.x + 0.5) * z, y = top + (d.y + 0.5) * z;
         if (x < -20 || y < -20 || x > cw + 20 || y > ch + 20) continue;
         badge(d.type, x, y, r, players[d.pid].color, 0, d.i % 17);
-        if ((d.type === 'silo' || d.type === 'sam') && d.ready > game.time) { ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - (d.ready - game.time) / CFG.nuke.cooldown)); ctx.stroke(); }
-        if (d.type === 'pad' && d.ready > game.time) { ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - (d.ready - game.time) / CFG.rocket.cooldown)); ctx.stroke(); }
+        if ((d.type === 'silo' || d.type === 'sam') && d.ready > rt) { ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - (d.ready - rt) / CFG.nuke.cooldown)); ctx.stroke(); }
+        if (d.type === 'pad' && d.ready > rt) { ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - (d.ready - rt) / CFG.rocket.cooldown)); ctx.stroke(); }
       }
     }
     for (let k = 1; k < players.length; k++) {
@@ -1409,10 +1503,11 @@ function draw() {
   for (const b of game.boats) {
     const w = b.w;
     if (!shown(w)) continue;
-    const k = Math.min(b.path.length - 2, Math.floor(b.pos)), f = b.pos - k, a = b.path[k], c = b.path[k + 1];
+    const pos = Math.min(b.path.length - 1, b.pos + CFG.boatSpeed * (rt - game.time));   // where it is between sim steps
+    const k = Math.min(b.path.length - 2, Math.floor(pos)), f = pos - k, a = b.path[k], c = b.path[k + 1];
     const [x, y] = T2S(w, lerp(a % w.S, c % w.S, f) + 0.5, lerp((a / w.S) | 0, (c / w.S) | 0, f) + 0.5);
     const size = clamp(z * 4, 16, 26), flip = (b.path[b.path.length - 1] % w.S) < (b.path[0] % w.S);
-    const bob = Math.sin(game.time * 3 + b.troops) * 1.2;
+    const bob = Math.sin(rt * 3 + b.troops) * 1.2;
     icon('boat', x, y + bob, size, '#000', 0, true, flip);
     icon('sail', x, y + bob, size, '#f4f1e6', 0, false, flip);
     icon('hull', x, y + bob, size, css(players[b.pid].color), 0, false, flip);
@@ -1420,7 +1515,7 @@ function draw() {
   }
   // rockets
   for (const r of game.rockets) {
-    const [wx, wy] = rocketPos(r), x = SX(wx), y = SY(wy), t = tilePos(r.w, r.i), tx = SX(t[0]), ty = SY(t[1]);
+    const [wx, wy] = rocketPos(r, rt), x = SX(wx), y = SY(wy), t = tilePos(r.w, r.i), tx = SX(t[0]), ty = SY(t[1]);
     const ang = Math.atan2(ty - y, tx - x);
     if (r.pid === ME) { ctx.setLineDash([4, 6]); ctx.strokeStyle = 'rgba(242,193,78,0.5)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]); }
     ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
@@ -1429,13 +1524,13 @@ function draw() {
     ctx.fillStyle = '#fff3c4'; ctx.beginPath(); ctx.moveTo(-6, -1.8); ctx.lineTo(-6 - fl * 0.5, 0); ctx.lineTo(-6, 1.8); ctx.fill();
     ctx.restore();
     icon('rocket', x, y, 20, css(players[r.pid].color), ang + Math.PI / 2, true);
-    if (r.pid === ME) label(`${fmt(r.troops)} · ${Math.ceil(r.t1 - game.time)}s`, x, y - 16, 10, '#fff');
+    if (r.pid === ME) label(`${fmt(r.troops)} · ${Math.ceil(r.t1 - rt)}s`, x, y - 16, 10, '#fff');
   }
   // bombs in flight: they arc over the map; ones you fired or that are aimed at you show where they will land
   for (const n of game.nukes) {
     const w = n.w, S = w.S, N = CFG.nukes[n.type];
     if (!shown(w)) continue;
-    const k = clamp((game.time - n.t0) / (n.t1 - n.t0), 0, 1);
+    const k = clamp((rt - n.t0) / (n.t1 - n.t0), 0, 1);
     const [x0, y0] = T2S(w, (n.from % S) + 0.5, ((n.from / S) | 0) + 0.5), [x1, y1] = T2S(w, (n.to % S) + 0.5, ((n.to / S) | 0) + 0.5);
     const arc = Math.hypot(x1 - x0, y1 - y0) * 0.18, at = q => [lerp(x0, x1, q), lerp(y0, y1, q) - Math.sin(Math.PI * q) * arc];
     if (n.pid === ME || w.owner[n.to] === ME) { ring(x1, y1, N.outer * z, 'rgba(255,90,60,0.85)', [6, 6]); ring(x1, y1, N.inner * z, 'rgba(255,90,60,0.5)'); }
@@ -1448,10 +1543,10 @@ function draw() {
   for (const t of game.tracers) {
     if (!shown(t.w)) continue;
     const [x0, y0] = T2S(t.w, t.x0, t.y0), [x1, y1] = T2S(t.w, t.x1, t.y1);
-    ctx.strokeStyle = `rgba(150,210,255,${1 - (game.time - t.t0) / 0.4})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.strokeStyle = `rgba(150,210,255,${clamp(1 - (rt - t.t0) / 0.4, 0, 1)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
   }
   for (const b of game.blasts) {
-    const k = (game.time - b.t0) / b.dur;
+    const k = (rt - b.t0) / b.dur;
     if (k >= 1 || k < 0 || !shown(b.w)) continue;
     const [x, y] = T2S(b.w, b.x, b.y), R = Math.max(4, b.r * z * (0.35 + 0.65 * k)), g = ctx.createRadialGradient(x, y, 0, x, y, R), a = 1 - k;
     g.addColorStop(0, `rgba(255,255,235,${a})`); g.addColorStop(0.35, `rgba(255,190,80,${a * 0.85})`); g.addColorStop(0.75, `rgba(230,80,30,${a * 0.5})`); g.addColorStop(1, 'rgba(120,30,10,0)');
@@ -1509,24 +1604,35 @@ function setTool(type) {
   game.tool = type;
   for (const el of document.querySelectorAll('.bbtn')) el.classList.toggle('sel', el.dataset.type === type);
 }
+// HUD writes go through here: the page is only touched when a value actually changes, so the browser
+// doesn't redo style and layout for the panels four times a second
+const hudLast = new Map();
+function hudSet(el, prop, v) {
+  const m = hudLast.get(el) || (hudLast.set(el, {}), hudLast.get(el));
+  if (m[prop] === v) return;
+  m[prop] = v;
+  if (prop === 'width' || prop === 'display' || prop === 'top') el.style[prop] = v; else el[prop] = v;
+}
 function updateHud() {
+  // read the layout first, while it is still clean (reading it after the writes below would force a reflow)
+  const above = $('worlds').offsetHeight ? $('worlds') : $('mbar'), ordersTop = (above.getBoundingClientRect().bottom + 8) + 'px';
   const p = players[ME], cap = capOf(p), pct = +$('send-pct').value;
-  $('val-troops').textContent = `${fmt(p.troops)} / ${fmt(cap)}`;
-  $('troop-fill').style.width = clamp(p.troops / cap * 100, 0, 100) + '%';
-  $('val-gold').textContent = fmt(p.gold);
-  $('rate-gold').textContent = `+${fmt(p.goldRate)}/s`;
-  $('rate-troops').textContent = `${p.troopRate >= 0 ? '+' : '-'}${fmt(Math.abs(Math.round(p.troopRate)))}/s`;
-  $('val-land').textContent = (p.tiles / totalLand * 100).toFixed(1) + '%';
-  $('val-time').textContent = fmtTime(game.time);
-  $('val-view').textContent = cam.body.name.replace(/^the /, '');
-  $('send-n').textContent = `${pct}% · ${fmt(p.troops * pct / 100)} troops`;
+  hudSet($('val-troops'), 'textContent', `${fmt(p.troops)} / ${fmt(cap)}`);
+  hudSet($('troop-fill'), 'width', clamp(p.troops / cap * 100, 0, 100).toFixed(1) + '%');
+  hudSet($('val-gold'), 'textContent', fmt(p.gold));
+  hudSet($('rate-gold'), 'textContent', `+${fmt(p.goldRate)}/s`);
+  hudSet($('rate-troops'), 'textContent', `${p.troopRate >= 0 ? '+' : '-'}${fmt(Math.abs(Math.round(p.troopRate)))}/s`);
+  hudSet($('val-land'), 'textContent', (p.tiles / totalLand * 100).toFixed(1) + '%');
+  hudSet($('val-time'), 'textContent', fmtTime(game.time));
+  hudSet($('val-view'), 'textContent', cam.body.name.replace(/^the /, ''));
+  hudSet($('send-n'), 'textContent', `${pct}% · ${fmt(p.troops * pct / 100)} troops`);
   for (const el of document.querySelectorAll('.bbtn')) {
     const c = CFG.nukes[el.dataset.type] ? CFG.nukes[el.dataset.type].cost : costOf(p, el.dataset.type);
-    el.querySelector('.cs').textContent = fmt(c) + ' gold';
-    el.classList.toggle('poor', p.gold < c);
+    hudSet(el.querySelector('.cs'), 'textContent', fmt(c) + ' gold');
+    hudSet(el, 'className', 'bbtn' + (CFG.nukes[el.dataset.type] ? ' weapon' : '') + (game.tool === el.dataset.type ? ' sel' : '') + (p.gold < c ? ' poor' : ''));
   }
   // worlds
-  $('world-list').innerHTML = worlds.map(w => {
+  hudSet($('world-list'), 'innerHTML', worlds.map(w => {
     const mine = p.wt[w.ix];
     let note;
     if (mine) note = `<span class="ok">${(mine / w.land * 100).toFixed(mine / w.land < 0.1 ? 1 : 0)}%</span>`;
@@ -1537,26 +1643,25 @@ function updateHud() {
         : f.kind === 'stone' ? `<span class="no">pad on ${f.stone.name.replace(/^the /, '')}</span>` : '<span class="no">too far</span>';
     }
     return `<div class="row${cam.body === w.body ? ' cur' : ''}" data-ix="${w.body.ix}"><span class="dot" style="background:${css(w.tint)}"></span><span class="n">${w.name.replace(/^the /, '')}</span><span class="d">${note}</span></div>`;
-  }).join('') + `<div class="row${cam.body === SUN ? ' cur' : ''}" data-ix="-1"><span class="dot" style="background:#ffd65a"></span><span class="n">Solar system</span></div>`;
+  }).join('') + `<div class="row${cam.body === SUN ? ' cur' : ''}" data-ix="-1"><span class="dot" style="background:#ffd65a"></span><span class="n">Solar system</span></div>`);
   // nations
   const live = players.slice(1).filter(q => q.alive).sort((a, b) => b.tiles - a.tiles);
   const top = live.slice(0, 8);
   if (!top.includes(p) && p.alive) top.push(p);
-  $('leader-list').innerHTML = top.map(q =>
+  hudSet($('leader-list'), 'innerHTML', top.map(q =>
     `<div class="row${q === p ? ' me' : ''}"><span class="dot" style="background:${css(q.color)}"></span><span class="n">${live.indexOf(q) + 1}. ${q.name}</span><span class="d">${(q.tiles / totalLand * 100).toFixed(1)}% · ${fmt(q.troops)}</span></div>`).join('')
-    + `<div class="row"><span class="n d">${live.length} nations left</span></div>`;
+    + `<div class="row"><span class="n d">${live.length} nations left</span></div>`);
   // orders
   const rows = [];
   for (const a of game.attacks) if (a.pid === ME) rows.push(`${svgIcon('sword', 13)} ${a.target ? players[a.target].name : 'Free land'} · ${fmt(a.troops)}`);
   for (const b of game.boats) if (b.pid === ME) rows.push(`${svgIcon('boat', 13)} ${fmt(b.troops)} at sea`);
   for (const r of game.rockets) if (r.pid === ME) rows.push(`${svgIcon('rocket', 13)} ${fmt(r.troops)} → ${r.w.name.replace(/^the /, '')} · ${Math.ceil(r.t1 - game.time)}s`);
   for (const n of game.nukes) if (n.pid === ME) rows.push(`${svgIcon(n.type, 13)} ${CFG.nukes[n.type].name} · ${Math.max(0, Math.ceil(n.t1 - game.time))}s`);
-  $('orders').style.display = rows.length ? 'block' : 'none';
+  hudSet($('orders'), 'display', rows.length ? 'block' : 'none');
   // under the worlds panel, or under the phone button row while that panel is closed
-  const above = $('worlds').offsetHeight ? $('worlds') : $('mbar');
-  $('orders').style.top = (above.getBoundingClientRect().bottom + 8) + 'px';
-  $('pause-btn').textContent = game.paused ? 'Resume' : 'Pause';
-  $('order-list').innerHTML = rows.map(r => `<div class="row"><span class="n">${r}</span></div>`).join('');
+  hudSet($('orders'), 'top', ordersTop);
+  hudSet($('pause-btn'), 'textContent', game.paused ? 'Resume' : 'Pause');
+  hudSet($('order-list'), 'innerHTML', rows.map(r => `<div class="row"><span class="n">${r}</span></div>`).join(''));
 }
 function updateHover() {
   hover = pickAt(mouse.x, mouse.y);
@@ -1739,6 +1844,8 @@ function init() {
       for (let n = 0; acc >= step && n < 4; n++) { tick(step); acc -= step; }
       if (acc > step * 4) acc = 0;
     }
+    rt = game.time + Math.min(acc, step);
+    updatePositions(rt);                        // the next tick puts them back on the sim's own clock first
     draw();
     if (now >= hudAt) { hudAt = now + 250; updateHud(); updateHover(); updateAttackLabels(); }
     requestAnimationFrame(frame);

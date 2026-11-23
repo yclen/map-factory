@@ -15,7 +15,7 @@
   const afford = (C, cost, keep = 0) => Object.entries(cost).every(([r, n]) => C.res[r] - keep >= n);
   const alive = () => g.countries.filter(c => c.alive && c.tiles);
   const mine = (C, i) => G.owner[i] && G.liveCountry(G.countryOf[i]) === C;
-  const isLand = i => G.biome[i] >= 1 && G.biome[i] <= 3;
+  const isLand = i => G.biome[i] >= 1 && G.biome[i] <= 4;   // grass, desert, mountains, ice
   const cx = i => i % W, cy = i => (i / W) | 0;
   const dist = (i, x, y) => Math.hypot(cx(i) - x, cy(i) - y);
 

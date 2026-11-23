@@ -4,6 +4,9 @@ notes.md
 # local editor / preview settings
 .claude/
 
+# enlarged sprite previews from tools/pixel_sprites.py --preview
+tools/previews/
+
 # python / os clutter
 __pycache__/
 *.pyc

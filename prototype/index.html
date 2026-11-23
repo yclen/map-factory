@@ -20,6 +20,8 @@
       <div><div class="lbl">STONE <span class="rate" id="rate-stone"></span></div><div class="val" id="val-stone">0</div></div></div>
     <div class="res"><span class="ic" data-icon="ore"></span>
       <div><div class="lbl">IRON <span class="rate" id="rate-iron"></span></div><div class="val" id="val-iron">0</div></div></div>
+    <div class="res" id="res-fuel" style="display:none"><span class="ic" data-icon="fuel"></span>
+      <div><div class="lbl">FUEL <span class="rate" id="rate-fuel"></span></div><div class="val" id="val-fuel">0</div></div></div>
     <div class="res"><span class="ic" data-icon="bolt"></span>
       <div><div class="lbl">POWER <span class="rate zero" id="rate-power"></span></div><div class="val small" id="val-power">-</div></div></div>
     <div class="res"><span class="terr-swatch"></span>
@@ -69,7 +71,7 @@
     <div id="help" class="panel">
       <div class="lbl">CONTROLS</div>
       <div class="help-row"><b>Click</b> near your border: expand (into a nation: conquer) · <b>Click</b> a country: view it (zoomed out: fly to it)</div>
-      <div class="help-row"><b>Right-click</b> outside your border: send an expedition · <b>Arrows / WASD</b> drive it · <b>Space</b> settle · <b>Esc</b> let go · <b>X</b> take the wheel</div>
+      <div class="help-row"><b>E → Vehicles</b>, then click a station (truck) or port (boat): send an expedition · <b>Arrows / WASD</b> drive it · <b>Space</b> settle · <b>Esc</b> let go · <b>X</b> take the wheel</div>
       <div class="help-row"><b>Drag</b> a box over solar panels or burners: select · <b>C</b> paste a copy at the cursor</div>
       <div class="help-row"><b>E</b> build menu · <b>1–0</b> build bar (set it in <b>E</b>) · <b>F</b> aim and fire weapons · <b>Tab</b> next country · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>M</b> map / orbit · <b>N</b> new map</div>
       <div class="help-row"><b>Scroll</b> zoom · <b>Right-drag</b> or <b>WASD</b> pan · <b>Click</b> any planet, moon or the Sun to lock on</div>
@@ -92,6 +94,6 @@
   <div id="tooltip"></div>
   <div id="toast"></div>
 
-  <script src="game.js?v=23"></script>
+  <script src="game.js?v=28"></script>
 </body>
 </html>
