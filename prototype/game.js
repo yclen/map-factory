@@ -5300,10 +5300,13 @@ function cargoLabel(c) {
   for (const r of ['iron', 'stone', 'wood', 'people']) if (c[r] >= 1) parts.push(`${c[r]} ${r}`);
   return parts.slice(0, 2).join(' · ') + (parts.length > 2 ? ' …' : '');
 }
+const VEH_FAR = 2;                                // below this zoom trains and ships are a few pixels, not pictures
 function drawVehicles(z) {
+  if (z < VEH_FAR) return drawVehiclesFar();
   for (const L of game.links.concat(game.freight)) {
     const [wx, wy, ang] = vehiclePos(L);
     const [sx, sy] = toScreen(wx, wy);
+    if (sx < -60 || sy < -60 || sx > cw + 60 || sy > ch + 60) continue;
     if (L.cargo) {                                 // loaded: a gold crate marker, and what it carries up close
       const off = Math.max(14, z * 1.2);
       if (z >= 2) pill(sx, sy - off - 6, cargoLabel(L.cargo), { size: 10, fg: '#f2c14e', dot: '#a67c52' });
@@ -5320,6 +5323,36 @@ function drawVehicles(z) {
     drawTurnedSprite('wagon', sx - hx, sy - hy, S, heading);
     drawTurnedSprite('engine', sx + hx, sy + hy, S, heading);
   }
+}
+// Zoomed out: a ship is a little white-over-red hull, a train a short red-and-grey dash along its track, a gold
+// dot above anything carrying goods. All of them go into a few shapes, filled once each.
+function drawVehiclesFar() {
+  const hullE = new Path2D(), deck = new Path2D(), hull = new Path2D(), crateE = new Path2D(), crate = new Path2D();
+  const rail = new Path2D(), wagon = new Path2D(), engine = new Path2D();
+  for (const L of game.links.concat(game.freight)) {
+    const [wx, wy, ang] = vehiclePos(L);
+    const [sx, sy] = toScreen(wx, wy);
+    if (sx < -20 || sy < -20 || sx > cw + 20 || sy > ch + 20) continue;
+    if (L.cargo) { crateE.rect(sx - 2.5, sy - 8.5, 5, 5); crate.rect(sx - 1.75, sy - 7.75, 3.5, 3.5); }
+    if (L.kind === 'sea') {
+      hullE.rect(sx - 4, sy - 2.5, 8, 5);
+      deck.rect(sx - 3, sy - 1.5, 6, 1.5); hull.rect(sx - 3, sy, 6, 1.5);
+      continue;
+    }
+    const heading = ang + (L.dir < 0 ? Math.PI : 0), ux = Math.cos(heading) * 4.5, uy = Math.sin(heading) * 4.5;
+    rail.moveTo(sx - ux, sy - uy); rail.lineTo(sx + ux, sy + uy);
+    wagon.moveTo(sx - ux * 0.85, sy - uy * 0.85); wagon.lineTo(sx - ux * 0.1, sy - uy * 0.1);
+    engine.moveTo(sx + ux * 0.1, sy + uy * 0.1); engine.lineTo(sx + ux * 0.85, sy + uy * 0.85);
+  }
+  ctx.fillStyle = 'rgba(20,26,37,0.9)'; ctx.fill(hullE);
+  ctx.fillStyle = '#e8ecef'; ctx.fill(deck);
+  ctx.fillStyle = '#b8432f'; ctx.fill(hull);
+  ctx.lineCap = 'butt';
+  ctx.lineWidth = 3.6; ctx.strokeStyle = 'rgba(20,26,37,0.9)'; ctx.stroke(rail);
+  ctx.lineWidth = 2; ctx.strokeStyle = '#8d969e'; ctx.stroke(wagon);
+  ctx.strokeStyle = '#d9654a'; ctx.stroke(engine);
+  ctx.fillStyle = 'rgba(20,26,37,0.9)'; ctx.fill(crateE);
+  ctx.fillStyle = '#f2c14e'; ctx.fill(crate);
 }
 
 function render() {
@@ -5423,24 +5456,10 @@ function render() {
       else if (DRILL_ANIM[b.type]) drawDrill(b, z);
     }
     drawRockets(z, x0, y0, x1, y1);
-  } else if (z >= CFG.cityZoom) {
-    // middle view: buildings as solid squares
-    for (const b of game.buildings) {
-      if (b.type === 'settlement') continue;
-      const [sx, sy] = toScreen(b.i % W, (b.i / W) | 0);
-      ctx.fillStyle = BLD_COLOR[b.type];
-      ctx.fillRect(sx + z * 0.12, sy + z * 0.12, z * 0.76, z * 0.76);
-    }
-    drawSettlementPixels(z);
   } else {
-    // map view: settlements as clusters of pixels, station/port icons. Deposits show as their own coloured ground.
-    for (const b of game.buildings) {
-      if (b.type !== 'station' && b.type !== 'port' && b.type !== 'pad') continue;
-      const [sx, sy] = toScreen(...tileCenter(b.i));
-      ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill();
-      if (SPR[b.type].complete) ctx.drawImage(SPR[b.type], sx - 8, sy - 8, 16, 16);
-    }
-    drawSettlementPixels(z);
+    // middle view: buildings as solid squares; map view: station/port icons (deposits show as their own coloured
+    // ground). Either way the settlements as clusters of house pixels. All from the cached far layer.
+    drawFar(z);
   }
 
   drawPops(z);
@@ -5797,34 +5816,128 @@ const PIXEL = {
   house2: ['#6f97c4', '#f0e2c0'], house2B: ['#a8744e', '#f0d9a8'], house2C: ['#d9694a', '#cfe3ff'],
   house3: ['#a3b4c6', '#5f6b7d'], house3B: ['#c2d0de', '#3f4857'], house3C: ['#679a5e', '#a0543c'],
 };
-function drawSettlementPixels(z) {
-  if (z < 0.15) return;                            // from orbit the whole disk is only a few pixels
-  const px = Math.max(z * 0.82, 1.7), edge = px >= 4 ? 1 : 0.5, big = px * 1.5;
-  // Every house goes into one shape per colour, filled once at the end: a handful of fills instead of
-  // two rectangles and two colour changes per house (tens of thousands of calls a frame on a big map).
-  // Houses first, then the settlements' own centre pixels on top of them, as before.
-  const edges = new Path2D(), fills = {}, cEdges = new Path2D(), cCalm = new Path2D(), cHit = new Path2D();
-  const fill = c => fills[c] || (fills[c] = new Path2D());
+// ---------- the far layer ----------
+// Zoomed out, the towns are thousands of little houses, and building that picture every frame was most of a
+// frame's work. So it's drawn into an off-screen picture a margin bigger than the screen, together with what else
+// sits still out there (the middle view's building squares, the map's port, station and pad markers), and each
+// frame only places that picture, moved and scaled to follow the camera. It's redrawn when the zoom settles at a
+// new level, when the view slides past its margin, when the camera turns, or when a building comes or goes or a
+// town grows. The settlements' own centre pixels (red while under fire) are drawn fresh on top every frame.
+const FAR_MARK = 1.5;                             // below this zoom a port, station or pad is a few pixels, not an icon
+const FARL = { c: null, z: 0, rot: 0, tier: -1, sig: 0, dpr: 0, cw: 0, ch: 0, M: 0, ax: 0, ay: 0, at: 0, miss: false,
+  tsig: 0, tAt: -1e9, zSeen: 0, zAt: 0 };
+// house pixel size, its dark edge, and a settlement's centre pixel at zoom z
+const housePx = z => Math.max(z * 0.82, 1.7);
+// the far layer's contents, into g in screen coordinates: everything up to m pixels past the screen's edges.
+// Returns true if an icon wasn't loaded yet (so it's redrawn shortly).
+function paintFar(g, z, m, tier) {
   const zc = z * cam.cos, zs = z * cam.sin, hw = cw / 2, hh = ch / 2, ox = cam.x - 0.5, oy = cam.y - 0.5;   // toScreen, inlined
-  const dot = (sq, ed, wx, wy, s) => {
-    const dx = wx - ox, dy = wy - oy, sx = dx * zc - dy * zs + hw - s / 2, sy = dx * zs + dy * zc + hh - s / 2;
-    ed.rect(sx - edge, sy - edge, s + edge * 2, s + edge * 2); sq.rect(sx, sy, s, s);
-  };
-  const tiny = (look, wx, wy, s) => {             // a house: its roof on top, its wall below
-    const dx = wx - ox, dy = wy - oy, sx = dx * zc - dy * zs + hw - s / 2, sy = dx * zs + dy * zc + hh - s / 2, c = PIXEL[look], r = Math.round(s * 0.45);
-    edges.rect(sx - edge, sy - edge, s + edge * 2, s + edge * 2);
-    fill(c[0]).rect(sx, sy, s, r); fill(c[1]).rect(sx, sy + r, s, s - r);
-  };
+  const off = (sx, sy, r) => sx < -m - r || sy < -m - r || sx > cw + m + r || sy > ch + m + r;
+  let miss = false;
+  if (tier === 2) {                                // middle view: buildings as solid squares, one shape per colour
+    const sq = {};
+    for (const b of game.buildings) {
+      if (b.type === 'settlement') continue;
+      const [sx, sy] = toScreen(b.i % W, (b.i / W) | 0);
+      if (off(sx, sy, z)) continue;
+      (sq[b.type] || (sq[b.type] = new Path2D())).rect(sx + z * 0.12, sy + z * 0.12, z * 0.76, z * 0.76);
+    }
+    for (const t in sq) { g.fillStyle = BLD_COLOR[t]; g.fill(sq[t]); }
+  } else {                                         // map view: stations, ports and pads
+    const edge = new Path2D(), core = {};
+    for (const b of game.buildings) {
+      if (b.type !== 'station' && b.type !== 'port' && b.type !== 'pad') continue;
+      const [sx, sy] = toScreen(...tileCenter(b.i));
+      if (off(sx, sy, 10)) continue;
+      if (tier === 0) {                            // far out: a dark square with a dot of its colour
+        edge.rect(sx - 3.5, sy - 3.5, 7, 7);
+        (core[b.type] || (core[b.type] = new Path2D())).rect(sx - 2, sy - 2, 4, 4);
+        continue;
+      }
+      g.beginPath(); g.arc(sx, sy, 8, 0, Math.PI * 2); g.fillStyle = 'rgba(20,26,37,0.85)'; g.fill();
+      if (SPR[b.type].complete) g.drawImage(SPR[b.type], sx - 8, sy - 8, 16, 16); else miss = true;
+    }
+    g.fillStyle = 'rgba(20,26,37,0.9)'; g.fill(edge);
+    for (const t in core) { g.fillStyle = BLD_COLOR[t]; g.fill(core[t]); }
+  }
+  if (z < 0.15) return miss;                       // from orbit the whole disk is only a few pixels
+  // Every house goes into one shape per colour, filled once at the end: a handful of fills instead of
+  // two rectangles and two colour changes per house.
+  const px = housePx(z), edge = px >= 4 ? 1 : 0.5, edges = new Path2D(), fills = {};
+  const fill = c => fills[c] || (fills[c] = new Path2D());
   for (const b of game.buildings) {
     if (b.type !== 'settlement') continue;
-    const bx = b.i % W, by = (b.i / W) | 0, dx = bx - ox, dy = by - oy;
-    const cx = dx * zc - dy * zs + hw, cy = dx * zs + dy * zc + hh;
-    if (cx < -60 || cy < -60 || cx > cw + 60 || cy > ch + 60) continue;
-    for (const h of sprawlOf(b)) tiny(lookOf(h), h.x, h.y, px);
-    dot(underFire(b) ? cHit : cCalm, cEdges, bx, by, big);
+    const dx = b.i % W - ox, dy = ((b.i / W) | 0) - oy;
+    if (off(dx * zc - dy * zs + hw, dx * zs + dy * zc + hh, 60)) continue;
+    for (const h of sprawlOf(b)) {                 // a house: its roof on top, its wall below
+      const ex = h.x - ox, ey = h.y - oy, sx = ex * zc - ey * zs + hw - px / 2, sy = ex * zs + ey * zc + hh - px / 2;
+      const c = h.c || (h.c = PIXEL[lookOf(h)]), r = Math.round(px * 0.45);
+      edges.rect(sx - edge, sy - edge, px + edge * 2, px + edge * 2);
+      fill(c[0]).rect(sx, sy, px, r); fill(c[1]).rect(sx, sy + r, px, px - r);
+    }
   }
-  ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill(edges);
-  for (const c in fills) { ctx.fillStyle = c; ctx.fill(fills[c]); }
+  g.fillStyle = 'rgba(20,26,37,0.85)'; g.fill(edges);
+  for (const c in fills) { g.fillStyle = c; g.fill(fills[c]); }
+  return miss;
+}
+// what the far layer shows: which buildings stand where (checked every frame: a new building shows at once)...
+function farSig() {
+  let h = game.buildings.length;
+  for (const b of game.buildings) h = (Math.imul(h, 31) + b.i * 13 + b.type.length * 7 + b.type.charCodeAt(0)) | 0;
+  return h;
+}
+// ...and how big each town has grown (a few times a second)
+function townSig() {
+  let h = 0;
+  for (const b of game.buildings) if (b.type === 'settlement') { sprawlOf(b); h = (Math.imul(h, 31) + b._n * 5 + b._lvl) | 0; }
+  return h;
+}
+function drawFar(z) {
+  const now = performance.now(), rot = cam.rot || 0, tier = z >= CFG.cityZoom ? 2 : z >= FAR_MARK ? 1 : 0;
+  if (z !== FARL.zSeen) { FARL.zSeen = z; FARL.zAt = now; }
+  if (now - FARL.tAt > 300) { FARL.tsig = townSig(); FARL.tAt = now; }
+  const sig = (Math.imul(farSig(), 7) + FARL.tsig) | 0;
+  let r = z / FARL.z, px = 0, py = 0;
+  let ok = FARL.c && FARL.dpr === dpr && FARL.cw === cw && FARL.ch === ch && FARL.rot === rot && FARL.tier === tier
+    && (FARL.sig === sig || now - FARL.at < 250)   // (with a lot being built, at most four redraws a second)
+    && !(FARL.miss && now - FARL.at > 250)
+    && !(r !== 1 && now - FARL.zAt > 120);         // the zoom has settled at a new level: redraw it sharp
+  if (ok) {                                        // (mid-zoom the picture is stretched, until the zoom stops)
+    [px, py] = toScreen(FARL.ax, FARL.ay);
+    const w = FARL.c.width / dpr * r, h = FARL.c.height / dpr * r;
+    ok = r > 0.4 && r < 2 && px <= 0.5 && py <= 0.5 && px + w >= cw - 0.5 && py + h >= ch - 0.5;
+  }
+  if (!ok) {
+    const M = Math.round(Math.max(cw, ch) * 0.25), w = Math.ceil((cw + 2 * M) * dpr), h = Math.ceil((ch + 2 * M) * dpr);
+    if (!FARL.c) FARL.c = document.createElement('canvas');
+    const g = FARL.c.getContext('2d');
+    if (FARL.c.width !== w || FARL.c.height !== h) { FARL.c.width = w; FARL.c.height = h; }
+    else { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, w, h); }
+    g.setTransform(dpr, 0, 0, dpr, M * dpr, M * dpr);
+    FARL.miss = paintFar(g, z, M, tier);
+    [FARL.ax, FARL.ay] = toWorld(-M, -M);
+    Object.assign(FARL, { z, rot, tier, sig, dpr, cw, ch, M, at: now });
+    r = 1; px = -M; py = -M;
+  }
+  const smooth = ctx.imageSmoothingEnabled;
+  if (r === 1) { px = Math.round(px * dpr) / dpr; py = Math.round(py * dpr) / dpr; ctx.imageSmoothingEnabled = false; }   // pixel for pixel
+  ctx.drawImage(FARL.c, px, py, FARL.c.width / dpr * r, FARL.c.height / dpr * r);
+  ctx.imageSmoothingEnabled = smooth;
+  drawTownCentres(z);
+}
+// each settlement's own centre pixel, on top of its houses: gold, or red while it's being shelled
+function drawTownCentres(z) {
+  if (z < 0.15) return;
+  const px = housePx(z), edge = px >= 4 ? 1 : 0.5, s = px * 1.5;
+  const cEdges = new Path2D(), cCalm = new Path2D(), cHit = new Path2D();
+  const zc = z * cam.cos, zs = z * cam.sin, hw = cw / 2, hh = ch / 2, ox = cam.x - 0.5, oy = cam.y - 0.5;
+  for (const b of game.buildings) {
+    if (b.type !== 'settlement') continue;
+    const dx = b.i % W - ox, dy = ((b.i / W) | 0) - oy, cx = dx * zc - dy * zs + hw, cy = dx * zs + dy * zc + hh;
+    if (cx < -60 || cy < -60 || cx > cw + 60 || cy > ch + 60) continue;
+    const sx = cx - s / 2, sy = cy - s / 2;
+    cEdges.rect(sx - edge, sy - edge, s + edge * 2, s + edge * 2); (underFire(b) ? cHit : cCalm).rect(sx, sy, s, s);
+  }
   ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill(cEdges);
   ctx.fillStyle = '#f2d98a'; ctx.fill(cCalm);
   ctx.fillStyle = '#ff7a6b'; ctx.fill(cHit);
@@ -6376,7 +6489,7 @@ function drawSelection(z) {
 const TEXT_IMG = new Map();
 function textImage(text, weight, size, spacing, lw, color) {
   size = Math.round(size * 2) / 2;                   // half-pixel steps, so zooming doesn't make a new image every frame
-  const key = `${text}|${weight}|${size}|${spacing}|${lw}|${color}|${dpr}`;
+  const key = textKey(text, weight, size, spacing, lw, color);
   let im = TEXT_IMG.get(key);
   if (im) return im;
   if (TEXT_IMG.size > 400) TEXT_IMG.clear();        // the population numbers keep changing: forget old ones now and then
@@ -6398,7 +6511,25 @@ function textImage(text, weight, size, spacing, lw, color) {
 const POP_SHOWN = new WeakMap();                    // country/nation -> the population text on its label right now
 const stampText = (im, x, y) => ctx.drawImage(im.c, x - im.w / 2, y - im.h / 2, im.w, im.h);
 
+// A label's size follows the zoom, and a new image for every label at every step of a zoom was most of a zooming
+// frame's work. So labels come in a ladder of sizes 10% apart, and each is drawn at the rung nearest its size,
+// stretched or shrunk the last few percent: zooming reuses the same few images. (spacing: letter spacing per px of size)
+// While the zoom is still moving, a label takes an image already made at a nearby rung if there is one (up to four
+// rungs off): mid-zoom it makes no new images at all, only once the zoom has stopped somewhere new.
+const textKey = (text, weight, size, spacing, lw, color) => `${text}|${weight}|${Math.round(size * 2) / 2}|${spacing}|${lw}|${color}|${dpr}`;
+let labelZ = 0, labelZAt = 0;
+function stampLabel(text, weight, size, spacing, lw, color, x, y) {
+  const rung = Math.round(Math.log(size / 10) / Math.log(1.1));
+  let q = 10 * 1.1 ** rung;
+  if (performance.now() - labelZAt < 200) for (const d of [0, -1, 1, -2, 2, -3, 3, -4, 4]) {
+    const qq = 10 * 1.1 ** (rung + d);
+    if (TEXT_IMG.has(textKey(text, weight, qq, Math.round(qq * spacing), lw, color))) { q = qq; break; }
+  }
+  const im = textImage(text, weight, q, Math.round(q * spacing), lw, color), k = size / q;
+  ctx.drawImage(im.c, x - im.w * k / 2, y - im.h * k / 2, im.w * k, im.h * k);
+}
 function drawCountryLabels(z) {
+  if (z !== labelZ) { labelZ = z; labelZAt = performance.now(); }
   if (z < 0.15) return;
   const under = (who, people, sx, sy, size, color) => {   // the population, in smaller type under the name
     // the number changes nearly every tick: show a new one twice a second, so its image isn't redrawn 20 times a second
@@ -6408,7 +6539,7 @@ function drawCountryLabels(z) {
       txt = `${fmtNum(people)} people`; POP_SHOWN.set(who, { txt, n: Math.floor(people), at: now });
     }
     const s2 = Math.max(10, size * 0.6);
-    stampText(textImage(txt, 700, s2, 0, 3, color), sx, sy + size * 0.55 + s2 * 0.7);
+    stampLabel(txt, 700, s2, 0, 3, color, sx, sy + size * 0.55 + s2 * 0.7);
   };
   for (const c of game.countries) {
     if (!c.alive || !c.tiles) continue;
@@ -6418,7 +6549,7 @@ function drawCountryLabels(z) {
     const size = clamp(span * 0.16, 11, 26);
     const sy = sy0 + (z < CFG.detailZoom ? 14 + size * 0.6 : z * 3.2);   // sit below the settlement at the centre
     const text = (span > 140 ? c.full : c.short).toUpperCase();
-    stampText(textImage(text, 800, size, Math.round(size * 0.12), 4, c.id === game.active ? '#ffffff' : 'rgba(214,228,255,0.88)'), sx, sy);
+    stampLabel(text, 800, size, 0.12, 4, c.id === game.active ? '#ffffff' : 'rgba(214,228,255,0.88)', sx, sy);
     under(c, c.people, sx, sy, size, '#f2c14e');
   }
   for (const n of game.nations) {
@@ -6430,7 +6561,7 @@ function drawCountryLabels(z) {
     const sy = sy0 + (z < CFG.cityZoom ? 14 + size * 0.6 : 0);
     const text = (span > 160 ? n.full : n.short).toUpperCase();
     const [r, g, b] = n.col;
-    stampText(textImage(text, 800, size, Math.round(size * 0.12), 4, `rgb(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)})`), sx, sy);
+    stampLabel(text, 800, size, 0.12, 4, `rgb(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)})`, sx, sy);
     under(n, n.people, sx, sy, size, 'rgba(255,255,255,0.85)');
   }
 }
