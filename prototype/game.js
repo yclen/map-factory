@@ -357,20 +357,17 @@ const SHAPES = {
   settle1: SETTLE_ART[0], settle2: SETTLE_ART[1], settle3: SETTLE_ART[2], settle4: SETTLE_ART[3], settlement: SETTLE_ART[1],
   person: `<circle cx="0" cy="-4.5" r="3" fill="#f2c14e" stroke="#5a4310" stroke-width="0.8"/>
     <path d="M-4.5 5 C-4.5 0 -2.5 -0.8 0 -0.8 C2.5 -0.8 4.5 0 4.5 5 Z" fill="#f2c14e" stroke="#5a4310" stroke-width="0.8"/>`,
-  house: `<rect x="-7" y="-6" width="18" height="16" fill="#000" opacity="0.22"/>
-    <rect x="-9" y="-8" width="18" height="8" fill="#de6d4c"/><rect x="-9" y="0" width="18" height="8" fill="#b04a31"/>
-    <rect x="-9" y="-8" width="18" height="16" fill="none" stroke="#6b2b1b" stroke-width="1"/>
-    <line x1="-9" y1="0" x2="9" y2="0" stroke="#7d3220" stroke-width="1.2"/><rect x="3" y="-6.5" width="3.2" height="4" fill="#4e3a33"/>`,
-  house2: `<rect x="-9" y="-8" width="24" height="20" fill="#000" opacity="0.22"/>
-    <rect x="-12" y="-10" width="24" height="10" fill="#7099c4"/><rect x="-12" y="0" width="24" height="10" fill="#4d6f96"/>
-    <rect x="-12" y="-10" width="24" height="20" fill="none" stroke="#2c4260" stroke-width="1"/>
-    <line x1="-12" y1="0" x2="12" y2="0" stroke="#2c4260" stroke-width="1.2"/>
-    <rect x="-8" y="-8" width="3" height="4" fill="#3a3f4a"/><rect x="5" y="-8" width="3" height="4" fill="#3a3f4a"/>`,
-  house3: `<rect x="-10" y="-9" width="26" height="25" fill="#000" opacity="0.25"/>
-    <rect x="-13" y="-13" width="26" height="26" rx="1.5" fill="#5f6b7d" stroke="#2b323d" stroke-width="1"/>
-    <rect x="-11" y="-11" width="10" height="10" fill="#8fa3b8"/><rect x="1" y="-11" width="10" height="10" fill="#7c8fa4"/>
-    <rect x="-11" y="1" width="10" height="10" fill="#7c8fa4"/><rect x="1" y="1" width="10" height="10" fill="#8fa3b8"/>
-    <path d="M-9 -8 H-3 M-9 -4 H-3 M3 -8 H9 M3 -4 H9 M-9 4 H-3 M-9 8 H-3 M3 4 H9 M3 8 H9" stroke="#f2d98a" stroke-width="1.3"/>`,
+  // houses round a settlement, front-on like the settlements; several looks per kind (HOUSE_LOOKS)
+  house: SHADOW + cot(0, 9, 13),
+  houseB: SHADOW + cot(0, 9, 14, '#4d6f96', '#a0683e'),
+  houseC: SHADOW + cot(-2, 9, 12, '#8a5a3c', '#d9c7a0'),
+  houseD: SHADOW + cot(3, 9, 11, '#c98f2a') + '<circle cx="-8" cy="4" r="4" fill="#3f7a35"/>',
+  house2: SHADOW + blk(0, 13, 12, '#e8d3a8') + `<path d="M-8 -2 L0 -9 L8 -2 Z" fill="#4d6f96"/>`,
+  house2B: SHADOW + blk(-5, 9, 12, '#f0d9a8') + blk(5, 10, 12, '#e8b3a3') + `<path d="M-10 -2 L-5 -7 L0 -2 L5 -7 L10 -2 Z" fill="#8a5a3c"/>`,
+  house2C: SHADOW + blk(0, 15, 12, '#e8d3a8') + `<rect x="-7.5" y="4" width="15" height="2" fill="#d64045"/><path d="M-9 -2 L0 -9 L9 -2 Z" fill="#c9553a"/>`,
+  house3: SHADOW + blk(0, 15, 18, '#7c8fa4'),
+  house3B: SHADOW + blk(-6, 8, 13, '#5f6b7d') + blk(4, 11, 22, '#a3b4c6'),
+  house3C: SHADOW + blk(0, 16, 19, '#a0543c') + `<rect x="-8" y="-10" width="16" height="2" fill="#4f7a4a"/>`,
   burner: `<rect x="-9" y="-7" width="22" height="20" fill="#000" opacity="0.22"/>
     <rect x="-11" y="-6" width="20" height="16" rx="1.5" fill="#8a5a44" stroke="#4a2a1e" stroke-width="1"/>
     <rect x="3" y="-13" width="5" height="9" fill="#6b4535" stroke="#4a2a1e" stroke-width="0.9"/>
@@ -552,6 +549,26 @@ function loadPixelSprites() {
     });
 }
 loadPixelSprites();
+// Effect strips (sprites/blastS.png ...): one row of square frames, left to right, played once over the effect's
+// life. Each is optional: without its PNG the effect is drawn by code as before. Drawn by tools/pixel_sprites.py.
+//   blastS: a mortar shell hitting the ground · blastM: a missile · blastA: a shell shot down in the air · scorch: 1 frame
+const FX = {};
+for (const name of ['blastS', 'blastM', 'blastA', 'scorch']) {
+  const img = new Image();
+  img.onload = () => { FX[name] = { img, n: img.height, frames: Math.max(1, Math.round(img.width / img.height)) }; };
+  img.src = `sprites/${name}.png?t=${Date.now()}`;
+}
+// frame `f` of a strip, `size` px square, with its anchor (cx, cy: 0..1 across the frame) on the screen point
+function drawFx(fx, f, sx, sy, size, cy = 0.5, rot = 0, alpha = 1) {
+  const smooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = size * dpr < fx.n;    // hard pixels when enlarged, smooth when shrunk
+  if (alpha !== 1) ctx.globalAlpha = alpha;
+  if (rot) { ctx.save(); ctx.translate(sx, sy); ctx.rotate(rot); sx = 0; sy = 0; }
+  ctx.drawImage(fx.img, f * fx.n, 0, fx.n, fx.n, sx - size / 2, sy - size * cy, size, size);
+  if (rot) ctx.restore();
+  if (alpha !== 1) ctx.globalAlpha = 1;
+  ctx.imageSmoothingEnabled = smooth;
+}
 const DEP_SPRITE = { forest: 'tree', stone: 'rock', iron: 'ore' };
 const DEP_RES = { forest: 'wood', stone: 'stone', iron: 'iron' };
 const DEP_COLOR = { forest: '#3f7a35', stone: '#a7adb3', iron: '#a8654a' };
@@ -2275,6 +2292,13 @@ function placeBuilding(i, type) {
   if (type === 'station') game.stations.push(i);
   if (type === 'port') game.ports.push(i);
 }
+// a new station's rail or port's sea route, as planned by linkPlan
+function layLink(i, type, plan) {
+  game.links.push({ kind: type === 'station' ? 'rail' : 'sea', a: i, b: plan.to, path: plan.path, t: 0, dir: 1 });
+  if (plan.route) game.routes.splice(game.routes.indexOf(plan.route), 1);   // the way home is laid now
+  floatText(i % W + 0.5, (i / W) | 0, plan.route ? `${type === 'station' ? 'Rail along your truck\'s road' : 'Shipping lane along your boat\'s course'}: ${plan.tiles} tiles to ${plan.homeName}`
+    : type === 'station' ? `Rail link: ${plan.tiles} tiles` : `Sea route: ${plan.tiles} tiles`, '#7bd389');
+}
 function tryBuild(i, type) {
   if (!isUnlocked(type)) return toast(`${CFG.buildings[type].name} unlocks when your empire reaches ${CFG.buildings[type].unlock} people`);
   const why = canBuild(i, type);
@@ -2291,12 +2315,7 @@ function tryBuild(i, type) {
   for (const [r, n] of Object.entries(cost)) C.res[r] -= n;
   const before = empireCap();
   placeBuilding(i, type);
-  if (plan && plan.path) {
-    game.links.push({ kind: type === 'station' ? 'rail' : 'sea', a: i, b: plan.to, path: plan.path, t: 0, dir: 1 });
-    if (plan.route) game.routes.splice(game.routes.indexOf(plan.route), 1);   // the way home is laid now
-    floatText(i % W + 0.5, (i / W) | 0, plan.route ? `${type === 'station' ? 'Rail along your truck\'s road' : 'Shipping lane along your boat\'s course'}: ${plan.tiles} tiles to ${plan.homeName}`
-      : type === 'station' ? `Rail link: ${plan.tiles} tiles` : `Sea route: ${plan.tiles} tiles`, '#7bd389');
-  }
+  if (plan && plan.path) layLink(i, type, plan);
   recomputeBuildings();
   const gained = empireCap() - before;
   if (gained >= 1) floatText(i % W + 0.5, ((i / W) | 0) - 1, `+${Math.round(gained)} capacity in ${C.short}`, '#7bd389');
@@ -2560,12 +2579,33 @@ function arrive(e) {
   }
   if (site >= 0) placeBuilding(site, 'settlement');
   recomputeNetwork();
+  // a boat's settlers build a port where they came ashore, free, and its shipping lane follows the boat home
+  let port = -1;
+  if (e.kind === 'boat') {
+    let pd = Infinity;
+    for (let dy = -r - 1; dy <= r + 1; dy++) for (let dx = -r - 1; dx <= r + 1; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (!inb(x, y) || canBuild(idx(x, y), 'port') || countryAt(idx(x, y)) !== liveCountry(col.id)) continue;
+      const d = Math.hypot(x + 0.5 - e.x, y + 0.5 - e.y);
+      if (d < pd) { pd = d; port = idx(x, y); }
+    }
+    if (port >= 0) {
+      placeBuilding(port, 'port');
+      const plan = linkPlan(port, 'port');
+      if (plan && plan.path) layLink(port, 'port', plan);
+      recomputeBuildings();
+    }
+  }
   const live = liveCountry(col.id);
   if (live !== col) { toast(`The settlers joined ${live.full}`); return; }
   const kitTxt = Object.entries(e.kit).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing';
-  const via = e.home == null ? 'link it home' : e.kind === 'boat' ? 'build a port here and its shipping lane follows your boat home'
-    : 'build a station here and its rail follows your truck home';
-  toast(`Founded ${col.full}! Its settlement grows as you claim the land around it. It has its own stockpile (${kitTxt}); ${via} to share people and cargo.`);
+  const linked = port >= 0 && game.links.some(L => L.a === port);
+  const via = port >= 0 ? (linked ? 'They built a port where they landed, and ships already sail your boat\'s course home with people and cargo.'
+      : 'They built a port where they landed; it links up once you have another port it can reach.')
+    : e.home == null ? 'Link it home to share people and cargo.'
+    : e.kind === 'boat' ? 'Build a port here and its shipping lane follows your boat home.'
+    : 'Build a station here and its rail follows your truck home.';
+  toast(`Founded ${col.full}! Its settlement grows as you claim the land around it, with its own stockpile (${kitTxt}). ${via}`);
 }
 
 
@@ -4398,6 +4438,18 @@ function drawVehicles(z) {
 function render() {
   const z = cam.zoom;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // a missile landing on screen shakes the picture for a moment
+  let shake = 0;
+  for (const b of game.blasts) {
+    if (!b.big || b.t >= 0.3) continue;
+    const [sx, sy] = toScreen(b.x, b.y);
+    if (sx > -150 && sy > -150 && sx < cw + 150 && sy < ch + 150) shake = Math.max(shake, (1 - b.t / 0.3) ** 2);
+  }
+  if (shake > 0) {
+    const k = shake * clamp(2 + z * 0.2, 3, 9);
+    ctx.fillStyle = '#04060c'; ctx.fillRect(0, 0, cw, ch);   // no stale strip at the edge the picture moved away from
+    ctx.setTransform(dpr, 0, 0, dpr, (Math.random() - 0.5) * 2 * k * dpr, (Math.random() - 0.5) * 2 * k * dpr);
+  }
   drawSpace(z);
   canvas.style.cursor = '';
   drawSun(z);
@@ -4470,6 +4522,10 @@ function render() {
       if (b.type === 'settlement' || x < x0 || x > x1 || y < y0 || y > y1) continue;
       if (DEFENCE_TOPS[b.type]) { drawDefence(b, z); continue; }
       drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : 1.25));
+    }
+    for (const b of game.buildings) {               // smoke on top of everything, so a puff isn't hidden by the sprite behind it
+      const x = b.i % W, y = (b.i / W) | 0;
+      if (b.type === 'burner' && x >= x0 && x <= x1 && y >= y0 - 2 && y <= y1) drawBurnerSmoke(b, z * 1.25);
     }
     drawRockets(z, x0, y0, x1, y1);
   } else if (z >= CFG.cityZoom) {
@@ -4601,22 +4657,68 @@ function sprawlOf(b) {
     const t = idx(x, y);
     if (used.has(t) || !isLand(t) || sideOf(t) !== side || building[t] || depositOf[t] >= 0) continue;
     used.add(t);
-    out.push({ x, y, type: lvl >= 3 && rad < 3.2 ? 'house3' : lvl >= 2 && rad < 3.8 ? 'house2' : 'house' });
+    out.push({ x, y, type: lvl >= 3 && rad < 3.2 ? 'house3' : lvl >= 2 && rad < 3.8 ? 'house2' : 'house', v: hash2(x, y, 73) });
   }
   out.sort((p, q) => p.y - q.y);
   b._n = n; b._lvl = lvl; b.sprawl = out;
   return out;
 }
 const OWN_HEX = '#2f7de1';
+// The looks each kind of house comes in (sprites/house*.png), and where a look's chimney is (sprite pixels,
+// 32x32) for its smoke. A house keeps its look: it's picked from its spot.
+const HOUSE_LOOKS = { house: ['house', 'houseB', 'houseC', 'houseD'], house2: ['house2', 'house2B', 'house2C'], house3: ['house3', 'house3B', 'house3C'] };
+const CHIMNEY = { house: [20, 10], houseC: [11, 11], house2: [20, 7] };
+const lookOf = h => { const L = HOUSE_LOOKS[h.type]; return L[Math.min(L.length - 1, Math.floor((h.v || 0) * L.length))]; };
 function drawSettlementDetail(b, z) {
-  const x = b.i % W, y = (b.i / W) | 0, lvl = settlementLevel(b);
-  for (const h of sprawlOf(b)) drawSprite(h.type, h.x + 0.5, h.y + 0.5, z * (h.type === 'house' ? 1.2 : 1.0));
+  const x = b.i % W, y = (b.i / W) | 0, lvl = settlementLevel(b), size = z * 1.3, houses = sprawlOf(b);
+  // front-on, so back rows first: the houses behind the centre, the centre, then the houses in front of it
+  const house = h => { const look = lookOf(h); drawSprite(RAS[look] ? look : h.type, h.x + 0.5, h.y + 0.5, size); };
+  for (const h of houses) if (h.y <= y) house(h);
   drawSprite('settle' + (lvl + 1), x + 0.5, y + 0.3, z * (2.5 + lvl * 0.35));
+  for (const h of houses) if (h.y > y) house(h);
+  // chimney smoke: a few soft puffs rising and drifting off, each house on its own beat
+  const px = Math.max(1.5, size / 32 * 1.6);
+  for (const h of houses) {
+    const c = CHIMNEY[lookOf(h)];
+    if (!c || hash2(h.x, h.y, 74) > 0.6) continue;  // not every chimney is lit
+    const [sx, sy] = toScreen(h.x + 0.5, h.y + 0.5), cx = sx + (c[0] / 32 - 0.5) * size, cy = sy + (c[1] / 32 - 0.5) * size;
+    for (let k = 0; k < 3; k++) {
+      const f = (game.time * 0.45 + h.v * 7 + k / 3) % 1, s = px * (1 + f * 1.6);
+      ctx.fillStyle = `rgba(226,228,230,${0.75 * (1 - f)})`;
+      ctx.fillRect(cx + Math.sin(f * 4 + h.v * 9) * px + f * size * 0.18 - s / 2, cy - f * size * 0.5 - s / 2, s, s);
+    }
+  }
+}
+// A wood burner's chimney puffs smoke while it burns: thick and steady at full load, a thin wisp when it's
+// barely needed, nothing when it's idle or out of wood. Puffs rise, swell, darken to grey and drift off.
+function drawBurnerSmoke(b, size) {
+  let load = 1;                                    // an AI nation's burner just always runs
+  if (owner[b.i]) {
+    const c = game.countries[countryOf[b.i]], m = c && c.mw, cap = c && c.pw ? c.pw.burners * CFG.power.burnerWood : 0;
+    load = m && cap ? Math.min(1, m.burn / cap) : 0;
+  }
+  if (load <= 0.01) return;
+  const x = b.i % W, y = (b.i / W) | 0, v = hash2(x, y, 75);
+  const [sx, sy] = toScreen(x + 0.5, y + 0.5);
+  const cx = sx + (19.5 / 32 - 0.5) * size, cy = sy + (2 / 32 - 0.5) * size;   // the chimney's mouth on the sprite
+  const px = Math.max(1.5, size / 32 * 1.8), n = 3 + Math.round(load * 4);
+  for (let k = 0; k < n; k++) {
+    const f = (game.time * 0.38 + v * 5 + k / n) % 1, s = px * (1.2 + f * 3.2);
+    const g = Math.round(205 - f * 70);            // fresh smoke is pale, it greys as it spreads
+    ctx.fillStyle = `rgba(${g},${g},${g + 4},${(0.45 + 0.4 * load) * (1 - f) * Math.min(1, f * 6)})`;
+    const wob = Math.sin(f * 5 + v * 11 + k) * px * 1.2;
+    ctx.fillRect(cx + wob + f * f * size * 0.45 - s / 2, cy - f * size * 0.85 - s / 2, s, s);
+  }
 }
 // Zoomed out, a settlement is drawn as what it is: a cluster of little coloured blocks, one per house, in the same
 // spots as its houses up close. Red roofs for houses, blue for apartments, pale grey for city blocks, and a bright
 // block at the centre. A hamlet is a few specks; a city is a patch you can't miss. No icons to cover the map.
-const PIXEL = { house: '#d9694a', house2: '#6f97c4', house3: '#d3dbe4' };
+// roof and wall colour for each look, as its sprite
+const PIXEL = {
+  house: ['#d9694a', '#e8d3a8'], houseB: ['#6f97c4', '#a0683e'], houseC: ['#a8744e', '#d9c7a0'], houseD: ['#e0a93a', '#e8d3a8'],
+  house2: ['#6f97c4', '#f0e2c0'], house2B: ['#a8744e', '#f0d9a8'], house2C: ['#d9694a', '#cfe3ff'],
+  house3: ['#a3b4c6', '#5f6b7d'], house3B: ['#c2d0de', '#3f4857'], house3C: ['#679a5e', '#a0543c'],
+};
 function drawSettlementPixels(z) {
   if (z < 0.15) return;                            // from orbit the whole disk is only a few pixels
   const px = Math.max(z * 0.82, 1.7), edge = px >= 4 ? 1 : 0.5, big = px * 1.5;
@@ -4624,22 +4726,27 @@ function drawSettlementPixels(z) {
   // two rectangles and two colour changes per house (tens of thousands of calls a frame on a big map).
   // Houses first, then the settlements' own centre pixels on top of them, as before.
   const edges = new Path2D(), fills = {}, cEdges = new Path2D(), cCalm = new Path2D(), cHit = new Path2D();
-  for (const t in PIXEL) fills[t] = new Path2D();
+  const fill = c => fills[c] || (fills[c] = new Path2D());
   const zc = z * cam.cos, zs = z * cam.sin, hw = cw / 2, hh = ch / 2, ox = cam.x - 0.5, oy = cam.y - 0.5;   // toScreen, inlined
   const dot = (sq, ed, wx, wy, s) => {
     const dx = wx - ox, dy = wy - oy, sx = dx * zc - dy * zs + hw - s / 2, sy = dx * zs + dy * zc + hh - s / 2;
     ed.rect(sx - edge, sy - edge, s + edge * 2, s + edge * 2); sq.rect(sx, sy, s, s);
+  };
+  const tiny = (look, wx, wy, s) => {             // a house: its roof on top, its wall below
+    const dx = wx - ox, dy = wy - oy, sx = dx * zc - dy * zs + hw - s / 2, sy = dx * zs + dy * zc + hh - s / 2, c = PIXEL[look], r = Math.round(s * 0.45);
+    edges.rect(sx - edge, sy - edge, s + edge * 2, s + edge * 2);
+    fill(c[0]).rect(sx, sy, s, r); fill(c[1]).rect(sx, sy + r, s, s - r);
   };
   for (const b of game.buildings) {
     if (b.type !== 'settlement') continue;
     const bx = b.i % W, by = (b.i / W) | 0, dx = bx - ox, dy = by - oy;
     const cx = dx * zc - dy * zs + hw, cy = dx * zs + dy * zc + hh;
     if (cx < -60 || cy < -60 || cx > cw + 60 || cy > ch + 60) continue;
-    for (const h of sprawlOf(b)) dot(fills[h.type] || fills.house, edges, h.x, h.y, px);
+    for (const h of sprawlOf(b)) tiny(lookOf(h), h.x, h.y, px);
     dot(underFire(b) ? cHit : cCalm, cEdges, bx, by, big);
   }
   ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill(edges);
-  for (const t in fills) { ctx.fillStyle = PIXEL[t]; ctx.fill(fills[t]); }
+  for (const c in fills) { ctx.fillStyle = c; ctx.fill(fills[c]); }
   ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fill(cEdges);
   ctx.fillStyle = '#f2d98a'; ctx.fill(cCalm);
   ctx.fillStyle = '#ff7a6b'; ctx.fill(cHit);
@@ -5601,6 +5708,10 @@ function drawMissiles(z) {
   // burnt ground where something landed, fading over time
   for (const sc of game.scorch) {
     const [sx, sy] = toScreen(sc.x, sc.y), r = Math.max(5, sc.R * z * 0.95);
+    if (FX.scorch) {                               // a crater with soot streaks, each one turned its own way
+      drawFx(FX.scorch, 0, sx, sy, r * 2.4, 0.5, hash2(Math.floor(sc.x * 7), Math.floor(sc.y * 7), 66) * 6.283, 0.9 * Math.min(1, (1 - sc.t) * 1.6));
+      continue;
+    }
     ctx.beginPath(); ctx.ellipse(sx, sy, r, r * 0.8, 0, 0, Math.PI * 2);
     ctx.fillStyle = `rgba(22,18,16,${0.42 * (1 - sc.t)})`; ctx.fill();
   }
@@ -5712,6 +5823,11 @@ function drawMissiles(z) {
   // explosions: a flash, a fireball, a shockwave ring, sparks, then smoke that hangs and rises
   for (const b of game.blasts) {
     const [sx, sy] = lifted(b.x, b.y, b.air, z), r0 = Math.max(b.big ? 16 : 9, (b.R + 1) * z);
+    const fx = FX[b.air ? 'blastA' : b.big ? 'blastM' : 'blastS'];
+    if (fx) {                                      // the pixel strip: flash, fireball, smoke, one frame per slice of its life
+      drawFx(fx, Math.min(fx.frames - 1, Math.floor(b.t * fx.frames)), sx, sy, r0 * (b.air ? 1.9 : 2.5), 0.56);
+      continue;
+    }
     const tf = Math.min(1, b.t * 2.2), ease = 1 - (1 - tf) * (1 - tf);     // the fire is over in under half the blast's life
     for (let j = 0; j < (b.big ? 7 : 4); j++) {                           // smoke
       const a = hash2(b.seed, j, 61) * Math.PI * 2, d = hash2(b.seed, j, 62) * r0 * 0.6;

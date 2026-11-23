@@ -136,12 +136,12 @@ def lighten(h, k=0.35):
 
 # ---------------------------------------------------------------- building blocks
 
-def cottage(s, cx, base, w, roof='r', lit='R', shade='q'):
+def cottage(s, cx, base, w, roof='r', lit='R', shade='q', wall='w', wall_shade='W'):
     """A front-on cottage: plaster wall with a door and window, gabled roof above. `base` is the bottom row."""
     h = max(3, round(w * 0.55))
     x0 = cx - w // 2
-    s.rect(x0, base - h + 1, w, h, 'w')
-    s.rect(x0 + w - 1, base - h + 1, 1, h, 'W')                       # shaded right edge
+    s.rect(x0, base - h + 1, w, h, wall)
+    s.rect(x0 + w - 1, base - h + 1, 1, h, wall_shade)                # shaded right edge
     s.rect(cx - (1 if w < 10 else 1), base - 2, 2, 3, 'd')           # door
     if w >= 8:
         s.rect(x0 + 1, base - h + 2, 2, 2, 'y')                       # window
@@ -677,40 +677,153 @@ def shingles(s, colour, every=2):
                 s.g[y][x] = dark
 
 
+# Houses round a settlement, front-on like the settlements themselves, in a few looks each so a town isn't one
+# stamp repeated: cottages on the edge (house*), townhouses and shops in the middle ring (house2*),
+# apartment blocks in a city's core (house3*). The game picks a look per spot (HOUSE_LOOKS in game.js).
+
+BROWN = ('#8a5a3c', '#a8744e', '#5e3a24')                                   # roof: mid, lit, shade
+SLATE = ('u', 'U', '#2c4260')
+GREEN = ('#4f7a4a', '#679a5e', '#33522f')
+
+
+def chimney(s, x, top, h=4):
+    s.rect(x, top, 2, h, '#8a5a44'); s.rect(x, top, 2, 1, 'n')
+
+
+def bush(s, cx, base, r=3):
+    for y in range(base - 2 * r + 1, base + 1):
+        for x in range(cx - r, cx + r + 1):
+            if (x - cx) ** 2 + (y - (base - r)) ** 2 <= r * r + 1:
+                s.px(x, y, '#56963f' if x < cx and y < base - r else '#3f7a35')
+
+
 def house():
+    """A plaster cottage with a red roof and a chimney."""
     s = Sprite()
-    s.shadow_poly(box(-7, -6, 18, 16))
-    s.poly(box(-9, -8, 18, 8), '#de6d4c')
-    s.poly(box(-9, 0, 18, 8), '#b04a31')
-    shingles(s, '#de6d4c'); shingles(s, '#b04a31')
-    s.poly(box(-9, -0.6, 18, 1.2), '#7d3220')                   # ridge
-    s.poly(box(3, -6.5, 3.2, 4), '#4e3a33')                     # chimney
-    s.outline('#6b2b1b')
-    return s.image()
+    chimney(s, 19, 11)
+    cottage(s, 15, 26, 14)
+    s.outline()
+    return s.image(shadow=(15, 29, 11))
+
+
+def houseB():
+    """A timber house with a slate-blue roof and a lit window either side of the door."""
+    s = Sprite()
+    cottage(s, 16, 26, 16, *SLATE, wall='#a0683e', wall_shade='#6e4426')
+    s.rect(9, 24, 14, 1, '#8a5a34')                                        # board seam
+    s.rect(15, 23, 2, 4, 'd')
+    s.outline()
+    return s.image(shadow=(16, 29, 12))
+
+
+def houseC():
+    """A stone cottage with a brown roof, a chimney and a short fence."""
+    s = Sprite()
+    chimney(s, 10, 12)
+    cottage(s, 14, 26, 12, *BROWN, wall='t', wall_shade='T')
+    for x in (12, 17):
+        s.px(x, 24, 'T')                                                   # stones
+    for x in range(21, 29, 2):                                             # fence
+        s.rect(x, 23, 1, 4, 'b')
+    s.rect(21, 24, 8, 1, 'b')
+    s.outline()
+    return s.image(shadow=(15, 29, 12))
+
+
+def houseD():
+    """A small ochre-roofed cottage with a garden tree beside it."""
+    s = Sprite()
+    bush(s, 8, 24, 4)
+    s.rect(8, 25, 1, 2, 'b')
+    cottage(s, 20, 26, 11, '#c98f2a', '#e0a93a', '#8f5f1a')
+    s.outline()
+    return s.image(shadow=(15, 29, 12))
+
+
+def townhouse(s, cx, base, w, floors, wall='w', wall_shade='W', roof=SLATE, door='d'):
+    """A narrow house of `floors` storeys: rows of windows, a door in the middle, a steep gable on top."""
+    fh = 5
+    h = floors * fh + 1
+    x0, top = cx - w // 2, base - floors * fh
+    s.rect(x0, top, w, h, wall); s.rect(x0 + w - 1, top, 1, h, wall_shade)
+    for f in range(floors):
+        y = top + 1 + f * fh
+        for wx in range(x0 + 2, x0 + w - 2, 4):
+            if f == floors - 1 and abs(wx + 1 - cx) < 2:
+                continue                                                   # the door goes here
+            s.rect(wx, y, 2, 3, 'y'); s.px(wx + 1, y, '#e3c56e')
+    s.rect(cx - 1, base - 3, 2, 4, door)
+    half = w // 2 + 1
+    for row in range(half + 1):
+        for x in range(cx - half + row, cx + half - row + (w % 2)):
+            s.px(x, top - 1 - row, roof[1] if x < cx else roof[0])
+    s.rect(cx - half, top - 1, 2 * half + (w % 2), 1, roof[2])
 
 
 def house2():
+    """A two-storey plaster townhouse with a slate-blue roof."""
     s = Sprite()
-    s.shadow_poly(box(-9, -8, 24, 20))
-    s.poly(box(-12, -10, 24, 10), '#7099c4')
-    s.poly(box(-12, 0, 24, 10), '#4d6f96')
-    shingles(s, '#7099c4'); shingles(s, '#4d6f96')
-    s.poly(box(-12, -0.6, 24, 1.2), '#2c4260')
-    s.poly(box(-8, -8, 3, 4), '#3a3f4a'); s.poly(box(5, -8, 3, 4), '#3a3f4a')   # dormer windows
-    s.outline('#2c4260')
-    return s.image()
+    chimney(s, 19, 8, 4)
+    townhouse(s, 16, 27, 14, 2)
+    s.outline()
+    return s.image(shadow=(16, 29, 12))
+
+
+def house2B():
+    """Two terraced houses side by side, cream and rose, under brown roofs."""
+    s = Sprite()
+    townhouse(s, 10, 27, 10, 2, '#f0d9a8', '#cdb283', BROWN)
+    townhouse(s, 21, 27, 11, 2, '#e8b3a3', '#c48e7e', BROWN)
+    s.outline()
+    return s.image(shadow=(16, 29, 14))
+
+
+def house2C():
+    """A corner shop: a striped awning over a wide window, a flat above it."""
+    s = Sprite()
+    townhouse(s, 16, 27, 16, 2, roof=('r', 'R', 'q'))
+    s.rect(9, 23, 14, 4, '#cfe3ff'); s.rect(9, 23, 14, 1, '#eaf3ff'); s.rect(15, 23, 2, 5, 'd')   # shop window and door
+    for x in range(8, 24):                                                 # red and white awning
+        s.px(x, 21, 'x' if (x // 2) % 2 else '#f6f0e4'); s.px(x, 22, 'X' if (x // 2) % 2 else '#d9d0be')
+    s.outline()
+    return s.image(shadow=(16, 29, 13))
 
 
 def house3():
+    """A city apartment block: flat roof with a water tank, rows of lit windows."""
     s = Sprite()
-    s.shadow_poly(box(-10, -9, 26, 25))
-    s.poly(box(-13, -13, 26, 26), '#5f6b7d')
-    for x, y, c in ((-11, -11, '#8fa3b8'), (1, -11, '#7c8fa4'), (-11, 1, '#7c8fa4'), (1, 1, '#8fa3b8')):
-        s.poly(box(x, y, 10, 10), c)
-        for wy in (2.2, 6.2):                                    # two rows of lit windows per wing
-            s.poly(box(x + 2, y + wy, 6, 1.4), '#f2d98a')
-    s.outline('#2b323d')
-    return s.image()
+    block(s, 8, 16, 9, 27, '3', '2')
+    s.rect(10, 6, 4, 3, 'b'); s.rect(10, 6, 4, 1, '#8a5a34'); s.px(10, 8, 'b'); s.px(13, 8, 'b')   # water tank
+    s.rect(15, 24, 2, 4, 'd')
+    s.outline()
+    return s.image(shadow=(16, 29, 12))
+
+
+def house3B():
+    """Two towers, a tall one with an antenna and a shorter one beside it."""
+    s = Sprite()
+    block(s, 5, 9, 13, 27, '2', '1')
+    block(s, 14, 12, 5, 27, '4', '3')
+    s.rect(20, 1, 1, 4, 'm'); s.px(20, 0, 'x')
+    s.outline()
+    return s.image(shadow=(16, 29, 14))
+
+
+def house3C():
+    """A brick apartment block with balconies and a green roof garden."""
+    s = Sprite()
+    brick, dark, lit = '#a0543c', '#7a3a28', '#bf6a4e'
+    s.rect(7, 9, 18, 19, brick); s.rect(23, 9, 2, 19, dark); s.rect(7, 9, 18, 1, lit)
+    for y in range(11, 24, 4):
+        for x in range(9, 22, 4):
+            s.rect(x, y, 2, 2, 'y')
+        s.rect(8, y + 2, 15, 1, 'm')                                       # balcony rail
+    s.rect(15, 24, 2, 4, 'd')
+    s.rect(7, 7, 18, 2, GREEN[0]); s.rect(7, 7, 9, 1, GREEN[1])            # roof garden
+    for x in (9, 13, 19):
+        s.rect(x, 5, 2, 2, '#56963f')
+    s.outline()
+    return s.image(shadow=(16, 29, 12))
 
 
 def cabin():
@@ -801,7 +914,9 @@ def ship():
 
 MAP = {
     'truck': truck, 'engine': engine, 'wagon': wagon, 'ship': ship,
-    'house': house, 'house2': house2, 'house3': house3, 'cabin': cabin,
+    'house': house, 'houseB': houseB, 'houseC': houseC, 'houseD': houseD,
+    'house2': house2, 'house2B': house2B, 'house2C': house2C,
+    'house3': house3, 'house3B': house3B, 'house3C': house3C, 'cabin': cabin,
     'treeA': lambda: broadleaf('#2f5a2b', '#3f7a35', '#56963f', '#7bb85a', 1),
     'treeB': lambda: broadleaf('#264d2f', '#33663a', '#447c44', '#5c9652', 2),
     'treeD': lambda: broadleaf('#566f2a', '#718f33', '#90ad43', '#b6cc68', 4),
@@ -824,19 +939,177 @@ SPRITES = {
 }
 
 
+# ---------------------------------------------------------------- explosions: frame strips
+# A strip is one row of square frames, left to right (a 32px, 8-frame strip is 256x32). The game plays it
+# once over the blast's life, at a stepped frame rate, so it reads as pixel animation.
+# Each frame is a handful of puffs. A puff is a disc whose colour follows its heat: white, yellow, orange,
+# red, then smoke. Each puff is lit on its upper left, and the whole frame gets a dark outline.
+
+FIRE = ['#fffbe6', '#ffe066', '#ff9a3c', '#e0482a', '#8f2a1c']                 # hot to cool
+SMOKE = ['#9a948c', '#77716a', '#5a5550', '#3f3b38']                           # light to dark
+FLAK = ['#ffffff', '#e4f3ff', '#b9d9f5', '#8fa9bf', '#6b7d8c']                 # an air burst: white and steel blue
+
+
+class Frame:
+    def __init__(self, n):
+        self.n = n
+        self.g = {}
+
+    def disc(self, cx, cy, r, c, holes=0.0, rnd=None):
+        for y in range(int(cy - r) - 1, int(cy + r) + 2):
+            for x in range(int(cx - r) - 1, int(cx + r) + 2):
+                if 0 <= x < self.n and 0 <= y < self.n and (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r:
+                    if holes and rnd.random() < holes:
+                        continue
+                    self.g[(x, y)] = c
+
+    def outline(self, c):
+        for (x, y) in list(self.g):
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                p = (x + dx, y + dy)
+                if p not in self.g and 0 <= p[0] < self.n and 0 <= p[1] < self.n:
+                    self.g[p] = 'OUT' + c
+        for p, c2 in list(self.g.items()):
+            if c2.startswith('OUT'):
+                self.g[p] = c2[3:]
+
+    def image(self):
+        img = Image.new('RGBA', (self.n, self.n), (0, 0, 0, 0))
+        for (x, y), c in self.g.items():
+            a = 255
+            if len(c) == 9:                                                    # '#rrggbbaa'
+                a = int(c[7:9], 16)
+            img.putpixel((x, y), (int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16), a))
+        return img
+
+
+def heat_colour(h, fire, smoke):
+    if h > 0.82: return fire[0]
+    if h > 0.62: return fire[1]
+    if h > 0.42: return fire[2]
+    if h > 0.24: return fire[3]
+    if h > 0.12: return fire[4]
+    k = clamp01(-h * 2.2)                                                      # cooling smoke darkens, then thins
+    return smoke[min(len(smoke) - 1, int(k * len(smoke)))]
+
+
+def clamp01(v):
+    return max(0.0, min(1.0, v))
+
+
+def blast_strip(n, frames, seed, puffs, reach, rise, fire=FIRE, smoke=SMOKE, debris=0, ring=True, cool=1.0):
+    """One explosion as a strip. reach = how far the puffs spread (of the frame), rise = how far the smoke climbs."""
+    rnd = random.Random(seed)
+    P = []
+    for k in range(puffs):                                                     # each puff: where it heads, how big, how hot
+        a = rnd.random() * math.tau
+        d = (0.15 + rnd.random() * 0.85) * reach * n * 0.5
+        far = d / (reach * n * 0.5)                                            # 0 at the core, 1 at the rim
+        P.append(dict(dx=math.cos(a) * d, dy=math.sin(a) * d * 0.75, r=n * (0.08 + rnd.random() * 0.08) * (1.25 - far * 0.4),
+                      hot=1.15 - far * 0.45 + rnd.random() * 0.15, up=0.6 + rnd.random() * 0.8))
+    P.sort(key=lambda p: -p['hot'])                                            # cooler puffs first: hot ones on top
+    P.reverse()
+    D = [(rnd.random() * math.tau, 0.6 + rnd.random() * 0.6) for _ in range(debris)]
+    cx, cy = n / 2, n * 0.56
+    out = Image.new('RGBA', (n * frames, n), (0, 0, 0, 0))
+    for f in range(frames):
+        t = f / (frames - 1)
+        F = Frame(n)
+        hr = random.Random(seed * 100 + f)
+        if f == 0:                                                             # the flash: a bright burst with spikes
+            F.disc(cx, cy, n * 0.2, fire[1]); F.disc(cx, cy, n * 0.13, fire[0])
+            for k in range(8):
+                a = k / 8 * math.tau + 0.2
+                for s in range(int(n * 0.12), int(n * 0.3)):
+                    F.g[(int(cx + math.cos(a) * s), int(cy + math.sin(a) * s * 0.8))] = fire[0 if s < n * 0.22 else 1]
+        else:
+            grow = 1 - (1 - min(1.0, t * 2.4)) ** 2                            # puffs fly out fast, then hang
+            for p in P:
+                x = cx + p['dx'] * grow
+                y = cy + p['dy'] * grow - rise * n * t * t * p['up']
+                h = p['hot'] - t * 1.55 * cool
+                r = p['r'] * (0.85 + grow * 0.55) * (1 - max(0.0, t - 0.7) * 1.6)
+                if r < 0.8:
+                    continue
+                holes = max(0.0, (t - 0.6) * 1.6) if h <= 0.12 else 0          # smoke thins out at the end
+                c = heat_colour(h, fire, smoke)
+                if h > 0.12:
+                    dark = heat_colour(h - 0.2, fire, smoke)
+                else:
+                    dark = smoke[min(len(smoke) - 1, smoke.index(c) + 1)]
+                lit = heat_colour(h + 0.2, fire, smoke) if h > 0.12 else smoke[max(0, smoke.index(c) - 1)]
+                F.disc(x + r * 0.2, y + r * 0.25, r, dark, holes, hr)          # shaded lower right
+                F.disc(x, y, r * 0.92, c, holes, hr)
+                F.disc(x - r * 0.3, y - r * 0.3, r * 0.45, lit, holes, hr)     # lit upper left
+            if t < 0.5:                                                        # sparks and debris flying out
+                for a, v in D:
+                    s = n * 0.12 + n * 0.42 * v * min(1.0, t * 2.2)
+                    x, y = cx + math.cos(a) * s, cy + math.sin(a) * s * 0.8 + n * 0.3 * t * t
+                    if 0 <= x < n and 0 <= y < n:
+                        F.g[(int(x), int(y))] = (fire[1] if t < 0.25 else '#2e2a28') + 'ff'   # 'ff': kept out of the outline
+        rf = f * 8 / frames                                                    # the ring's own clock: same speed whatever the frame count
+        if ring and 1 <= f and rf <= 3.5:                                      # the shockwave, a thin pale ring
+            R = n * (0.22 + rf * 0.09)
+            for k in range(int(R * 6)):
+                a = k / (R * 6) * math.tau
+                p = (int(cx + math.cos(a) * R), int(cy + math.sin(a) * R * 0.8))
+                if 0 <= p[0] < n and 0 <= p[1] < n and p not in F.g:
+                    F.g[p] = '#ffffff' + ('c0' if rf < 1.6 else '80' if rf < 2.6 else '40')
+        solid = {p: c for p, c in F.g.items() if len(c) == 7}
+        rings = {p: c for p, c in F.g.items() if len(c) == 9}
+        F.g = solid
+        F.outline(fire[4] if t < 0.45 else '#2e2a28')
+        for p, c in rings.items():
+            F.g.setdefault(p, c)
+        out.paste(F.image(), (f * n, 0))
+    return out
+
+
+def scorch():
+    """The mark a blast leaves on the ground: a dark crater with soot streaks, faded out at the edges."""
+    n = 32
+    rnd = random.Random(5)
+    img = Image.new('RGBA', (n, n), (0, 0, 0, 0))
+    cx, cy = n / 2, n / 2
+    for y in range(n):
+        for x in range(n):
+            dx, dy = (x + 0.5 - cx) / (n * 0.42), (y + 0.5 - cy) / (n * 0.34)
+            a = math.atan2(dy, dx)
+            edge = 1 + 0.25 * math.sin(a * 5 + 1) + 0.15 * math.sin(a * 9)    # ragged edge, with streaks
+            d = math.hypot(dx, dy) / edge
+            if d > 1 or rnd.random() < max(0, d - 0.7) * 2:
+                continue
+            if d < 0.32:
+                c, al = (34, 28, 24), 220                                       # the crater
+            elif d < 0.38:
+                c, al = (92, 80, 66), 200                                       # its lip, catching the light
+            else:
+                c, al = (40, 34, 30), int(190 * (1 - d) + 40)                   # soot
+            img.putpixel((x, y), (*c, al))
+    return img
+
+
+STRIPS = {
+    'blastS': lambda: blast_strip(64, 14, 11, 9, 0.65, 0.2, debris=10),                   # mortar shell (64px frames: about the map's pixel size at its drawn size)
+    'blastM': lambda: blast_strip(112, 20, 23, 16, 0.7, 0.22, debris=22, cool=0.95),     # missile
+    'blastA': lambda: blast_strip(32, 10, 37, 6, 0.55, 0.1, fire=FLAK, smoke=SMOKE[:2], debris=0, ring=False, cool=1.2),   # air burst
+}
+SPRITES['scorch'] = scorch
+
+
 def main(args):
     preview = '--preview' in args
-    names = [a for a in args if not a.startswith('--')] or list(SPRITES)
+    names = [a for a in args if not a.startswith('--')] or list(SPRITES) + list(STRIPS)
     OUT.mkdir(parents=True, exist_ok=True)
     if preview:
         PREVIEW.mkdir(parents=True, exist_ok=True)
     for name in names:
-        img = SPRITES[name]()
+        img = (SPRITES.get(name) or STRIPS[name])()
         img.save(OUT / f'{name}.png')
         if preview:
-            bg = Image.new('RGBA', (N, N), (140, 176, 110, 255))     # grass, to judge it in place
+            bg = Image.new('RGBA', img.size, (140, 176, 110, 255))   # grass, to judge it in place
             bg.alpha_composite(img)
-            bg.resize((N * 8, N * 8), Image.NEAREST).save(PREVIEW / f'{name}.png')
+            bg.resize((img.width * 8, img.height * 8), Image.NEAREST).save(PREVIEW / f'{name}.png')
         print('wrote', name)
 
 

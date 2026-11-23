@@ -42,6 +42,7 @@
   <p class="lead">Everything the game draws, numbered so we can talk about each one. Part A is everything that moves, played live with the game's own sprites and effect code. Part B is every still sprite, at map size and blown up.</p>
   <div class="bar">
     <label>Speed <input id="speed" type="range" min="0.1" max="1" step="0.05" value="1"> <span id="speedv">1×</span></label>
+    <label><input id="pixfx" type="checkbox" checked> Pixel explosions</label>
     <label>Zoom <input id="zoom" type="range" min="8" max="26" step="1" value="16"> <span id="zoomv">16 px/tile</span></label>
   </div>
 </header>
@@ -78,6 +79,12 @@ async function load() {
     img.src = usePng ? `sprites/${name}.png?t=${Date.now()}` : svgUrl(inner);
   }));
   await Promise.all(jobs);
+  await Promise.all(['blastS', 'blastM', 'blastA', 'scorch'].map(name => new Promise(done => {
+    const img = new Image();
+    img.onload = () => { FX[name] = { img, n: img.height, frames: Math.round(img.width / img.height) }; done(); };
+    img.onerror = done;
+    img.src = `sprites/${name}.png?t=${Date.now()}`;
+  })));
 }
 const svgUrl = inner => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-15 -15 30 30" width="256" height="256">${inner}</svg>`);
 
@@ -136,8 +143,21 @@ function drawShot(g, m, z) {
   }
   g.restore();
 }
+const FX = {};
+let PIXFX = true;
+function drawFx(g, fx, f, sx, sy, size, cy = 0.5, rot = 0, alpha = 1) {
+  g.save(); g.imageSmoothingEnabled = false; g.globalAlpha = alpha; g.translate(sx, sy); g.rotate(rot);
+  g.drawImage(fx.img, f * fx.n, 0, fx.n, fx.n, -size / 2, -size * cy, size, size);
+  g.restore();
+}
 function drawBlast(g, b, z) {
   const sx = b.x * z, sy = b.y * z - (b.lift || 0), r0 = Math.max(b.big ? 16 : 9, (b.R + 1) * z);
+  const fx = PIXFX && FX[b.air ? 'blastA' : b.big ? 'blastM' : 'blastS'];
+  if (fx) {
+    if (!b.air && FX.scorch) drawFx(g, FX.scorch, 0, sx, sy, Math.max(5, b.R * z * 0.95) * 2.4, 0.5, b.seed, 0.9);
+    drawFx(g, fx, Math.min(fx.frames - 1, Math.floor(b.t * fx.frames)), sx, sy, r0 * (b.air ? 1.9 : 2.5), 0.56);
+    return;
+  }
   const tf = Math.min(1, b.t * 2.2), ease = 1 - (1 - tf) * (1 - tf);
   for (let j = 0; j < (b.big ? 7 : 4); j++) {
     const a = hash2(b.seed, j, 61) * Math.PI * 2, d = hash2(b.seed, j, 62) * r0 * 0.6;
@@ -251,11 +271,11 @@ const SCENES = [
         g.beginPath(); g.arc(A[0], A[1], Math.max(3, z * (0.12 + Math.random() * 0.1)), 0, Math.PI * 2); g.fillStyle = 'rgba(255,220,120,0.9)'; g.fill();
       }
     } },
-  { n: 'A6', name: 'Mortar shell + blast', tag: 'fx', d: 'The tube swings to each new target as it fires (9 rad/s) and kicks back. Shell = dark dot on a high arc with a grey puff trail; landing = small fireball, sparks, ring, smoke.',
+  { n: 'A6', name: 'Mortar shell + blast', tag: 'fx', d: 'The tube swings to each new target as it fires (9 rad/s) and kicks back. Shell = dark dot on a high arc with a grey puff trail; landing = a 14-frame pixel blast (flash, fireball, smoke) that leaves a scorch mark.',
     draw(g, z, T, S) { shotScene(g, z, T, 'shell', 'mortar', 9, 6, 2.6, S); } },
-  { n: 'A7', name: 'Missile + big blast', tag: 'fx', d: 'Silo sprite is still (no hatch opening). Missile is drawn in code (white body, red nose, flickering flame, long smoke trail); big blast on landing.',
+  { n: 'A7', name: 'Missile + big blast', tag: 'fx', d: 'Silo sprite is still (no hatch opening). Missile is drawn in code (white body, red nose, flickering flame, long smoke trail); landing = a 20-frame pixel blast, and the screen shakes.',
     draw(g, z, T, S) { shotScene(g, z, T, 'missile', 'silo', 2.5, 8, 4.2, S); } },
-  { n: 'A8', name: 'Air defense intercept', tag: 'fx', d: 'The launcher swings to face each incoming shell as it fires (12 rad/s). Interception = a white-blue streak up to the shell and a small blast in mid-air.',
+  { n: 'A8', name: 'Air defense intercept', tag: 'fx', d: 'The launcher swings to face each incoming shell as it fires (12 rad/s). Interception = a white-blue streak up to the shell and a 10-frame white-and-steel flak puff in mid-air.',
     draw(g, z, T, S) {
       const cyc = 3, k = Math.floor(T / cyc), u = (T % cyc) / cyc * 1.4, left = k % 2 === 0;
       const m = left ? { w: 'shell', x0: 1.8, y0: 4, x1: 16, y1: 6, t: Math.min(u, 0.62) } : { w: 'shell', x0: 16.2, y0: 4, x1: 2, y1: 6.5, t: Math.min(u, 0.62) };
@@ -271,7 +291,7 @@ const SCENES = [
         g.beginPath(); g.moveTo(9 * z, 8.5 * z); g.lineTo(gx * z, gy * z - ly);
         g.strokeStyle = `rgba(190,245,255,${0.9 * (1 - tr)})`; g.lineWidth = 2.5; g.stroke();
         g.strokeStyle = `rgba(255,255,255,${1 - tr})`; g.lineWidth = 1; g.stroke();
-        drawBlast(g, { x: gx, y: gy, lift: ly, t: Math.min(1, k * 1.6), R: 0.4, big: false, seed: 77 }, z);
+        drawBlast(g, { x: gx, y: gy, lift: ly, t: Math.min(1, k * 1.6), R: 0.4, big: false, air: true, seed: 77 }, z);
       }
     } },
   { n: 'A9', name: 'Rocket on its launch pad', tag: 'sprite', d: 'The rocket fades in from faint to solid as iron arrives (iron bar), then a fuel bar fills. No scaffolding, steam or countdown.',
@@ -311,6 +331,18 @@ const SCENES = [
       w = pill(g, fx * z, 7.5 * z, String(Math.ceil(45 + Math.cos(T) * 10)), { fg: '#fff', bg: 'rgba(60,16,16,0.92)', border: '#d64045', size: 13, bold: 800 });
       spr(g, 'person', fx * z - w / 2 + 12, 7.5 * z, 18);
     } },
+  { n: 'A13', name: 'Explosions up close', tag: 'fx', d: 'The three blasts at 3× size, on loop: flak puff (air), mortar shell, missile. The ground ones leave a scorch mark.',
+    draw(g, z, T) {
+      const lives = [0.8, 1.1, 1.7], kinds = [{ air: true, R: 0.4 }, { R: 1.5 }, { big: true, R: 3 }], xs = [3, 8, 14];
+      kinds.forEach((k, i) => {
+        const u = (T % (lives[i] + 0.6)) / lives[i];
+        const zz = z * (i === 2 ? 1.15 : 1.6);
+        g.save(); g.translate(xs[i] * z, 6.2 * z); g.scale(zz / z, zz / z); g.translate(-xs[i] * z, -6.2 * z);
+        if (u < 1) drawBlast(g, { x: xs[i], y: 6.2, t: u, R: k.R, big: !!k.big, air: !!k.air, seed: 5 + i }, z);
+        else if (!k.air && FX.scorch && PIXFX) drawFx(g, FX.scorch, 0, xs[i] * z, 6.2 * z, Math.max(5, k.R * z * 0.95) * 2.4, 0.5, 5 + i, 0.9);
+        g.restore();
+      });
+    } },
   { n: 'A12', name: 'Buildings at work', tag: 'sprite', d: 'Everything else that "works" is still: the burner flame and smoke, rig, drill, solar panel and ice drill have no motion at all.',
     draw(g, z, T) {
       const row = ['burner', 'rig', 'drill', 'solar', 'camp', 'cabin'];
@@ -344,6 +376,7 @@ const cards = SCENES.map(sc => {
 
 let zoom = 16, speed = 1, T = 0, last = performance.now();
 document.getElementById('speed').oninput = e => { speed = +e.target.value; document.getElementById('speedv').textContent = speed + '×'; };
+document.getElementById('pixfx').onchange = e => { PIXFX = e.target.checked; };
 document.getElementById('zoom').oninput = e => { zoom = +e.target.value; document.getElementById('zoomv').textContent = zoom + ' px/tile'; };
 
 function frame(now) {
@@ -362,7 +395,7 @@ function frame(now) {
 }
 
 const GROUPS = [
-  ['Settlements', [['settle1', 'level 1'], ['settle2', 'level 2'], ['settle3', 'level 3'], ['settle4', 'level 4'], ['settlement', 'build-menu icon'], ['house', 'house round a town'], ['house2', 'bigger house'], ['house3', 'city block']]],
+  ['Settlements', [['settle1', 'level 1'], ['settle2', 'level 2'], ['settle3', 'level 3'], ['settle4', 'level 4'], ['settlement', 'build-menu icon'], ['house', 'cottage'], ['houseB', 'timber cottage'], ['houseC', 'stone cottage'], ['houseD', 'cottage + tree'], ['house2', 'townhouse'], ['house2B', 'terraced pair'], ['house2C', 'corner shop'], ['house3', 'apartment block'], ['house3B', 'twin towers'], ['house3C', 'brick flats']]],
   ['Buildings', [['station', 'train station'], ['port', 'port'], ['burner', 'burner power'], ['solar', 'solar'], ['rig', 'oil/mining rig'], ['cabin', 'wood cabin'], ['camp', 'stone camp'], ['drill', 'ice drill'], ['pad', 'launch pad'], ['silo', 'missile silo']]],
   ['Defence', [['turret', 'gun turret (icon)'], ['turretBase', 'turret base'], ['turretGun', 'turret gun: turns'], ['mortar', 'auto mortar (icon)'], ['mortarBase', 'mortar base'], ['mortarTube', 'mortar tube: turns'],
     ['airdef', 'air defense (icon)'], ['airdefBase', 'air defense base'], ['airdefTop', 'launcher: turns']]],

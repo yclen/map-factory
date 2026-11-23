@@ -26,7 +26,8 @@ Running it overwrites those PNGs, so if you hand-paint one, take its name out of
 | Group | Names |
 |---|---|
 | Settlements (by level) | `settle1` `settle2` `settle3` `settle4` `settlement` (build-menu icon) |
-| Houses round a settlement | `house` `house2` `house3` |
+| Houses round a settlement (the game picks a look per spot) | cottages `house` `houseB` `houseC` `houseD` · townhouses `house2` `house2B` `house2C` · city blocks `house3` `house3B` `house3C` |
+| Effects: frame strips, one row of square frames (not listed in `sprites.json`; loaded if present) | `blastS` shell · `blastM` missile · `blastA` air burst · `scorch` |
 | Buildings | `station` `port` `burner` `rig` `solar` `cabin` `camp` `drill` `pad` `silo` |
 | Defence | `turret` `airdef` `mortar` (build-menu icons) |
 | Defence on the map: a fixed base and a top that turns to aim (drawn pointing right) | `turretBase` `turretGun` `mortarBase` `mortarTube` `airdefBase` `airdefTop` |

@@ -1,7 +1,5 @@
-["boat", "settle1", "settle2", "settle3", "settle4", "settlement", "rig", "camp", "silo", "pad",
- "treeA", "treeB", "treeC", "treeD", "tree", "rockA", "rockB", "rockC", "rock", "oreA", "oreB", "oreC", "ore",
- "house", "house2", "house3", "cabin",
- "truck", "engine", "wagon", "ship",
- "station", "port", "burner", "solar", "drill",
- "turret", "turretBase", "turretGun", "mortar", "mortarBase", "mortarTube", "airdef", "airdefBase", "airdefTop",
- "rocket", "person", "bolt", "fuel"]
+["boat", "settle1", "settle2", "settle3", "settle4", "settlement", "rig", "camp", "silo", "pad", "treeA", "treeB",
+ "treeC", "treeD", "tree", "rockA", "rockB", "rockC", "rock", "oreA", "oreB", "oreC", "ore", "house",
+ "house2", "house3", "houseB", "houseC", "houseD", "house2B", "house2C", "house3B", "house3C", "cabin", "truck", "engine",
+ "wagon", "ship", "station", "port", "burner", "solar", "drill", "turret", "turretBase", "turretGun", "mortar", "mortarBase",
+ "mortarTube", "airdef", "airdefBase", "airdefTop", "rocket", "person", "bolt", "fuel"]
