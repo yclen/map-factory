@@ -1848,7 +1848,7 @@ function drawStations(z) {
   for (const st of game.orbitals) drawStation(st, z);
 }
 // how big a station is drawn (pixels across its ring): bigger as it grows
-const stationSize = (st, z) => clamp(z * 6, 56, 170) * (1 + 0.1 * (st.level - 1));
+const stationSize = (st, z) => Math.max(z * 6, 16) * (1 + 0.1 * (st.level - 1));   // ~6 tiles across: zooms with the map
 // A space station: solar wings on a long truss, and a spinning habitat ring of lit windows round a central hub.
 // Its windows light up as people move in (one in so many per person), so a full station glows.
 function drawStation(st, z) {
@@ -6395,9 +6395,15 @@ function clickAt(btn, x, y) {
   // a plain click on any body (or your world from far out) locks onto it
   if (btn === 0 && game.aiming) { const t = hoverTile(); if (t) fireMissile(t.x, t.y); return; }
   if (btn === 2 && game.aiming) { setAiming(false); return; }
+  if (camRide && !game.flying && pickAt(x, y) !== camRide.o) camRide = null;   // a click anywhere else lets go of a station
   if (btn === 0 && !game.tool) {
     const fl = pickAt(x, y);
-    if (kindOf(fl) === 'orbital') { inspect(fl); rideWith(fl); return; }
+    if (kindOf(fl) === 'orbital') {
+      if (camRide && camRide.o === fl) return;
+      inspect(fl); rideWith(fl);
+      toast(say(`Following Space Station ${fl.n}: click anywhere else, pan, or press Esc to let go`, `Following Space Station ${fl.n}: tap anywhere else or pan to let go`));
+      return;
+    }
     if (kindOf(fl) === 'flight') { if (game.flying !== fl) { takeRocket(fl); toast(`Flying rocket ${fl.n}. Space: engine on / off · E / Q: throttle · A / D: turn`); } return; }
     const [wx, wy] = toWorld(x, y);
     const body = bodyUnder(wx, wy);
@@ -6552,7 +6558,7 @@ canvas.addEventListener('pointermove', e => {
     return;
   }
   if (!tch.drag && Math.hypot(e.clientX - tch.sx, e.clientY - tch.sy) > 10) { tch.drag = true; clearTimeout(tch.timer); }
-  if (tch.drag && !tch.long) nudgeScreen(-(e.clientX - f.x) / cam.zoom, -(e.clientY - f.y) / cam.zoom);
+  if (tch.drag && !tch.long) { if (camRide && !game.flying && fingers.size < 2) camRide = null; nudgeScreen(-(e.clientX - f.x) / cam.zoom, -(e.clientY - f.y) / cam.zoom); }
   f.x = e.clientX; f.y = e.clientY;
 });
 function liftFinger(e, cancelled) {
@@ -6642,6 +6648,7 @@ let mapStage = 0;
 const orbitZoom = () => clamp(Math.min(cw, ch - 200) / (2 * (MOON.orbitR + MOON.r)) * 0.96, CFG.zoomMin, CFG.zoomMax);
 const systemZoom = () => clamp(Math.min(cw, ch - 200) / (2 * (BODY.seedworld.orbit + BODY.seedworld.r * 2.5)) * 0.96, CFG.zoomMin, CFG.zoomMax);
 function toggleMapView() {
+  if (!game.flying) camRide = null;                // zooming out to the map lets go of a station
   game.driving = null;
   stopFollow();
   if (mapStage === 0) {
@@ -6820,7 +6827,7 @@ function addToBar(type) {                           // a new unlock takes the fi
 function buildMenu() {
   renderBuildBar();
   document.querySelector('#topbar .res.country').addEventListener('click', () => flyToCountry(activeCountry()));
-  document.querySelector('#inspect .ix').addEventListener('click', () => inspect(null));
+  document.querySelector('#inspect .ix').addEventListener('click', () => { if (camRide && camRide.o === inspected && !game.flying) camRide = null; inspect(null); });
   // buttons on a card (rebuilt as the numbers change, so catch the press itself)
   $('inspect').addEventListener('pointerdown', e => {
     const act = e.target.dataset && e.target.dataset.act, o = inspected;
