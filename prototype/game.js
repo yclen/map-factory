@@ -82,6 +82,10 @@ const CFG = {
                desc: 'Lays its own rail to your nearest station. Trains carry people and cargo between your countries.' },
     port:    { cat: 'Transport', name: 'Port',    cap: 0,  unlock: 0, cost: { wood: 20, stone: 10 },
                desc: 'On the coast. Opens a sea route to your nearest port. Ships carry people and cargo.' },
+    // not a building on one tile: a span over the water, built in two clicks (see bridgePlan). The cost shown is
+    // its first tile of water; every tile after that costs a little more (CFG.bridge).
+    bridge:  { cat: 'Transport', name: 'Bridge', span: true, unlock: 0, cost: { stone: 8 },
+               desc: 'Click your own coast, then the land across the water. Costs stone for every tile of water it crosses, and each tile costs more than the last, so long bridges get expensive fast. Joins the land on both ends into one country; trucks drive over it and rail follows it. A bridge to free land claims the tile it lands on.' },
     // vehicles: not buildings. Pick one, then click one of your stations (truck) or ports (boat): it rolls out
     // from there with settlers and a starter package, and you drive it to found a colony (see launchVehicle).
     truck:   { cat: 'Vehicles', name: 'Truck', vehicle: 'station', unlock: 0, cost: { wood: 20, stone: 10 },
@@ -162,6 +166,9 @@ const CFG = {
   trackCostPerTile: { wood: 0.15, stone: 0.15 },
   trackWeight: { grass: 1, desert: 1.5, mountain: 3, ice: 3 },   // track through mountains or ice costs 3x
   railMaxLength: 120,          // max weighted track length for one link
+  // Bridges: tile k of water a bridge crosses costs `stone` + `grow` x (k - 1) stone, so a bridge of L tiles costs
+  // stone x L + grow x L(L-1)/2: 10 tiles = 125, 20 = 350, 30 = 675, 50 = 1625. At most `maxLen` tiles of water.
+  bridge: { stone: 8, grow: 1, maxLen: 50 },
   seaMaxLength: 500,           // max sea route length (tiles)
   trainSpeed: 12, shipSpeed: 9,
 
@@ -447,6 +454,11 @@ const SHAPES = {
     <rect x="-4" y="-7" width="8" height="18" fill="#a67c52" stroke="#6b4a2b" stroke-width="0.9"/>
     <path d="M-4 -2 H4 M-4 3 H4 M-4 8 H4" stroke="#6b4a2b" stroke-width="0.8"/>
     <circle cx="-5.5" cy="10" r="1.4" fill="#5a3d22"/><circle cx="5.5" cy="10" r="1.4" fill="#5a3d22"/>`,
+  bridge: `<rect x="-13" y="2" width="26" height="11" rx="2" fill="#4a86ab"/>
+    <path d="M-10 6 H10 M-7 10 H5" stroke="#8fc0dd" stroke-width="1" stroke-linecap="round"/>
+    <path d="M-14 -4 H14 V1 H10 A5 5 0 0 0 0 1 A5 5 0 0 0 -10 1 H-14 Z" fill="#b3aa9b" stroke="#4f4a44" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M-14 -4 H14" stroke="#e2dccf" stroke-width="1.4"/>
+    <path d="M-7 -4 V-1 M0 -4 V-1 M7 -4 V-1" stroke="#857d70" stroke-width="0.8"/>`,
   drill: `<rect x="-9" y="-8" width="22" height="22" fill="#000" opacity="0.2"/>
     <rect x="-11" y="2" width="22" height="10" rx="2" fill="#dfe8ef" stroke="#3d4a56" stroke-width="1"/>
     <circle cx="-5.5" cy="7" r="3" fill="#5fc4f0" stroke="#1d5a7a" stroke-width="0.8"/>
@@ -622,6 +634,11 @@ const owner = new Uint8Array(N);
 const depositOf = new Int16Array(N).fill(-1);
 const building = new Uint8Array(N);
 const aiOf = new Uint8Array(N);              // which AI nation owns each tile (0 = none; else nation id + 1)
+const bridgeAt = new Uint8Array(N);          // how many bridges run over each water tile (rail follows these)
+const bridgeWide = new Uint8Array(N);        // bridge tiles and the water right beside them: where a truck can drive
+const bridgeEnd = new Uint8Array(N);         // land tiles a bridge lands on (one of its two ends)
+const onBridge = i => bridgeAt[i] > 0 && biome[i] === OCEAN;
+const railable = i => isLand(i) || bridgeAt[i] > 0;
 const deposits = [];
 let seaLevel = 0, mtnLevel = 0, maxElev = 1;
 let spawn = { x: 0, y: 0 };
@@ -636,6 +653,8 @@ const game = {
   buildings: [], stations: [], ports: [], links: [],
   pushes: [], expeditions: [], floats: [],
   routes: [],                      // the way each colony's truck or boat came: { kind, home, colony, path } (see routePlan)
+  bridges: [],                     // { s, b, tiles, len }: from shore tile s over the water `tiles` to land tile b
+  bridgeStart: null,               // with the bridge tool: the tile of your coast the first click picked
   sendPct: 25, tool: null, netDirty: true,
   nations: [],                     // AI nations
   hotbar: ['settlement', 'cabin', 'camp', null, null, null, null, null, null, null],   // the build bar: keys 1-9, 0
@@ -933,6 +952,7 @@ function claim(i, cid, conquer = false) {
   paintTerr(i);
   addTileStats(game.countries[cid], i);
   if (depositOf[i] >= 0 || building[i]) game.bldDirty = true;   // a deposit's collector may now cover more tiles
+  if (bridgeEnd[i]) game.netDirty = true;          // a bridge lands here: it may join this country to the one across
   const me = liveCountry(cid);
   for (const [dx, dy] of DIRS4) {
     const nx = x + dx, ny = y + dy;
@@ -1347,6 +1367,7 @@ function recomputeNetwork() {
       if (x < W - 1 && owner[n = i + 1] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
       if (i >= W && owner[n = i - W] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
       if (i < N - W && owner[n = i + W] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
+      if (bridgeEnd[i]) for (const n of bridgeEndsOf(i)) if (owner[n] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }   // over a bridge
     }
     nc++;
   }
@@ -2100,9 +2121,9 @@ function railPath(start, targets) {
       const nx = x + dx, ny = y + dy;
       if (!inb(nx, ny)) continue;
       const n = idx(nx, ny);
-      if (!isLand(n) || closed[n] === st) continue;
-      if (diag && (!isLand(idx(x + dx, y)) || !isLand(idx(x, y + dy)))) continue;
-      const ng = g + CFG.trackWeight[BIOME_KEY[biome[n]]] * (diag ? 1.414 : 1);
+      if (!railable(n) || closed[n] === st) continue;      // land, or a bridge
+      if (diag && (!railable(idx(x + dx, y)) || !railable(idx(x, y + dy))) && !(bridgeAt[n] && bridgeAt[cur])) continue;
+      const ng = g + (CFG.trackWeight[BIOME_KEY[biome[n]]] || 1) * (diag ? 1.414 : 1);
       if (ng > CFG.railMaxLength) continue;
       if (seen[n] !== st || ng < gScore[n]) { seen[n] = st; gScore[n] = ng; cameFrom[n] = cur; heap.push(n, ng + h(n)); }
     }
@@ -2149,7 +2170,7 @@ function seaPath(port, targets) {
 // The shortest way from tile i to any tile of a route's path, over land (truck) or water (boat), within
 // CFG.routeReach steps. A port starts from the water beside it. { path: the tiles after i, k: index reached } or null.
 function legTo(i, route) {
-  const boat = route.kind === 'boat', ok = t => (boat ? biome[t] === OCEAN : isLand(t));
+  const boat = route.kind === 'boat', ok = t => (boat ? biome[t] === OCEAN : railable(t));
   const want = new Map();
   route.path.forEach((t, k) => want.set(t, k));    // a tile visited twice counts at its later index (shorter way home)
   const from = new Map(), dist = new Map(), q = [];
@@ -2206,13 +2227,13 @@ function routePlan(i, type) {
 // what placing a station/port at tile i would link to (cached while hovering)
 let planCache = { key: null, val: null };
 function linkPlan(i, type) {
-  const key = `${type}:${i}:${game.stations.length}:${game.ports.length}:${game.routes.length}`;
+  const key = `${type}:${i}:${game.stations.length}:${game.ports.length}:${game.routes.length}:${game.bridges.length}`;
   if (planCache.key === key) return planCache.val;
   let val = routePlan(i, type);                    // a colony's vehicle route comes first
   if (!val && type === 'station') {
-    const others = game.stations.filter(t => t !== i && landmass[t] === landmass[i]);
+    const others = game.stations.filter(t => t !== i && landGroup(t) === landGroup(i));   // bridges join landmasses
     if (!game.stations.length) val = { note: 'First station: it links up when you build a second one' };
-    else if (!others.length) val = { note: 'No other station on this landmass. Use ports to cross water.' };
+    else if (!others.length) val = { note: 'No other station on this landmass. Use ports, or a bridge, to cross water.' };
     else {
       const r = railPath(i, others);
       if (!r) val = { note: `No station within ${CFG.railMaxLength} tiles of track. It will be built unlinked.` };
@@ -2319,6 +2340,86 @@ function tryBuild(i, type) {
   recomputeBuildings();
   const gained = empireCap() - before;
   if (gained >= 1) floatText(i % W + 0.5, ((i / W) | 0) - 1, `+${Math.round(gained)} capacity in ${C.short}`, '#7bd389');
+}
+
+// ---------- bridges: a stone span over the water, built with two clicks ----------
+// Tile k of water costs stone + grow x (k - 1): every tile costs a little more than the last.
+const bridgeCost = len => ({ stone: CFG.bridge.stone * len + CFG.bridge.grow * len * (len - 1) / 2 });
+// The bridge from tile `a` aimed at tile `c`: along the straight line from a through c (and on past it), out over the
+// first stretch of water to the first land beyond. Returns { s, b, tiles, len, cost, why }: s = the last land tile
+// before the water, b = the land it reaches, tiles = the water it crosses (edge to edge, so nothing cuts a corner),
+// len = its length in tiles of water. `why` says what's wrong when it can't be built.
+function bridgePlan(a, c) {
+  const B = CFG.bridge, ax = a % W, ay = (a / W) | 0, dx = c % W - ax, dy = ((c / W) | 0) - ay;
+  if (!dx && !dy) return { why: 'Now click the land across the water' };
+  const sx = Math.sign(dx), sy = Math.sign(dy), nx = Math.abs(dx), ny = Math.abs(dy);
+  let x = ax, y = ay, ix = 0, iy = 0, s = a, b = -1;
+  const tiles = [];
+  for (let step = 0; step < 2 * W; step++) {
+    if ((0.5 + ix) / nx < (0.5 + iy) / ny) { x += sx; ix++; } else { y += sy; iy++; }
+    if (!inb(x, y)) break;
+    const i = idx(x, y), bi = biome[i];
+    if (bi === WALL || bi === VOID) return { s, tiles, why: 'That runs into the ice wall' };
+    if (bi === OCEAN) { tiles.push(i); if (tiles.length > 2 * B.maxLen + 2) break; continue; }
+    if (!tiles.length) { s = i; continue; }        // still crossing land toward the coast
+    b = i; break;
+  }
+  if (!tiles.length) return { s, tiles, why: 'Aim across the water' };
+  if (!owner[s]) return { s, tiles, why: 'Start the bridge on your own land' };
+  if (b < 0) return { s, tiles, why: `More than ${B.maxLen} tiles of water that way` };
+  const len = Math.max(1, Math.round(Math.hypot(b % W - s % W, ((b / W) | 0) - ((s / W) | 0))) - 1);
+  const plan = { s, b, tiles, len, cost: bridgeCost(len) };
+  if (len > B.maxLen) plan.why = `Too long: ${len} tiles of water (at most ${B.maxLen})`;
+  else if (aiOf[b]) plan.why = `That shore belongs to ${nationAt(b).full}`;
+  else if (tiles.every(t => bridgeAt[t])) plan.why = 'There is already a bridge here';
+  return plan;
+}
+// the land tiles across the bridges that land on tile i
+function bridgeEndsOf(i) {
+  const out = [];
+  for (const br of game.bridges) { if (br.s === i) out.push(br.b); else if (br.b === i) out.push(br.s); }
+  return out;
+}
+// Landmasses joined by bridges count as one, so a station finds the stations across a bridge.
+let landRoot = new Map();
+const landGroup = i => { let k = landmass[i]; while (landRoot.has(k)) k = landRoot.get(k); return k; };
+function addBridge(br) {
+  game.bridges.push(br);
+  bridgeEnd[br.s]++; bridgeEnd[br.b]++;
+  for (const t of br.tiles) {
+    bridgeAt[t]++;
+    const x = t % W, y = (t / W) | 0;
+    bridgeWide[t]++;
+    for (const [dx, dy] of DIRS8) if (inb(x + dx, y + dy) && biome[idx(x + dx, y + dy)] === OCEAN) bridgeWide[idx(x + dx, y + dy)]++;
+  }
+  const A = landGroup(br.s), Bg = landGroup(br.b);
+  if (A !== Bg) landRoot.set(A, Bg);
+}
+function clearBridges() {
+  game.bridges = []; landRoot = new Map();
+  bridgeAt.fill(0); bridgeWide.fill(0); bridgeEnd.fill(0);
+}
+// the bridge tool: the first click picks your coast, the second builds across to where you aimed
+function bridgeClick(i) {
+  const st = game.bridgeStart;
+  if (st === i) { game.bridgeStart = null; return; }
+  if (st == null) {
+    if (!owner[i]) return toast('Start the bridge on your own land, at the coast');
+    game.bridgeStart = i;
+    return toast(say('Now click the land across the water. Right-click to start somewhere else.', 'Now tap the land across the water'));
+  }
+  const p = bridgePlan(st, i);
+  if (p.why) return toast(p.why);
+  const C = countryAt(p.s), miss = missingFor(p.cost, C);
+  if (miss) return toast(`${C.short} doesn't have enough ${miss}: this bridge costs ${fmtNum(p.cost.stone)} stone`);
+  for (const [r, n] of Object.entries(p.cost)) C.res[r] -= n;
+  addBridge({ s: p.s, b: p.b, tiles: p.tiles, len: p.len });
+  const free = !owner[p.b], other = countryAt(p.b);
+  if (free) claim(p.b, C.id);                      // a bridge to free land claims the tile it lands on
+  game.netDirty = true;                            // joins the land on both ends into one country
+  game.bridgeStart = null;
+  const [fx, fy] = tileCenter(p.b);
+  floatText(fx, fy - 1, `Bridge: ${p.len} tiles${free ? ` · new land for ${C.short}` : other && other !== C ? ` · joins ${other.short}` : ''}`, '#7bd389');
 }
 
 // ======================================================================
@@ -2474,7 +2575,8 @@ function nextVehicle() {
   if (game.flights.includes(next)) takeRocket(next); else { game.flying = null; takeWheel(next); }
 }
 const canDriveOn = (e, x, y) => inb(Math.floor(x), Math.floor(y)) &&
-  (e.kind === 'boat' ? biome[idx(Math.floor(x), Math.floor(y))] === OCEAN : isLand(idx(Math.floor(x), Math.floor(y))));
+  (e.kind === 'boat' ? biome[idx(Math.floor(x), Math.floor(y))] === OCEAN   // boats pass under bridges
+    : isLand(idx(Math.floor(x), Math.floor(y))) || bridgeWide[idx(Math.floor(x), Math.floor(y))] > 0);
 
 function stepExpedition(e, dt) {
   if (!e.auto) return driveStep(e, dt);
@@ -2492,7 +2594,8 @@ function driveStep(e, dt) {
   const turn = (key('arrowright', 'd') ? 1 : 0) - (key('arrowleft', 'a') ? 1 : 0);
   e.a += turn * V.turn * dt;
   const hx = Math.cos(e.a), hy = Math.sin(e.a);
-  const drag = e.kind === 'boat' ? V.drag : V.drag[BIOME_KEY[biome[idx(Math.floor(e.x), Math.floor(e.y))]]] || 3;
+  const under = idx(Math.floor(e.x), Math.floor(e.y));
+  const drag = e.kind === 'boat' ? V.drag : biome[under] === OCEAN ? V.drag.grass : V.drag[BIOME_KEY[biome[under]]] || 3;   // a bridge drives like grass
   e.vx += (hx * thr * V.accel - e.vx * drag) * dt;
   e.vy += (hy * thr * V.accel - e.vy * drag) * dt;
   if (e.kind === 'truck') {                        // wheels: kill the sideways part of the motion quickly
@@ -2818,6 +2921,7 @@ function saveGame() {
       buildings: game.buildings.map(b => [b.i, b.type, b.ready || 0]),
       links: game.links.map(L => ({ kind: L.kind, a: L.a, b: L.b, path: L.path, t: L.t, dir: L.dir, cargo: L.cargo || null, to: L.to ?? -1, out: L.out || null })),
       routes: game.routes,
+      bridges: game.bridges.map(br => [br.s, br.b, br.len, br.tiles]),
       rockets: game.buildings.filter(b => b.type === 'pad' && (b.rocket || b.paused)).map(b => [b.i, b.rocket ? b.rocket.iron : -1, b.rocket ? b.rocket.fuel : 0, b.paused ? 1 : 0]),
       flights: game.flights.filter(f => !f.done).map(f => [f.x, f.y, f.vx, f.vy, f.a, f.fuel, f.landed ? 1 : 0, f.everOrbit ? 1 : 0, f.n]),
       runs, cam: { x: cam.x, y: cam.y, zoom: cam.zoom },
@@ -2858,6 +2962,8 @@ function loadGame(sv) {
   }
   game.links = sv.links;
   game.routes = Array.isArray(sv.routes) ? sv.routes : [];
+  clearBridges();
+  for (const [s, b, len, tiles] of sv.bridges || []) addBridge({ s, b, len, tiles });
   for (let t = 0; t < N; t++) {
     if (!owner[t]) continue;
     const x = t % W, y = (t / W) | 0;
@@ -4355,6 +4461,33 @@ function strokeRoute(path, kind, z, ghost = false) {
   ctx.lineJoin = 'miter'; ctx.lineCap = 'butt';
 }
 
+// a stone bridge from shore to shore: piers, a shadow on the water, the deck with its joints. Rail runs on top.
+function drawBridge(s, b, z, ghost = null) {
+  const [ax, ay] = toScreen(...tileCenter(s)), [bx, by] = toScreen(...tileCenter(b));
+  const seg = (ox = 0, oy = 0) => { ctx.beginPath(); ctx.moveTo(ax + ox, ay + oy); ctx.lineTo(bx + ox, by + oy); };
+  ctx.lineCap = 'butt';
+  if (ghost) {
+    seg(); ctx.setLineDash([6, 6]); ctx.lineWidth = Math.max(3, z * 0.8); ctx.strokeStyle = ghost; ctx.stroke(); ctx.setLineDash([]);
+    return;
+  }
+  if (z < PIXEL_BORDER_BELOW) {                    // map view: a plain stone line
+    seg(); ctx.lineWidth = Math.max(1.5, z * 0.9); ctx.strokeStyle = '#8b8376'; ctx.stroke();
+    return;
+  }
+  const w = z * 0.8, len = Math.hypot(bx - ax, by - ay) / z;
+  seg(z * 0.18, z * 0.3); ctx.lineWidth = w; ctx.strokeStyle = 'rgba(10,30,50,0.3)'; ctx.stroke();   // shadow
+  ctx.fillStyle = '#4f4a44';
+  for (let k = 1, n = Math.max(1, Math.round(len / 3)); k < n; k++) {   // piers every ~3 tiles
+    const t = k / n, px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+    ctx.beginPath(); ctx.arc(px, py, w * 0.62, 0, Math.PI * 2); ctx.fill();
+  }
+  seg(); ctx.lineWidth = w + Math.max(2, z * 0.14); ctx.strokeStyle = '#4f4a44'; ctx.stroke();      // edges
+  seg(); ctx.lineWidth = w; ctx.strokeStyle = '#b3aa9b'; ctx.stroke();                                // deck
+  seg(); ctx.setLineDash([Math.max(1, z * 0.06), Math.max(2, z * 0.42)]);                             // joints between the stones
+  ctx.lineWidth = w * 0.9; ctx.strokeStyle = '#958c7e'; ctx.stroke(); ctx.setLineDash([]);
+}
+function drawBridges(z) { for (const br of game.bridges) drawBridge(br.s, br.b, z); }
+
 function vehiclePos(L) {
   // between sim steps, carry it on along the route at its own speed (lead is 0 outside drawing)
   const t = clamp(L.t + (L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed) * L.dir * lead, 0, L.path.length - 1);
@@ -4505,6 +4638,7 @@ function render() {
     ctx.lineCap = 'butt';
   }
 
+  drawBridges(z);
   drawRoads(z);
   drawPipes(z);
   // rail lines (sea routes aren't drawn: the ships sailing them are enough)
@@ -5009,7 +5143,8 @@ function clickAt(btn, x, y) {
   if (!t) return;
   if (game.over) return toast(`Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`);
   if (btn === 0) {
-    if (game.tool) tryBuild(t.i, game.tool);
+    if (game.tool === 'bridge') bridgeClick(t.i);
+    else if (game.tool) tryBuild(t.i, game.tool);
     else if (blueprint) clearSelection();          // with a selection, a click just deselects
     else if (owner[t.i] && building[t.i] === BLD_CODE.pad && cam.zoom >= CFG.cityZoom) padClick(buildingAt(t.i));
     else if (owner[t.i]) {                         // clicking inside one of your countries selects it
@@ -5018,7 +5153,8 @@ function clickAt(btn, x, y) {
       else if (c && c.id !== game.active) { game.active = c.id; toast(`Viewing ${c.full}`); }
     } else startPush(t.x, t.y);
   } else if (btn === 2) {
-    if (game.tool) setTool(null);
+    if (game.tool === 'bridge' && game.bridgeStart != null) game.bridgeStart = null;   // pick another start
+    else if (game.tool) setTool(null);
     else if (blueprint) clearSelection();
     else if (!owner[t.i]) toast('Expeditions now leave from a station or port: pick a truck or boat in the build menu (Vehicles), then click one.');
   }
@@ -5402,6 +5538,7 @@ function buildMenu() {
 function setTool(t) {
   if (t && !isUnlocked(t)) return toast(`${CFG.buildings[t].name} unlocks when your empire reaches ${CFG.buildings[t].unlock} people`);
   game.tool = t;
+  game.bridgeStart = null;
   if (t) game.aiming = false;
   tch.pending = null;
   document.querySelectorAll('.bbtn').forEach(el => el.classList.toggle('sel', el.dataset.type === t));
@@ -5542,6 +5679,32 @@ function updateHud() {
   updateHover();
 }
 
+// the tooltip while the bridge tool is out: [html, bad]
+function bridgeTip(t) {
+  const B = CFG.bridge, st = game.bridgeStart, back = say('Right-click', 'Tap Cancel');
+  if (st == null) {
+    const ok = !!owner[t.i];
+    return [`<div class="t">Bridge: ${say('click', 'tap')} your coast to start</div>
+      <div class="${ok ? 'g' : 'r'}">${ok ? `Start here, then ${say('click', 'tap')} the land across the water` : 'Start on your own land'}</div>
+      <div class="d">Stone for every tile of water, each tile ${B.grow} more than the last: 10 tiles cost ${bridgeCost(10).stone}, 20 cost ${bridgeCost(20).stone}, 30 cost ${bridgeCost(30).stone}. At most ${B.maxLen} tiles.</div>`, !ok];
+  }
+  const p = bridgePlan(st, t.i), C = p.s != null && owner[p.s] ? countryAt(p.s) : null;
+  const miss = !p.why && C ? missingFor(p.cost, C) : null;
+  let html = `<div class="t">Bridge${p.len ? `: ${p.len} tile${p.len > 1 ? 's' : ''} of water` : ''}</div>`;
+  if (!p.why) {
+    const there = countryAt(p.b);
+    html += !there ? `<div class="g">Lands on free land and claims it for ${C.short}</div>`
+      : there !== C ? `<div class="g">Joins ${there.short} and ${C.short} into one country</div>`
+      : `<div class="g">A shortcut across the water within ${C.short}</div>`;
+    html += `<div class="d">Trucks drive over it and rail follows it</div>`;
+  }
+  if (p.cost) html += `<div class="d">Cost: ${fmtNum(p.cost.stone)} stone${C ? `, paid by ${C.short} (has ${fmtNum(C.res.stone)})` : ''}</div>`;
+  if (p.why) html += `<div class="r">${p.why}</div>`;
+  else if (miss) html += `<div class="r">Not enough ${miss}</div>`;
+  html += `<div class="d">${back} to start somewhere else</div>`;
+  return [html, !!(p.why || miss)];
+}
+
 function updateHover() {
   const tip = $('tooltip');
   if (mouse.in) {
@@ -5563,6 +5726,7 @@ function updateHover() {
   const b = biome[t.i];
   let info = BIOME_NAME[b];
   if (b === WALL) info += ' · the edge of the world';
+  if (onBridge(t.i)) info += ' · bridge';
   if (isLand(t.i)) {
     const foe = nationAt(t.i);
     info += foe ? ` · ${foe.full} (AI) · ${fmtNum(foe.people)} people · ${Math.floor(foe.iron || 0)} / ${Math.round(foe.ironCap || 0)} iron · ${(tileCost(t.i) + defenseAt(t.i)).toFixed(1)} people/tile to take`
@@ -5627,6 +5791,7 @@ function updateHover() {
   }
 
   if (!game.tool) { tip.style.display = 'none'; return; }
+  if (game.tool === 'bridge') { const [html, bad] = bridgeTip(t); placeTip(html, bad); return; }
   const type = game.tool, bdef = CFG.buildings[type];
   const why = canBuild(t.i, type);
   const plan = planFor(t.i, type);
@@ -5862,6 +6027,21 @@ function drawBuildPreview(z) {
   const t = hoverTile();
   if (!t) return;
   const type = game.tool;
+  const box = (i, ok) => {
+    const [sx, sy] = toScreen(i % W, (i / W) | 0);
+    ctx.fillStyle = ok ? 'rgba(123,211,137,0.3)' : 'rgba(255,122,107,0.3)'; ctx.fillRect(sx, sy, z, z);
+    ctx.strokeStyle = ok ? '#7bd389' : '#ff7a6b'; ctx.lineWidth = 2; ctx.strokeRect(sx, sy, z, z);
+  };
+  if (type === 'bridge') {                         // the start you picked, and the span to where you're aiming
+    const st = game.bridgeStart;
+    if (st == null) return box(t.i, !!owner[t.i]);
+    const p = bridgePlan(st, t.i), C = p.s != null && owner[p.s] ? countryAt(p.s) : null;
+    const ok = !p.why && C && !missingFor(p.cost, C);
+    box(st, true);
+    if (p.b >= 0 && p.b != null) { drawBridge(p.s, p.b, z, ok ? '#7bd389' : '#ff7a6b'); box(p.b, ok); }
+    else if (p.tiles && p.tiles.length) drawBridge(p.s, p.tiles[p.tiles.length - 1], z, '#ff7a6b');
+    return;
+  }
   const plan = planFor(t.i, type);
   const ok = !canBuild(t.i, type) && !missingFor(totalCost(type, plan, t.i), countryAt(t.i) || activeCountry());
   if (plan && plan.path) strokeRoute(plan.path, type === 'station' ? 'rail' : 'sea', z, true);
@@ -5972,5 +6152,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { TOUCH, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; } };
+window.__game = { TOUCH, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt };
 init();
