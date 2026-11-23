@@ -189,6 +189,10 @@ canvas#game.building { cursor: copy; }
 #inspect .ibar.gold i { background: var(--accent); }
 #inspect .ibar.power i { background: #8fd3ff; }
 #inspect .ibar.bad i { background: var(--bad); }
+#inspect .ibtn { display: block; width: 100%; margin-top: 8px; padding: 7px 8px; border: 1px solid var(--accent); border-radius: 8px;
+  background: rgba(242, 193, 78, 0.14); color: var(--accent); font: 700 12px inherit; font-family: inherit; cursor: pointer; text-align: center; }
+#inspect .ibtn:hover { background: rgba(242, 193, 78, 0.26); }
+#inspect .ibtn:disabled { border-color: var(--line); background: transparent; color: var(--dim); cursor: default; }
 
 #toast {
   position: fixed; left: 50%; top: 74px; transform: translateX(-50%); z-index: 6;

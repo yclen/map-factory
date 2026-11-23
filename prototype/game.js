@@ -136,12 +136,17 @@ const CFG = {
     drill:   { cat: 'Space', name: 'Ice drill', cap: 0, unlock: 800, cost: { stone: 20, iron: 25 }, use: 6, fuel: 0.5,
                desc: 'Only on polar ice. Drills ice and splits it into rocket fuel: 0.5 fuel/s on full power, and it draws 6 MW. A pipe lays itself to your nearest launch pad in the same country; with no pad, it waits.' },
     pad:     { cat: 'Space', name: 'Launch pad', cap: 0, unlock: 800, cost: { stone: 80, iron: 60 },
-               desc: 'Builds rockets by itself: 150 iron each, taken as you have it. Then your ice drills in the same country pump fuel straight into the rocket, 0.5/s for each drill, so more drills fuel it faster. Click a pad to pause or resume it.' },
+               desc: 'Builds a rocket at once, for 100 iron, whenever it has none and you have the iron. Then your ice drills in the same country pump fuel straight into the rocket, 0.5/s for each drill, so more drills fuel it faster. Click a pad to pause or resume it.' },
   },
-  // Rockets: a launch pad assembles one by itself, taking `iron` a little at a time (`ironRate` a second, never
-  // below `ironReserve`, so your mortars keep firing), then the country's ice drills pump fuel straight into its `tank`:
+  // Rockets: a launch pad with no rocket builds one at once for `iron`, as soon as the country has that much on top of
+  // `ironReserve` (kept back so your mortars keep firing). Then the country's ice drills pump fuel straight into its `tank`:
   // drill.fuel a second each on full power, shared by the pads fuelling at once. With no rocket to fuel, the drills wait.
-  rocket: { iron: 150, ironRate: 1.5, ironReserve: 20, tank: 400,
+  // Space stations: a rocket in orbit can become one (Enter). It houses `cap` people per level and stores goods.
+  // The pad that launched it then keeps it supplied: each rocket it builds and fuels flies up by itself (a `trip`
+  // of so many seconds) with up to `people` settlers and `each` of wood, stone and iron, from what home can spare.
+  // Expanding a station costs `expand` from its own stock and adds `cap` more room.
+  station: { cap: 20, people: 10, each: 25, keep: 50, trip: 15, expand: { stone: 60, iron: 60 } },
+  rocket: { iron: 100, ironReserve: 20, tank: 400,
     // Flight, in tiles and seconds. Gravity pulls toward the middle of the disk: mu / r^2 beyond the rim, and weaker
     // toward the middle inside it (as inside a solid ball). A circular orbit just above the air takes about 100 s.
     // The air: full thickness over the disk, thinning out over `atm` tiles past the rim (scale height `scaleH`), none beyond.
@@ -683,6 +688,8 @@ const game = {
   driving: null,                   // the expedition you're steering right now
   selection: [],   // tiles of selected buildings (box-select with left-drag)
   flights: [],     // rockets in the air or in orbit
+  orbitals: [],    // space stations: { orbital, n, x, y, vx, vy, home, pad, people, level, res, runs, a }
+  supplyRuns: [],  // supply rockets on their way up: { st, t, T, fx, fy, cargo }
   flying: null,    // the rocket you're flying right now
 };
 const frontier = new Set();   // unowned land tiles touching our territory
@@ -1534,19 +1541,25 @@ function stepRockets(c, dt) {
   for (const b of c.pw.padList) {
     b.useIron = 0; b.useFuel = 0;                  // what it's taking right now, for its card
     if (b.paused) continue;
-    if (!b.rocket) b.rocket = { iron: 0, fuel: 0 };
+    if (!b.rocket) {                               // no rocket: build one at once, as soon as the country can pay for it
+      if (c.res.iron - R.iron < R.ironReserve) continue;
+      c.res.iron -= R.iron; ironUse += R.iron;
+      b.rocket = { iron: R.iron, fuel: 0 };
+      floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, `Rocket built: -${R.iron} iron`, '#f2c14e');
+    }
     const k = b.rocket;
-    if (k.iron < R.iron) {                         // assembling: iron goes in as the country can spare it
-      const take = Math.max(0, Math.min(R.ironRate * dt, R.iron - k.iron, c.res.iron - R.ironReserve));
-      c.res.iron -= take; k.iron += take; ironUse += take; b.useIron = dt > 0 ? take / dt : 0;
-      if (k.iron >= R.iron - 1e-6) { k.iron = R.iron; floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, 'Rocket built: fuelling', '#f2c14e'); }
-    } else if (k.fuel < R.tank) {                  // built: the drills fill it
+    if (k.iron < R.iron) k.iron = R.iron;          // a half-built rocket from an older save: finish it
+    if (k.fuel < R.tank) {                         // built: the drills fill it
       const take = Math.max(0, Math.min(perPad * dt, R.tank - k.fuel));
       k.fuel += take; fuelUse += take; b.useFuel = dt > 0 ? take / dt : 0;
-      if (k.fuel >= R.tank - 1e-6) { k.fuel = R.tank; floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, 'Rocket ready', '#f2c14e'); }
+      if (k.fuel >= R.tank - 1e-6) { k.fuel = R.tank; floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, b.supply ? 'Supply rocket ready' : 'Rocket ready', '#f2c14e'); }
+    }
+    if (b.supply && k.fuel >= R.tank - 1e-6) {     // supplying a station: up it goes, by itself
+      const st = stationByN(b.supply);
+      if (!st) b.supply = null; else launchSupply(b, c, st);
     }
   }
-  if (dt > 0) c.rates.iron -= ironUse / dt;       // the top bar shows what is left after the rockets
+  c.rocketIron = ironUse;                         // (paid in one go, so it isn't a rate for the top bar)
   // the top bar's FUEL: what's in the rockets on the pads, out of what they hold, and how fast it's going in
   c.store.fuel = c.pw.pads * R.tank;
   c.res.fuel = c.pw.padList.reduce((a, b) => a + (b.rocket ? b.rocket.fuel : 0), 0);
@@ -1560,6 +1573,7 @@ function launchRocket(b) {
   const x = b.i % W + 0.5, y = ((b.i / W) | 0) + 0.5;
   const f = { x, y, vx: 0, vy: 0, a: Math.atan2(y - DISK.cy, x - DISK.cx), fuel: b.rocket.fuel, throttle: 1, engine: false,
     landed: true, left: false, orbit: false, t: 0, trail: [[x, y]], n: ++rocketCount };
+  f.pad = b.i; f.home = countryAt(b.i) ? countryAt(b.i).id : null;
   b.rocket = null;
   game.flights.push(f);
   takeRocket(f);
@@ -1647,6 +1661,8 @@ function endFlight(f) {
   f.done = true;
   if (game.flying === f) game.flying = null;
 }
+// where a rocket is drawn: carried on between sim steps at its own speed, so it glides
+const shownFlight = f => f.landed || f.done ? [f.x, f.y] : [f.x + f.vx * lead, f.y + f.vy * lead];
 function flightStatus(f) {
   const F = CFG.rocket.flight, r = Math.hypot(f.x - DISK.cx, f.y - DISK.cy), o = orbitOf(f.x, f.y, f.vx, f.vy);
   if (f.landed) return 'On the pad';
@@ -1693,7 +1709,7 @@ function drawFlights(z) {
     if (f.trail.length > 1) {                       // where it has been
       ctx.beginPath();
       f.trail.forEach((q, k) => { const [sx, sy] = toScreen(q[0], q[1]); k ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
-      const [ex, ey] = toScreen(f.x, f.y); ctx.lineTo(ex, ey);
+      const [ex, ey] = toScreen(...shownFlight(f)); ctx.lineTo(ex, ey);
       ctx.strokeStyle = mine ? 'rgba(242,193,78,0.55)' : 'rgba(242,193,78,0.25)'; ctx.lineWidth = 1.5; ctx.stroke();
     }
     if (!f.landed && (mine || f.orbit)) {          // where it is going: a dotted line
@@ -1722,7 +1738,7 @@ function drawFlights(z) {
         }
       }
     }
-    const [sx, sy] = toScreen(f.x, f.y), size = clamp(z * 2.4, 18, 64), rot = f.a + Math.PI / 2 + (cam.rot || 0);
+    const [sx, sy] = toScreen(...shownFlight(f)), size = clamp(z * 2.4, 18, 64), rot = f.a + Math.PI / 2 + (cam.rot || 0);
     ctx.save(); ctx.translate(sx, sy); ctx.rotate(rot);
     if (f.burning) {                                // the exhaust: longer with more throttle, flickering
       const L = size * (0.35 + 0.7 * f.throttle) * (0.85 + 0.3 * Math.random());
@@ -1736,6 +1752,143 @@ function drawFlights(z) {
     if (mine) { ctx.strokeStyle = 'rgba(242,193,78,0.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sy, size * 0.75, 0, Math.PI * 2); ctx.stroke(); }
   }
 }
+// ---------- space stations ----------
+// A rocket in orbit becomes a station: it keeps that orbit, houses people and stores goods, and the pad that
+// launched it keeps it supplied (see launchSupply).
+let stationCount = 0;
+const stationCap = st => CFG.station.cap * st.level;
+const shownOrbit = st => [st.x + st.vx * lead, st.y + st.vy * lead];
+function makeStation(f) {
+  if (!f || !f.orbit) return toast('Get the rocket into a stable orbit first (periapsis above the air)');
+  let home = liveCountry(f.home ?? -1), pad = f.pad != null ? buildingAt(f.pad) : null;
+  if (!home) home = activeCountry();
+  if (!pad || pad.type !== 'pad' || countryAt(pad.i) !== home) pad = game.buildings.find(b => b.type === 'pad' && countryAt(b.i) === home) || null;
+  const st = { orbital: true, n: ++stationCount, x: f.x, y: f.y, vx: f.vx, vy: f.vy, home: home ? home.id : null, pad: pad ? pad.i : null,
+    people: 0, level: 1, res: { wood: 0, stone: 0, iron: 0 }, runs: 0, a: 0 };
+  game.orbitals.push(st);
+  endFlight(f);
+  if (pad) pad.supply = st.n;
+  floatText(st.x, st.y - 6, `Station ${st.n}!`, '#f2c14e');
+  toast(`Rocket ${f.n} is now Space Station ${st.n}.${pad ? ` ${home.short}'s launch pad will keep it supplied: every rocket it fuels flies up with people and goods.` : ' Build a launch pad to supply it.'}`);
+  rideWith(st);
+  inspect(st);
+}
+// a station just orbits: gravity only (it is above the air)
+function stepOrbit(st, dt) {
+  const n = Math.max(1, Math.ceil(dt / 0.02)), h = dt / n;
+  for (let k = 0; k < n; k++) {
+    const [gx, gy] = gravityAt(st.x, st.y);
+    st.vx += gx * h; st.vy += gy * h; st.x += st.vx * h; st.y += st.vy * h;
+  }
+  st.a += dt * 0.25;
+}
+const stationByN = n => game.orbitals.find(st => st.n === n);
+// people and goods on their way up to a station
+function incomingStation(st) {
+  const inc = { people: 0, wood: 0, stone: 0, iron: 0 };
+  for (const r of game.supplyRuns) if (r.st === st.n) for (const k in inc) inc[k] += r.cargo[k] || 0;
+  return inc;
+}
+// a pad supplying a station sends its fuelled rocket up by itself, loaded with what home can spare
+function launchSupply(b, c, st) {
+  const S = CFG.station, inc = incomingStation(st), cargo = { people: 0, wood: 0, stone: 0, iron: 0 };
+  cargo.people = Math.floor(Math.max(0, Math.min(S.people, c.people - crewOf(c), stationCap(st) - st.people - inc.people)));
+  for (const r of ['wood', 'stone', 'iron']) cargo[r] = Math.floor(Math.max(0, Math.min(S.each, c.res[r] - S.keep)));
+  if (!(cargo.people + cargo.wood + cargo.stone + cargo.iron)) return false;   // nothing to send yet: the rocket waits
+  c.people -= cargo.people;
+  for (const r of ['wood', 'stone', 'iron']) c.res[r] -= cargo[r];
+  const [fx, fy] = tileCenter(b.i);
+  game.supplyRuns.push({ st: st.n, t: 0, T: S.trip, fx, fy, cargo });
+  b.rocket = null;                                 // the next one is built (and fuelled) for the next run
+  floatText(fx, fy - 1.5, `Supply rocket to Station ${st.n}`, '#f2c14e');
+  return true;
+}
+function stepSupplyRuns(dt) {
+  for (const r of game.supplyRuns) {
+    r.t += dt;
+    if (r.t < r.T) continue;
+    r.done = true;
+    const st = stationByN(r.st);
+    if (!st) continue;                             // its station is gone: lost
+    st.people += r.cargo.people;
+    for (const k of ['wood', 'stone', 'iron']) st.res[k] += r.cargo[k];
+    st.runs++;
+    floatText(st.x, st.y - 4, `+${listRes(r.cargo) || 'supplies'}`, '#7bd389');
+  }
+  if (game.supplyRuns.some(r => r.done)) game.supplyRuns = game.supplyRuns.filter(r => !r.done);
+}
+function expandStation(st) {
+  const E = CFG.station.expand, miss = Object.keys(E).find(r => st.res[r] < E[r]);
+  if (miss) return toast(`Station ${st.n} needs ${E[miss]} ${miss} in its stock to expand: supply rockets bring it`);
+  for (const r in E) st.res[r] -= E[r];
+  st.level++;
+  floatText(st.x, st.y - 5, `Station ${st.n}: room for ${stationCap(st)}`, '#f2c14e');
+}
+// where a supply rocket is: from its pad up to the station, bowing out from the world on the way
+function supplyPos(r) {
+  const st = stationByN(r.st), u = clamp((r.t + lead) / r.T, 0, 1), e = u * u * (3 - 2 * u);
+  const [tx, ty] = st ? shownOrbit(st) : [r.fx, r.fy];
+  let x = lerp(r.fx, tx, e), y = lerp(r.fy, ty, e);
+  const dx = x - DISK.cx, dy = y - DISK.cy, d = Math.hypot(dx, dy) || 1, bow = Math.sin(Math.PI * u) * 60;
+  x += dx / d * bow; y += dy / d * bow;
+  return [x, y];
+}
+function drawStations(z) {
+  for (const r of game.supplyRuns) {               // supply rockets climbing to their station
+    const [x, y] = supplyPos(r), r2 = { ...r, t: r.t + 0.05 }, [x2, y2] = supplyPos(r2);
+    const [sx, sy] = toScreen(x, y), size = clamp(z * 1.8, 12, 40), rot = Math.atan2(y2 - y, x2 - x) + Math.PI / 2 + (cam.rot || 0);
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(rot);
+    const L = size * (0.6 + 0.2 * Math.random());
+    const g = ctx.createLinearGradient(0, size * 0.4, 0, size * 0.4 + L);
+    g.addColorStop(0, 'rgba(255,240,180,0.95)'); g.addColorStop(0.5, 'rgba(255,150,50,0.7)'); g.addColorStop(1, 'rgba(255,90,30,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-size * 0.1, size * 0.4); ctx.lineTo(size * 0.1, size * 0.4); ctx.lineTo(0, size * 0.4 + L); ctx.closePath(); ctx.fill();
+    if (RAS.rocket) ctx.drawImage(RAS.rocket[size * dpr > 44 ? 0 : 1], -size / 2, -size / 2, size, size);
+    ctx.restore();
+  }
+  for (const st of game.orbitals) {                // the stations: a hub, a truss and two solar wings, turning slowly
+    const [sx, sy] = toScreen(...shownOrbit(st)), s = clamp(z * 3, 22, 80) * (1 + 0.12 * (st.level - 1));
+    if (sx < -s * 2 || sy < -s * 2 || sx > cw + s * 2 || sy > ch + s * 2) continue;
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(st.a);
+    ctx.fillStyle = '#9aa6b4'; ctx.fillRect(-s * 0.62, -s * 0.035, s * 1.24, s * 0.07);          // truss
+    for (const side of [-1, 1]) {                                                               // solar wings
+      ctx.fillStyle = '#2b5f9e'; ctx.fillRect(side > 0 ? s * 0.22 : -s * 0.62, -s * 0.2, s * 0.4, s * 0.4);
+      ctx.strokeStyle = 'rgba(160,200,255,0.55)'; ctx.lineWidth = 1;
+      for (let q = 1; q < 4; q++) { const gx = (side > 0 ? s * 0.22 : -s * 0.62) + q * s * 0.1; ctx.beginPath(); ctx.moveTo(gx, -s * 0.2); ctx.lineTo(gx, s * 0.2); ctx.stroke(); }
+    }
+    for (let q = 0; q < st.level; q++) {                                                        // a ring of modules per level
+      const a = q * 2.4, rr = q ? s * 0.12 : 0;
+      ctx.fillStyle = q ? '#c9d1db' : '#e6ebf1'; ctx.strokeStyle = '#56606c'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, s * (q ? 0.09 : 0.14), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+    if (s > 24) pill(sx, sy + s * 0.5 + 12, `Station ${st.n} · ${Math.floor(st.people)} / ${stationCap(st)} people`, { size: 10, dot: '#f2c14e' });
+  }
+}
+function cardStation(st, { row, bar, note, sep, button }) {
+  const S = CFG.station, home = liveCountry(st.home ?? -1), pad = st.pad != null ? buildingAt(st.pad) : null, cap = stationCap(st);
+  const o = orbitOf(st.x, st.y, st.vx, st.vy), inc = incomingStation(st);
+  row('People', `${Math.floor(st.people)} / ${cap}`); bar(st.people / cap);
+  if (inc.people) note(`+${inc.people} on the way up`, 'g');
+  row('Stock', listRes(st.res, ['wood', 'stone', 'iron']) || 'empty');
+  row('Level', `${st.level} · room for ${cap}`);
+  const E = S.expand, can = Object.keys(E).every(r => st.res[r] >= E[r]);
+  button(`Expand: +${S.cap} room for ${listRes(E, ['stone', 'iron'])}`, 'expand', can);
+  if (!can) note('Paid from the station\'s own stock: supply rockets bring it up', 'd');
+  sep();
+  const supplier = pad && pad.type === 'pad' && pad.supply === st.n ? pad : game.buildings.find(b => b.type === 'pad' && b.supply === st.n && owner[b.i]);
+  if (supplier) {
+    const k = supplier.rocket, stt = rocketState(supplier);
+    row('Supplied by', `${countryAt(supplier.i)?.short || '?'}'s launch pad`);
+    row('Next supply rocket', supplier.paused ? 'Pad paused' : stt === 'none' ? 'Pad needs iron' : stt === 'ready' ? 'Loading' : `fuelling ${Math.floor((k ? k.fuel : 0) / CFG.rocket.tank * 100)}%`, supplier.paused || stt === 'none' ? 'r' : '');
+    note(`Each brings up to ${S.people} people and ${S.each} wood, stone and iron`);
+  } else note('No launch pad is supplying it: click a pad and pick "Supply" on its card', 'r');
+  row('Supply runs', `${st.runs}`);
+  sep();
+  row('Orbit', o.escape ? 'escaping' : `${Math.round(o.pe - DISK.R)} to ${Math.round(o.ap - DISK.R)} above the rim`);
+  if (!o.escape) row('Once round', secs(o.period));
+  return [`Space Station ${st.n}`, 'rocket', home ? `Above ${home.full}` : 'In orbit'];
+}
+
 // the flight readout: shown while you fly
 function flightHud() {
   let el = document.getElementById('flight-hud');
@@ -1748,6 +1901,8 @@ function flightHud() {
       : 'position:fixed;right:14px;top:50%;transform:translateY(-50%);width:230px;padding:10px 12px;font:600 12px "Segoe UI",Arial,sans-serif;line-height:1.55;') +
       'background:rgba(14,18,26,0.9);border:1px solid rgba(255,255,255,0.14);border-radius:10px;color:#e8edf2;z-index:30;pointer-events:none;display:none';
     document.body.appendChild(el);
+    // its button is rebuilt ten times a second, so catch the press itself rather than a click
+    el.addEventListener('pointerdown', e => { if (e.target.dataset && e.target.dataset.act === 'station') { e.preventDefault(); makeStation(game.flying); } });
   }
   const f = game.flying;
   if (!f) { el.style.display = 'none'; return; }
@@ -1765,10 +1920,11 @@ function flightHud() {
     <div>Height <b>${r < DISK.R ? 'over the disk' : alt(r) + ' tiles'}</b>${air > 0.001 ? ` · air ${Math.round(air * 100)}%` : ' · no air'}</div>
     <div>Apoapsis <b>${o.escape ? 'none: escaping' : alt(o.ap)}</b></div>
     <div>Periapsis <b style="color:${o.pe > DISK.R + F.atm ? '#7be08a' : '#ff9a8a'}">${o.pe < DISK.R ? 'under the rim' : alt(o.pe)}</b></div>
+    ${f.orbit ? `<button data-act="station" style="pointer-events:auto;margin-top:8px;width:100%;padding:6px;border:1px solid #f2c14e;border-radius:7px;background:rgba(242,193,78,0.15);color:#f2c14e;font:700 12px 'Segoe UI',Arial,sans-serif;cursor:pointer">${TOUCH ? 'Make it a space station' : 'Enter: make it a space station'}</button>` : ''}
     <div style="opacity:0.6;font-size:11px;margin-top:6px">Orbit = periapsis above ${F.atm} (out of the air)<br>${TOUCH ? 'Engine on / off · ▲ ▼ throttle · ◀ ▶ turn · Drive takes it back' : 'Space engine on / off · E / Q throttle up / down · A / D turn · Shift full throttle · Esc let go · X or click it to take it back'}</div>`;
 }
 function padClick(b) {
-  if (rocketState(b) === 'ready') launchRocket(b); else togglePad(b);
+  if (rocketState(b) === 'ready' && !b.supply) launchRocket(b); else togglePad(b);
 }
 function togglePad(b) {
   b.paused = !b.paused;
@@ -1778,10 +1934,19 @@ function togglePad(b) {
 // the rocket on its pad (detail view): faint while it is being built, with a bar for its iron, then its fuel
 function drawRockets(z, x0, y0, x1, y1) {
   for (const b of game.buildings) {
-    if (b.type !== 'pad' || !b.rocket) continue;
+    if (b.type !== 'pad') continue;
     const x = b.i % W, y = (b.i / W) | 0;
     if (x < x0 - 2 || x > x1 + 2 || y < y0 - 3 || y > y1 + 2) continue;
     const R = CFG.rocket, st = rocketState(b);
+    if (!b.rocket) {                               // waiting for the iron to build one
+      if (z >= CFG.cityZoom && owner[b.i]) {
+        const [sx, sy] = toScreen(x + 0.5, y + 1.45), txt = b.paused ? 'Paused' : `Needs ${R.iron} iron`;
+        ctx.font = `700 ${Math.round(clamp(z * 0.42, 9, 13))}px 'Segoe UI', Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(4,6,12,0.85)'; ctx.strokeText(txt, sx, sy);
+        ctx.fillStyle = b.paused ? '#c4cad2' : '#e8a77f'; ctx.fillText(txt, sx, sy);
+      }
+      continue;
+    }
     drawSprite('rocket', x + 0.45, y + 0.2, z * 1.5, st === 'building' ? 0.25 + 0.6 * b.rocket.iron / R.iron : 1);
     if (st === 'ready' && !b.paused) continue;
     const [sx, sy] = toScreen(x + 0.5, y + 1.45), w = z * 1.4, h = Math.max(2.5, z * 0.14);
@@ -3122,6 +3287,7 @@ function tick(dt) {
     } else c.growth = 0;
     pop += c.people;
   }
+  for (const st of game.orbitals) pop += st.people;   // people living in space count too
   game.population = pop;
   if (pop > game.peakPop + 0.5) { game.peakPop = pop; checkUnlocks(); }
 
@@ -3178,6 +3344,8 @@ function tick(dt) {
   freightTimer += dt;
   if (freightTimer >= CFG.freight.every) { freightTimer = 0; dispatchFreight(); }
   for (const f of game.flights) stepFlight(f, dt);
+  for (const st of game.orbitals) stepOrbit(st, dt);
+  stepSupplyRuns(dt);
   if (game.flights.some(f => f.done)) game.flights = game.flights.filter(f => !f.done);
   for (const f of game.floats) f.t += dt;
   game.floats = game.floats.filter(f => f.t < 2.4);
@@ -3187,7 +3355,7 @@ function tick(dt) {
 // ---------- saving ----------
 let noSave = false;
 // what a building remembers across a reload besides where it is: its tallies, and a launch pad's rocket and pause
-const KEPT = ['shots', 'stops', 'killed', 'rocket', 'paused'];
+const KEPT = ['shots', 'stops', 'killed', 'rocket', 'paused', 'supply'];
 function keptState(b) {
   let out = null;
   for (const k of KEPT) if (b[k]) (out || (out = {}))[k] = k === 'rocket' ? { iron: b.rocket.iron, fuel: b.rocket.fuel } : b[k];
@@ -3223,7 +3391,9 @@ function saveGame() {
       routes: game.routes,
       bridges: game.bridges.map(br => [br.s, br.b, br.len, br.tiles]),
       rockets: game.buildings.filter(b => b.type === 'pad' && (b.rocket || b.paused)).map(b => [b.i, b.rocket ? b.rocket.iron : -1, b.rocket ? b.rocket.fuel : 0, b.paused ? 1 : 0]),
-      flights: game.flights.filter(f => !f.done).map(f => [f.x, f.y, f.vx, f.vy, f.a, f.fuel, f.landed ? 1 : 0, f.everOrbit ? 1 : 0, f.n, f.throttle]),
+      flights: game.flights.filter(f => !f.done).map(f => [f.x, f.y, f.vx, f.vy, f.a, f.fuel, f.landed ? 1 : 0, f.everOrbit ? 1 : 0, f.n, f.throttle, f.pad ?? null, f.home ?? null]),
+      orbitals: game.orbitals.map(st => [st.n, st.x, st.y, st.vx, st.vy, st.home, st.pad, st.people, st.level, st.res.wood, st.res.stone, st.res.iron, st.runs]),
+      supplyRuns: game.supplyRuns.map(r => [r.st, r.t, r.T, r.fx, r.fy, r.cargo.people, r.cargo.wood, r.cargo.stone, r.cargo.iron]),
       runs, cam: { x: cam.x, y: cam.y, zoom: cam.zoom },
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -3256,7 +3426,11 @@ function loadGame(sv) {
     if (ready) nb.ready = ready;
     if (kept) for (const k of KEPT) if (kept[k] !== undefined) nb[k] = kept[k];
   }
-  game.flights = (sv.flights || []).map(([x, y, vx, vy, a, fuel, landed, everOrbit, n, throttle]) => ({ x, y, vx, vy, a, fuel, throttle: throttle ?? 1, engine: false,
+  game.orbitals = (sv.orbitals || []).map(([n, x, y, vx, vy, home, pad, people, level, wood, stone, iron, runs]) =>
+    ({ orbital: true, n, x, y, vx, vy, home, pad, people, level, res: { wood, stone, iron }, runs, a: 0 }));
+  stationCount = Math.max(0, ...game.orbitals.map(st => st.n));
+  game.supplyRuns = (sv.supplyRuns || []).map(([st, t, T, fx, fy, people, wood, stone, iron]) => ({ st, t, T, fx, fy, cargo: { people, wood, stone, iron } }));
+  game.flights = (sv.flights || []).map(([x, y, vx, vy, a, fuel, landed, everOrbit, n, throttle, pad, home]) => ({ x, y, vx, vy, a, fuel, throttle: throttle ?? 1, engine: false, pad, home,
     landed: !!landed, left: Math.hypot(x - DISK.cx, y - DISK.cy) > DISK.R, orbit: false, everOrbit: !!everOrbit, t: 10, trail: [[x, y]], n: n || ++rocketCount }));
   rocketCount = Math.max(rocketCount, ...game.flights.map(f => f.n), 0);
   for (const [bi, iron, fuel, paused] of sv.rockets || []) {   // rockets being built or waiting on their pads
@@ -5167,6 +5341,7 @@ function render() {
   drawPops(z);
   drawVehicles(z);
   drawFlights(z);
+  drawStations(z);
   drawBuildPreview(z);
   drawReachHover(z);
   drawRings(z);
@@ -5596,14 +5771,15 @@ function drawSettlementHover(z) {
 }
 // ---------- pointing and picking: a ring glides to whatever you point at; clicking one of yours opens its card ----------
 // Anything can be picked: a building, a truck or boat you drove out, a train or cargo ship on its route, a bridge.
-const kindOf = o => !o ? null : o.type ? 'building' : o.throttle !== undefined ? 'flight' : o.supplies !== undefined ? 'exp' : o.path && o.dir !== undefined ? 'link' : o.tiles && o.s !== undefined ? 'bridge' : null;
+const kindOf = o => !o ? null : o.orbital ? 'orbital' : o.type ? 'building' : o.throttle !== undefined ? 'flight' : o.supplies !== undefined ? 'exp' : o.path && o.dir !== undefined ? 'link' : o.tiles && o.s !== undefined ? 'bridge' : null;
 const expSize = () => clamp(cam.zoom * 2.6, 26, 60);
 // what's at a screen point: a vehicle first (they move over everything), then the building on the tile (zoomed in,
 // or a station/port/pad icon from far out), then a bridge under the pointer, else the nearest settlement within reach
 function pickAt(x, y) {
   const z = cam.zoom, [wx, wy] = toWorld(x, y), tx = Math.floor(wx), ty = Math.floor(wy);
   const near = (p, r) => { const [sx, sy] = toScreen(p[0], p[1]); return Math.hypot(sx - x, sy - y) < r; };
-  for (const f of game.flights) if (!f.done && near([f.x, f.y], clamp(z * 2.4, 18, 64) * 0.6)) return f;
+  for (const st of game.orbitals) if (near(shownOrbit(st), clamp(z * 3, 22, 80) * 0.6)) return st;
+  for (const f of game.flights) if (!f.done && near(shownFlight(f), clamp(z * 2.4, 18, 64) * 0.6)) return f;
   for (const e of game.expeditions) if (!e.auto && !e.done && near(shownPos(e), expSize() * 0.55)) return e;
   if (z >= 1) for (const L of game.links.concat(game.freight)) if (near(vehiclePos(L), Math.max(10, z * 1.1))) return L;
   if (inb(tx, ty)) {
@@ -5635,6 +5811,7 @@ function stillThere(o) {
     case 'building': return building[o.i] && buildingAt(o.i) === o && owner[o.i];
     case 'exp': return game.expeditions.includes(o) && !o.done;
     case 'flight': return game.flights.includes(o) && !o.done;
+    case 'orbital': return game.orbitals.includes(o);
     case 'link': return game.links.includes(o) || game.freight.includes(o);
     case 'bridge': return game.bridges.includes(o);
   }
@@ -5647,7 +5824,8 @@ const ringFx = { hover: { x: 0, y: 0, r: 0, a: 0, b: null }, sel: { x: 0, y: 0, 
 function ringGeom(o, z) {
   switch (kindOf(o)) {
     case 'exp': { const [x, y] = shownPos(o); return [x, y, expSize() * 0.68]; }
-    case 'flight': return [o.x, o.y, clamp(z * 2.4, 18, 64) * 0.8];
+    case 'flight': { const [x, y] = shownFlight(o); return [x, y, clamp(z * 2.4, 18, 64) * 0.8]; }
+    case 'orbital': { const [x, y] = shownOrbit(o); return [x, y, clamp(z * 3, 22, 80) * 0.75 * (1 + 0.12 * (o.level - 1))]; }
     case 'link': { const [x, y] = vehiclePos(o); return [x, y, o.kind === 'sea' ? Math.max(14, z * 1.1) : Math.max(12, z * 1.3)]; }
     case 'bridge': {
       const [ax, ay] = tileCenter(o.s), [bx, by] = tileCenter(o.b);
@@ -5664,7 +5842,7 @@ function stepRing(R, o, dt, z) {
   const k = 1 - Math.exp(-dt * 18);
   if (o) {
     const [x, y, r] = ringGeom(o, z), [ax, ay] = toScreen(R.x, R.y), [bx, by] = toScreen(x, y);
-    const fresh = !R.b || R.a < 0.05, moving = kindOf(o) === 'exp' || kindOf(o) === 'link' || kindOf(o) === 'flight';
+    const fresh = !R.b || R.a < 0.05, moving = ['exp', 'link', 'flight', 'orbital'].includes(kindOf(o));
     if (fresh || Math.hypot(ax - bx, ay - by) > 260) { R.x = x; R.y = y; if (fresh) R.r = r * 0.7; }   // far away: just appear there
     else if (moving && R.b === o) { R.x = x; R.y = y; }   // stay on a moving vehicle
     else { R.x += (x - R.x) * k; R.y += (y - R.y) * k; }
@@ -5707,9 +5885,10 @@ function updateInspect() {
   const bar = (f, cls = '') => rows.push(`<div class="ibar ${cls}"><i style="width:${(clamp(f, 0, 1) * 100).toFixed(1)}%"></i></div>`);
   const note = (s, cls = 'd') => rows.push(`<div class="in ${cls}">${s}</div>`);
   const sep = () => rows.push('<div class="isep"></div>');
-  const ui = { row, bar, note, sep };
+  const button = (label, act, ok = true, n = '') => rows.push(`<button class="ibtn" data-act="${act}" data-n="${n}"${ok ? '' : ' disabled'}>${label}</button>`);
+  const ui = { row, bar, note, sep, button };
   const kind = kindOf(o);
-  const [title, icon, sub] = kind === 'exp' ? cardExpedition(o, ui) : kind === 'link' ? cardLink(o, ui) : kind === 'bridge' ? cardBridge(o, ui) : cardBuilding(o, ui);
+  const [title, icon, sub] = kind === 'orbital' ? cardStation(o, ui) : kind === 'exp' ? cardExpedition(o, ui) : kind === 'link' ? cardLink(o, ui) : kind === 'bridge' ? cardBridge(o, ui) : cardBuilding(o, ui);
   const key = `${kind}:${o.i ?? ''}:${icon}`;
   if (el.dataset.key !== key) {                    // something new (or a settlement that levelled up): redo the icon
     el.dataset.key = key;
@@ -5728,7 +5907,7 @@ function reloadRows(b, { row, bar }) {
   else row('Status', 'Loaded', 'g');
 }
 function cardBuilding(b, ui) {
-  const { row, bar, note, sep } = ui;
+  const { row, bar, note, sep, button } = ui;
   const c = countryAt(b.i), def = CFG.buildings[b.type], S = CFG.settlement;
   if (b.type === 'settlement') {
     const L = S.levels, lvl = settlementLevel(b), cap = settlementCap(b), next = L[lvl + 1];
@@ -5873,8 +6052,8 @@ function cardBuilding(b, ui) {
     }
     case 'pad': {
       const R = CFG.rocket, st = rocketState(b), k = b.rocket, drills = c.pw.drills, perDrill = CFG.buildings.drill.fuel;
-      const fuel = k ? k.fuel : 0, iron = k ? k.iron : 0, on = !b.paused;
-      row('Rocket', !on ? 'Paused' : { none: 'Starting', building: 'Being built', fuelling: 'Fuelling', ready: 'Fuelled: ready to launch' }[st], st === 'ready' ? 'g' : !on ? 'r' : '');
+      const fuel = k ? k.fuel : 0, on = !b.paused;
+      row('Rocket', !on ? 'Paused' : { none: 'Waiting for iron', building: 'Fuelling', fuelling: 'Fuelling', ready: 'Fuelled: ready to launch' }[st], st === 'ready' ? 'g' : !on || st === 'none' ? 'r' : '');
       // the main thing: how full the rocket is, and how fast the drills are filling it
       row('Fuelled', `${Math.floor(fuel / R.tank * 100)}% · ${Math.floor(fuel)} / ${R.tank}`, st === 'ready' ? 'g' : 'p');
       bar(fuel / R.tank, st === 'ready' ? '' : 'power');
@@ -5882,16 +6061,18 @@ function cardBuilding(b, ui) {
         row('Fuelling at', `+${(b.useFuel || 0).toFixed(2)} fuel / sec`, b.useFuel > 0 ? 'g' : 'r');
         if (b.useFuel > 0) note(`${drills} ice drill${drills > 1 ? 's' : ''} pumping it full · full in ${secs((R.tank - fuel) / b.useFuel)}`, 'g');
         else note(drills ? `${c.short}'s ice drills have no power` : `No ice drills in ${c.short}: build some on polar ice to fuel it`, 'r');
-      } else if (st === 'building' || st === 'none') note('Fuelling starts once the rocket is built');
-      else if (st === 'ready') note(`${say('Click', 'Tap')} the pad to launch`, 'g');
+      } else if (st === 'none') note(`Builds one at once when ${c.short} has ${R.iron + R.ironReserve} iron (${R.iron} for the rocket, ${R.ironReserve} kept back): it has ${fmtNum(c.res.iron)}`, 'r');
+      else if (st === 'ready') note(b.supply ? 'Loading the supply rocket: it leaves once home has something to send' : `${say('Click', 'Tap')} the pad to launch`, 'g');
       row('Ice drills', `${drills} · up to ${(drills * perDrill).toFixed(1)} fuel / sec`, drills ? '' : 'r');
       note(`Each drill adds ${perDrill} fuel / sec on full power: more drills, faster fuelling`);
       sep();
-      row('Built', `${Math.floor(iron)} / ${R.iron} iron`); bar(iron / R.iron, 'gold');
-      if (st === 'building' && on) {
-        row('Uses', `${(b.useIron || 0).toFixed(2)} iron / sec`, 'u');
-        if (c.res.iron <= R.ironReserve + 0.5) note(`Waiting for iron: ${c.short} keeps ${R.ironReserve} back`, 'r');
-      }
+      row('Each rocket', `${R.iron} iron, built at once`, 'u');
+      const mineSt = game.orbitals.filter(q => q.home === c.id);
+      if (b.supply && stationByN(b.supply)) {
+        row('Supplying', `Space Station ${b.supply}`, 'g');
+        note('Each fuelled rocket flies up by itself with people and goods');
+        button('Stop: build rockets to fly myself', 'unsupply');
+      } else for (const q of mineSt) button(`Supply Space Station ${q.n} with it`, 'supply', true, q.n);
       if (st !== 'ready') note(`${say('Click', 'Tap')} the pad to ${b.paused ? 'resume' : 'pause'} it`);
       break;
     }
@@ -6146,7 +6327,7 @@ window.addEventListener('mousemove', e => {
   }
   if (mouse.dragged && !mouse.selecting) {
     if (cam.follow) { cam.offX = mouse.offX - dx / cam.zoom; cam.offY = mouse.offY - dy / cam.zoom; }
-    else { cam.x = mouse.camX - dx / cam.zoom; cam.y = mouse.camY - dy / cam.zoom; clampCam(); }
+    else { if (camRide && !game.flying) camRide = null; cam.x = mouse.camX - dx / cam.zoom; cam.y = mouse.camY - dy / cam.zoom; clampCam(); }
   }
 });
 window.addEventListener('mouseup', e => {
@@ -6166,6 +6347,7 @@ function clickAt(btn, x, y) {
   if (btn === 2 && game.aiming) { setAiming(false); return; }
   if (btn === 0 && !game.tool) {
     const fl = pickAt(x, y);
+    if (kindOf(fl) === 'orbital') { inspect(fl); rideWith(fl); return; }
     if (kindOf(fl) === 'flight') { if (game.flying !== fl) { takeRocket(fl); toast(`Flying rocket ${fl.n}. Space: engine on / off · E / Q: throttle · A / D: turn`); } return; }
     const [wx, wy] = toWorld(x, y);
     const body = bodyUnder(wx, wy);
@@ -6237,6 +6419,7 @@ window.addEventListener('keydown', e => {
   if (k === 'x' && !e.repeat) nextVehicle();
   if (k.startsWith('arrow') && (game.driving || game.flying)) e.preventDefault();
   if (k === ' ' && game.flying) { e.preventDefault(); if (!e.repeat) toggleEngine(game.flying); }
+  if (k === 'enter' && game.flying && !e.repeat) makeStation(game.flying);
   if (k === 'f' && !e.repeat) setAiming(!game.aiming);
   if (k === 'e' && !e.repeat && !game.flying) toggleBuildMenu();   // flying, E is throttle up
   if (k === 'c' && !e.repeat) {
@@ -6269,7 +6452,7 @@ function cancelAll() {
   }
   if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast(say('Parked. Press X to take the wheel again.', 'Parked. Tap Drive to take the wheel again.')); }
   setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false);
-  inspect(null);
+  inspect(null); camRide = null;
 }
 function goHome() { game.driving = null; stopFollow(); cam.anim = null; cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
 function nextCountry(dir) {
@@ -6425,11 +6608,28 @@ function toggleMapView() {
     savedView = null; mapStage = 0;
   }
 }
+// The camera can ride along with something moving (the rocket you fly, a space station you clicked): locked onto
+// where it's drawn, so it holds still in the middle of the view the way a planet does when you lock onto it.
+// `ox, oy` is the gap when the ride starts; it closes smoothly instead of jumping.
+let camRide = null;
+const rideOn = o => o === game.flying || (kindOf(o) === 'orbital' && game.orbitals.includes(o));
+function rideWith(o) {
+  const [x, y] = ridePos(o);
+  camRide = { o, ox: cam.x - x, oy: cam.y - y };
+}
+const ridePos = o => kindOf(o) === 'orbital' ? shownOrbit(o) : shownFlight(o);
 function panKeys(dt) {
-  if (game.flying && !cam.follow) {                // flying: the keys fly, and the camera rides along
-    const f = game.flying, k = Math.min(1, dt * 7);
-    cam.x += (f.x - cam.x) * k; cam.y += (f.y - cam.y) * k;
-    return;
+  if (game.flying && !cam.follow && (!camRide || camRide.o !== game.flying)) rideWith(game.flying);
+  if (camRide && !cam.follow) {
+    if (!rideOn(camRide.o)) camRide = null;
+    else {
+      const k = Math.exp(-dt * 5), [x, y] = ridePos(camRide.o);
+      camRide.ox *= k; camRide.oy *= k;
+      cam.x = x + camRide.ox; cam.y = y + camRide.oy;
+      if (game.flying) return;                     // flying: the keys fly
+      if (['w', 'a', 's', 'd', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'].some(q => keys.has(q))) camRide = null;   // panning lets go
+      else return;
+    }
   }
   if (game.driving) {                              // at the wheel: the keys drive, and the camera rides along
     const e = game.driving, k = Math.min(1, dt * 7), [ex, ey] = shownPos(e);
@@ -6571,6 +6771,16 @@ function buildMenu() {
   renderBuildBar();
   document.querySelector('#topbar .res.country').addEventListener('click', () => flyToCountry(activeCountry()));
   document.querySelector('#inspect .ix').addEventListener('click', () => inspect(null));
+  // buttons on a card (rebuilt as the numbers change, so catch the press itself)
+  $('inspect').addEventListener('pointerdown', e => {
+    const act = e.target.dataset && e.target.dataset.act, o = inspected;
+    if (!act || e.target.disabled || !o) return;
+    e.preventDefault();
+    if (act === 'expand') expandStation(o);
+    else if (act === 'supply') { o.supply = Number(e.target.dataset.n); toast(`This pad now keeps Space Station ${o.supply} supplied`); }
+    else if (act === 'unsupply') { o.supply = null; toast('This pad builds rockets for you to fly again'); }
+    updateInspect();
+  });
   const pw = $('pct-buttons');
   for (const p of [10, 25, 50, 100]) {
     const el = document.createElement('div');
@@ -6794,8 +7004,8 @@ function updateHover() {
       }
       if (hb.type === 'pad' && hc) {
         const R = CFG.rocket, st = rocketState(hb), k = hb.rocket;
-        info += st === 'building' ? ` · building a rocket: ${Math.floor(k.iron)} / ${R.iron} iron${hc.res.iron <= R.ironReserve + 0.5 ? ` (waiting for iron: it keeps ${R.ironReserve} back)` : ''}`
-          : st === 'fuelling' ? ` · fuelling: ${Math.floor(k.fuel / R.tank * 100)}% (${Math.floor(k.fuel)} / ${R.tank}) at ${(hb.useFuel || 0).toFixed(2)} fuel/s from ${hc.pw.drills} ice drill${hc.pw.drills === 1 ? '' : 's'}`
+        info += st === 'none' ? ` · waiting for iron: a rocket costs ${R.iron} (it keeps ${R.ironReserve} back)`
+          : st === 'fuelling' || st === 'building' ? ` · fuelling: ${Math.floor(k.fuel / R.tank * 100)}% (${Math.floor(k.fuel)} / ${R.tank}) at ${(hb.useFuel || 0).toFixed(2)} fuel/s from ${hc.pw.drills} ice drill${hc.pw.drills === 1 ? '' : 's'}`
           : st === 'ready' ? ` · rocket ready: ${say('click', 'tap')} the pad to launch` : '';
         if (st !== 'ready') info += hb.paused ? ` · paused: ${say('click', 'tap')} to resume` : ` · ${say('click', 'tap')} to pause`;
       }
@@ -7214,5 +7424,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { TOUCH, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive };
+window.__game = { TOUCH, DISK, makeStation, orbitOf, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive };
 init();
