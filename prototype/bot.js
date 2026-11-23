@@ -64,12 +64,25 @@
       if (afford(C, B[type].cost) && tryB(t, type)) { if (d.type === 'iron') mark('first iron collector'); }
     }
     const mw = C.mw || { need: 0, max: 0 };
-    // 2) power: a burner when short, solar when there's iron to spare
-    if (G.isUnlocked('burner') && mw.need >= mw.max - 0.5 && owned(C, 'burner').length < 4 && afford(C, B.burner.cost, 10)) {
+    // 2) power: a burner when short (machines, or cities that can't fill their powered housing), solar when there's iron to spare
+    const citiesDark = C.pw && C.pw.capPow > 0 && G.poweredShare(C) < 0.95;
+    if (G.isUnlocked('burner') && (mw.need >= mw.max - 0.5 || citiesDark) && owned(C, 'burner').length < (citiesDark ? 16 : 4) && afford(C, B.burner.cost, 10)) {
       const s = freeSpots(C, 1)[0]; if (s !== undefined && tryB(s, 'burner')) mark('first wood burner');
     }
     if (G.isUnlocked('solar') && mw.need > mw.max * 0.6 && afford(C, B.solar.cost, 20)) {
       for (const s of freeSpots(C, 3)) if (afford(C, B.solar.cost, 20)) { if (tryB(s, 'solar')) mark('first solar panel'); }
+    }
+    // 2b) city levels: raise the biggest city when its country powers all its cities and has power to spare for the next level
+    {
+      const towns = owned(C, 'settlement');
+      const big = towns.reduce((a, b) => (!a || G.settlementCap(b) > G.settlementCap(a) ? b : a), null);
+      if (big && G.isUnlocked('burner')) {
+        const step = G.upgradeStep(G.cityLevel(big)), spare = mw.max - mw.need, needMW = step.add / G.CFG.settlement.perMW;
+        if ((G.poweredShare(C) >= 0.95 || !C.pw.capPow) && spare >= needMW * 0.5 && afford(C, step.cost, 20)) {
+          G.upgradeCity(big);
+          mark(`city level ${G.cityLevel(big)}`);
+        }
+      }
     }
     // 3) rigs: upgrade a collector when there's spare power
     if (G.isUnlocked('rig') && mw.max - mw.need >= 4 && afford(C, B.rig.cost, 10)) {
@@ -149,6 +162,9 @@
       power: `${sum(c => (c.mw || {}).need || 0)}/${sum(c => (c.mw || {}).max || 0)} MW`,
       // your settlements by level: hamlets / villages / towns / cities
       settlements: [0, 1, 2, 3].map(l => g.buildings.filter(b => b.type === 'settlement' && G.owner[b.i] && G.settlementLevel(b) === l).length).join('/'),
+      // city levels (upgrades) of your settlements, highest first, and how powered your cities are
+      levels: g.buildings.filter(b => b.type === 'settlement' && G.owner[b.i] && G.cityLevel(b) > 1).map(b => G.cityLevel(b)).sort((a, b) => b - a).join(','),
+      citiesPowered: cs.map(c => Math.round(G.poweredShare(c) * 100) + '%').join(' '),
     };
   }
 
@@ -174,7 +190,6 @@
   window.MFBot = { step, simulate, simulateAsync, report, snapshot };
   if (G.params.has('bot') && !G.params.has('botsim')) {
     setInterval(step, 1000);
-    const t = document.getElementById('toast');
-    if (t) { t.textContent = 'Bot is playing (remove ?bot from the address to play yourself)'; t.classList.add('show'); }
+    if (typeof toast === 'function') toast('Bot is playing (remove ?bot from the address to play yourself)');
   }
 })();

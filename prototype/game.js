@@ -42,13 +42,21 @@ const CFG = {
   landCap: { grass: 0.5, desert: 0.2, mountain: 0.1, ice: 0.05 },
   // ...but only if a settlement is within `reach` tiles of it. Each tile counts for its nearest settlement,
   // so settlements packed together share the same land. A settlement's level is read off the capacity it serves.
-  // Power builds housing on top of the land: the power a country makes beyond what its machines use lets its
-  // settlements hold `perMW` more people per MW, up to `boost` x what their land holds. Cities only draw power
-  // for the people actually living in that extra housing, so burners burn wood as the cities fill up.
+  // City levels: place a settlement on one of your own (or press Upgrade on its card) to raise its level. Every
+  // level past the first adds housing that only fills with power: `perMW` people per MW. Power a country makes
+  // beyond what its machines use goes to its cities, shared out evenly; a city with half the power it needs fills
+  // half its powered housing. Upgrading always works; without power it just doesn't help yet. Cities only draw
+  // power for the people actually living in that housing, so burners burn more wood as the cities fill up.
+  // `upgrades[k]` is the step to level k + 2; past the list each step adds `grow` x the housing for `costGrow` x the
+  // cost. A settlement tool aimed within `snap` tiles of one of your cities upgrades it instead of founding another.
   // People above a country's capacity die off slowly (`shrink` = share of the excess per second).
-  settlement: { reach: 12, perMW: 10, boost: 1, shrink: 0.01,
+  // `levels` names a city by the people it holds right now (land and powered housing together).
+  settlement: { reach: 12, perMW: 12.5, shrink: 0.01, snap: 2,
+                upgrades: [{ add: 150, cost: { stone: 80, iron: 20 } }, { add: 400, cost: { stone: 200, iron: 80 } },
+                           { add: 1000, cost: { stone: 500, iron: 250 } }, { add: 2500, cost: { stone: 1200, iron: 600 } }],
+                grow: 2.5, costGrow: 2.4,
                 levels: [{ name: 'Hamlet', cap: 0 }, { name: 'Village', cap: 50 }, { name: 'Town', cap: 110 }, { name: 'City', cap: 175 },
-                         { name: 'Metropolis', cap: 300 }] },
+                         { name: 'Metropolis', cap: 300 }, { name: 'Megacity', cap: 1200 }, { name: 'Megalopolis', cap: 3000 }] },
   startResources: { wood: 50, stone: 50, iron: 0 },
   // An expedition takes the same share of its country's stockpile as of its people (the send %),
   // and at least this much if home has it: enough for a station with some track, or a cabin and a camp.
@@ -102,7 +110,7 @@ const CFG = {
   buildings: {
     // the one housing building. It has no capacity of its own: it unlocks the capacity of the land around it.
     settlement: { cat: 'Housing', name: 'Settlement', unlock: 0, cost: { wood: 40, stone: 40 }, people: 20,
-               desc: 'Houses the people the land within 12 tiles can support, and grows from hamlet to city as you own more of it. Costs 20 settlers. Spread them out: land is only counted once.' },
+               desc: 'Houses the people the land within 12 tiles can support, and grows from hamlet to city as you own more of it. Costs 20 settlers. Spread them out: land is only counted once. Place one on a settlement you already have to upgrade it instead: each level adds housing that runs on power.' },
     station: { cat: 'Transport', name: 'Station', cap: 0,  unlock: 0, cost: { wood: 15, stone: 10 },
                desc: 'Lays its own rail to your nearest station. Trains carry people and cargo between your countries.' },
     port:    { cat: 'Transport', name: 'Port',    cap: 0,  unlock: 0, cost: { wood: 20, stone: 10 },
@@ -2200,12 +2208,66 @@ function landTotals(list, n, dx, dy) {
     }
   }
 }
-// what a settlement holds right now: its land, plus its share of the housing its country's spare power builds
+// ---------- city levels ----------
+// level 1 = a plain settlement (land housing only); each level after that adds powered housing
+const cityLevel = b => b.up || 1;
+function upgradeStep(lvl) {                        // going from `lvl` to lvl + 1: { add, cost }
+  const S = CFG.settlement, U = S.upgrades;
+  if (lvl - 1 < U.length) return U[lvl - 1];
+  const last = U[U.length - 1], k = lvl - U.length;
+  const cost = {};
+  for (const r in last.cost) cost[r] = Math.round(last.cost[r] * S.costGrow ** k / 10) * 10;
+  return { add: Math.round(last.add * S.grow ** k / 50) * 50, cost };
+}
+function poweredHousing(lvl) {                     // all the powered housing a city of this level has
+  let h = 0;
+  for (let l = 1; l < lvl; l++) h += upgradeStep(l).add;
+  return h;
+}
+// how much of its powered housing a country can fill right now (0..1): its cities share the spare power evenly
+const poweredShare = c => c && c.pw && c.pw.capPow > 0 ? clamp((c.powCap || 0) / c.pw.capPow, 0, 1) : 0;
+// what a settlement holds right now: its land, plus the part of its powered housing its country can power
 function settlementCap(b) {
   const base = b.base || 0;
   if (!owner[b.i]) return base;
+  const up = cityLevel(b);
+  return up > 1 ? base + poweredHousing(up) * poweredShare(countryAt(b.i)) : base;
+}
+// one of your cities within `snap` tiles of tile i (the nearest), for the settlement tool to upgrade
+function upgradeTargetAt(i) {
+  if (i == null || i < 0) return null;
+  const R = CFG.settlement.snap, x = i % W, y = (i / W) | 0;
+  let best = null, bd = Infinity;
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    if (!inb(x + dx, y + dy)) continue;
+    const j = idx(x + dx, y + dy);
+    if (building[j] !== BLD_CODE.settlement || !owner[j]) continue;
+    const d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = j; }
+  }
+  return best == null ? null : buildingAt(best);
+}
+// raise a city one level: paid by its country in stone and iron (no settlers: its own people fill it)
+function upgradeCity(b) {
   const c = countryAt(b.i);
-  return c && c.capBase > 0 ? base * (1 + (c.powCap || 0) / c.capBase) : base;
+  if (!c || b.type !== 'settlement') return;
+  const lvl = cityLevel(b), step = upgradeStep(lvl), S = CFG.settlement;
+  if (missingFor(step.cost, c)) return askFor(c, step.cost);   // the rest of the empire ships it in
+  for (const [r, n] of Object.entries(step.cost)) c.res[r] -= n;
+  noteSpend(c, step.cost);
+  b.up = lvl + 1;
+  b.bump = game.time;
+  const [x, y] = tileCenter(b.i);
+  ringBurst(x, y, 6, '#8fd3ff');
+  for (let j = 0; j < 8; j++) {
+    const a = j / 8 * Math.PI * 2;
+    addSmoke(x, y + 0.3, 0, 0, false, { vx: Math.cos(a) * 0.9, vy: Math.sin(a) * 0.55, life: 0.9, size: 0.8, rise: 1.5 });
+  }
+  recomputeBuildings();
+  const mw = step.add / S.perMW;
+  floatText(x, y - 2, `Level ${b.up}: +${fmtNum(step.add)} homes, needs ${fmtNum(mw)} MW`, '#8fd3ff');
+  const spare = c.mw ? Math.max(0, c.mw.max - c.mw.need) : 0;
+  if (spare < mw * 0.99) toast(`${c.short}'s cities need ${fmtNum(Math.ceil((c.pw.capPow - (c.powCap || 0)) / S.perMW))} MW more power to fill their new housing: build burners or solar there`);
 }
 function levelOfCap(cap) {
   const L = CFG.settlement.levels;
@@ -2294,7 +2356,7 @@ function recomputeBuildings() {
     if (!owner[b.i]) continue;                    // an AI nation's building
     const def = CFG.buildings[b.type], c = game.countries[countryOf[b.i]];
     if (b.type === 'settlement') {
-      c.capBase += b.base; c.pw.capPow += b.base * CFG.settlement.boost;   // land housing, and the most power can add
+      c.capBase += b.base; c.pw.capPow += poweredHousing(cityLevel(b));   // land housing, and what its levels add on power
       const lvl = settlementLevel(b);              // tell the player when one grows up (not on the first look, and never twice)
       if (b.peak !== undefined && lvl > b.peak && game.started) {
         floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, `Now a ${CFG.settlement.levels[lvl].name}`, '#f2c14e');
@@ -2830,6 +2892,7 @@ function layLink(i, type, plan) {
     : type === 'station' ? `Rail link: ${plan.tiles} tiles` : `Sea route: ${plan.tiles} tiles`, '#7bd389');
 }
 function tryBuild(i, type) {
+  if (type === 'settlement') { const u = upgradeTargetAt(i); if (u) return upgradeCity(u); }
   if (!isUnlocked(type)) return toast(`${CFG.buildings[type].name} unlocks when your empire reaches ${CFG.buildings[type].unlock} people`);
   const why = canBuild(i, type);
   if (why) return toast(why);
@@ -3314,7 +3377,8 @@ function tick(dt) {
   for (const c of game.countries) {
     if (!c.alive) continue;
     // power: solar first (free), burners fill the rest and burn wood for it. Machines get power first (short of it,
-    // they all slow down evenly); whatever is left over houses people: `perMW` more per spare MW, up to capPow.
+    // they all slow down evenly); whatever is left over fills the cities' powered housing: `perMW` people per spare
+    // MW, up to capPow (every level past the first, summed), shared evenly between the cities.
     // The cities draw only for the people living in that powered housing, so the wood burns as they fill up.
     const P = c.pw, B = CFG.buildings, S = CFG.settlement, solar = P.solar * B.solar.gen, burnMax = P.burners * B.burner.gen;
     // with no wood in stock, the burners can only burn what the loggers bring in
@@ -3438,7 +3502,7 @@ function tick(dt) {
 // ---------- saving ----------
 let noSave = false;
 // what a building remembers across a reload besides where it is: its tallies, and a launch pad's rocket and pause
-const KEPT = ['shots', 'stops', 'killed', 'rocket', 'paused', 'supply'];
+const KEPT = ['shots', 'stops', 'killed', 'rocket', 'paused', 'supply', 'up'];
 function keptState(b) {
   let out = null;
   for (const k of KEPT) if (b[k]) (out || (out = {}))[k] = k === 'rocket' ? { iron: b.rocket.iron, fuel: b.rocket.fuel } : b[k];
@@ -3464,7 +3528,7 @@ function saveGame() {
     for (const e of game.expeditions) { const c = liveCountry(e.from); if (c) { back[c.id].people += e.n; for (const r in e.kit) back[c.id][r] += e.kit[r]; } }
     for (const F of game.freight) { const c = F.cargo && liveCountry(F.to); if (c) for (const r of CARGO_RES) back[c.id][r] += F.cargo[r]; }   // freighters aren't saved: their goods land
     const data = {
-      v: SAVE_V, seed: SEED, savedAt: Date.now(), time: game.time, active: game.active, peakPop: game.peakPop,
+      v: SAVE_V, lv: 1, seed: SEED, savedAt: Date.now(), time: game.time, active: game.active, peakPop: game.peakPop,
       sendPct: game.sendPct, unlocked: [...game.unlocked], hotbar: game.hotbar,
       countries: game.countries.map(c => ({ short: c.short, full: c.full, tier: c.tier, alive: c.alive, mergedInto: c.mergedInto,
         people: c.people + back[c.id].people, res: { wood: c.res.wood + back[c.id].wood, stone: c.res.stone + back[c.id].stone, iron: c.res.iron + back[c.id].iron, fuel: c.res.fuel || 0 } })),
@@ -3508,6 +3572,13 @@ function loadGame(sv) {
     const nb = game.buildings[game.buildings.length - 1];
     if (ready) nb.ready = ready;
     if (kept) for (const k of KEPT) if (kept[k] !== undefined) nb[k] = kept[k];
+  }
+  if (!sv.lv) {
+    // a save from before city levels, when spare power quietly added housing to every settlement: a settlement in a
+    // country with power gets level 2, so its powered homes don't vanish
+    const powered = new Set();
+    for (const b of game.buildings) if ((b.type === 'burner' || b.type === 'solar') && owner[b.i]) powered.add(countryOf[b.i]);
+    for (const b of game.buildings) if (b.type === 'settlement' && owner[b.i] && powered.has(countryOf[b.i])) b.up = 2;
   }
   game.orbitals = (sv.orbitals || []).map(([n, x, y, vx, vy, home, pad, people, level, wood, stone, iron, runs]) =>
     ({ orbital: true, n, x, y, vx, vy, home, pad, people, level, res: { wood, stone, iron }, runs, a: 0 }));
@@ -3780,6 +3851,17 @@ function drawRingFx(z) {
     ctx.beginPath(); ctx.arc(sx, sy, Math.max(6, r.R * z) * (0.35 + 0.65 * e), 0, Math.PI * 2); ctx.stroke();
   }
   ctx.globalAlpha = 1;
+}
+// "Lv 3" over each upgraded city of yours, coloured by how much of its powered housing has power
+function drawCityLevels(z) {
+  if (z < CFG.cityZoom) return;
+  for (const b of game.buildings) {
+    if (b.type !== 'settlement' || !b.up || b.up < 2 || !owner[b.i]) continue;
+    const [sx, sy] = toScreen(b.i % W + 0.5, ((b.i / W) | 0) + 0.5);
+    if (sx < -60 || sy < -60 || sx > cw + 60 || sy > ch + 60) continue;
+    const f = poweredShare(countryAt(b.i)), col = f >= 0.995 ? '#8fd3ff' : f > 0.02 ? '#f2c14e' : '#8a93a3';
+    pill(sx, sy - Math.max(18, z * 2.6), `Lv ${b.up}`, { fg: col, border: col, size: 11, bold: 800 });
+  }
 }
 // you built something: it pops up out of a puff of dust with a gold ring
 function popIn(i) {
@@ -5543,6 +5625,7 @@ function render() {
   }
 
   drawRingFx(z);
+  drawCityLevels(z);
   drawPops(z);
   drawVehicles(z);
   drawFlights(z);
@@ -6250,32 +6333,52 @@ function reloadRows(b, { row, bar }) {
   if (left > 0.05 && b.rd) { row('Status', `Reloading · ${left.toFixed(1)}s`, 'r'); bar(1 - left / b.rd, 'gold'); }
   else row('Status', 'Loaded', 'g');
 }
+// what upgrading this city would do: shown by the settlement tool over the city
+function upgradeTip(b) {
+  const c = countryAt(b.i), S = CFG.settlement, lvl = cityLevel(b), step = upgradeStep(lvl), mw = step.add / S.perMW;
+  const miss = missingFor(step.cost, c), spare = c.mw ? Math.max(0, c.mw.max - c.mw.need) : 0;
+  const unfilled = Math.max(0, (c.pw.capPow - (c.powCap || 0)) / S.perMW);   // MW its cities already lack
+  let html = `<div class="t">Upgrade ${S.levels[settlementLevel(b)].name} to level ${lvl + 1}</div>`;
+  html += `<div class="g">+${fmtNum(step.add)} homes that run on power: needs ${fmtNum(mw)} MW</div>`;
+  html += spare - unfilled >= mw ? `<div class="g">${c.short} has the spare power: they fill up right away</div>`
+    : `<div class="d">${c.short} has ${fmtNum(Math.max(0, spare - unfilled))} MW to spare for them: they only fill as far as the power reaches. Build burners or solar here.</div>`;
+  html += `<div class="d">Cost: ${listRes(step.cost, ['stone', 'iron'])}, paid by ${c.short}</div>`;
+  if (miss) html += `<div class="r">Not enough ${miss}: click to ask your other countries to ship it</div>`;
+  return [html, !!miss];
+}
 function cardBuilding(b, ui) {
   const { row, bar, note, sep, button } = ui;
   const c = countryAt(b.i), def = CFG.buildings[b.type], S = CFG.settlement;
   if (b.type === 'settlement') {
-    const L = S.levels, lvl = settlementLevel(b), cap = settlementCap(b), next = L[lvl + 1];
-    const share = c.capBase > 0 ? b.base / c.capBase : 0, living = c.cap > 0 ? c.people * cap / c.cap : 0;
-    const powered = Math.max(0, cap - b.base), maxPow = b.base * S.boost, draw = ((c.mw && c.mw.city) || 0) * share;
+    const L = S.levels, lvl = settlementLevel(b), cap = settlementCap(b), up = cityLevel(b);
+    const share = c.cap > 0 ? cap / c.cap : 0, living = c.people * share;
+    const powered = Math.max(0, cap - b.base), maxPow = poweredHousing(up);
+    const draw = c.powCap > 0 ? ((c.mw && c.mw.city) || 0) * powered / c.powCap : 0;   // its share of what the cities draw
     row('People', `${fmtNum(living)} / ${Math.round(cap)}`);
     bar(cap > 0 ? living / cap : 0);
-    if (next) { row('Next level', `${next.name} at ${next.cap}`); bar((cap - L[lvl].cap) / (next.cap - L[lvl].cap), 'gold'); }
-    else row('Level', 'Top level');
+    row('Level', `${up}`, up > 1 ? 'p' : '');
     sep();
     row('Housing from land', `${Math.round(b.base)}`);
     note(`${b.tiles} tiles within ${S.reach} of it`);
-    row('Housing from power', `+${Math.round(powered)} of ${Math.round(maxPow)}`, powered > 0.5 ? 'g' : '');
-    bar(maxPow > 0 ? powered / maxPow : 0, 'power');
-    row('Uses', `${draw.toFixed(1)} MW`, draw > 0.05 ? 'u' : '');
-    if (maxPow - powered > 0.5) {
-      const mw = Math.max(0, (c.pw.capPow - (c.powCap || 0)) / S.perMW);
-      note(`${fmtNum(Math.ceil(mw))} MW more spare power in ${c.short} would add ${Math.round(maxPow - powered)} more homes here`);
-    } else note('Fully powered: claim more land around it to grow', 'g');
+    if (up > 1) {
+      row('Housing from power', `+${Math.round(powered)} of ${fmtNum(maxPow)}`, powered > 0.5 ? 'g' : 'r');
+      bar(maxPow > 0 ? powered / maxPow : 0, 'power');
+      row('Uses', `${draw.toFixed(1)} of ${fmtNum(maxPow / S.perMW)} MW`, draw > 0.05 ? 'u' : '');
+      if (maxPow - powered > 0.5) {
+        const mw = Math.max(0, (c.pw.capPow - (c.powCap || 0)) / S.perMW);
+        note(`${c.short}'s cities are ${Math.round(poweredShare(c) * 100)}% powered: ${fmtNum(Math.ceil(mw))} MW more would fill them`, 'r');
+      } else note('Fully powered', 'g');
+    } else note('Upgrade it to add housing that runs on power');
+    {
+      const step = upgradeStep(up), miss = missingFor(step.cost, c);
+      button(`Upgrade to level ${up + 1}: ${listRes(step.cost, ['stone', 'iron'])} · +${fmtNum(step.add)} homes, ${fmtNum(step.add / S.perMW)} MW`, 'upgrade', true);
+      note(miss ? `Not enough ${miss}: upgrading asks your other countries to ship it` : say('Or press 1 (Settlement) and click the city', 'Or pick Settlement and tap the city twice'), miss ? 'r' : 'd');
+    }
     sep();
     if (underFire(b)) row('Growth', `Under fire (${fireLeft(b)}s)`, 'r');
     else row('Growth', c.growth > 0.005 ? `+${(c.growth * share).toFixed(2)} / sec` : c.growth < -0.005 ? `${(c.growth * share).toFixed(2)} / sec` : 'Full',
       c.growth < -0.005 ? 'r' : c.growth > 0.005 ? 'g' : '');
-    return [L[lvl].name, 'settle' + (Math.min(lvl, 3) + 1), c.full];
+    return [up > 1 ? `${L[lvl].name} · level ${up}` : L[lvl].name, 'settle' + (Math.min(lvl, 3) + 1), c.full];
   }
   const M = c.mw || { gen: 0, max: 0, need: 0 }, ST = c.store || {};   // (no store yet before the first tick after a load)
   switch (b.type) {
@@ -7192,6 +7295,7 @@ function buildMenu() {
     if (!act || e.target.disabled || !o) return;
     e.preventDefault();
     if (act === 'expand') expandStation(o);
+    else if (act === 'upgrade' && o.type === 'settlement') upgradeCity(o);
     else if (act === 'supply') { o.supply = Number(e.target.dataset.n); toast(`This pad now keeps Space Station ${o.supply} supplied`); }
     else if (act === 'unsupply') { o.supply = null; toast('This pad builds rockets for you to fly again'); }
     updateInspect();
@@ -7291,7 +7395,7 @@ function toast(msg, opt) {
     let el = box.querySelector('.tmsg.hint');
     if (!el) { el = document.createElement('div'); el.className = 'tmsg hint'; box.prepend(el); }
     el.textContent = msg;
-    requestAnimationFrame(() => el.classList.add('show'));
+    void el.offsetWidth; el.classList.add('show');   // (not on the next frame: in a paused tab that would come after the timer hid it)
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
     return;
@@ -7311,7 +7415,7 @@ function toast(msg, opt) {
     el.addEventListener('click', () => { flyToSpot(at); el.classList.remove('show'); });
   }
   box.appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
+  void el.offsetWidth; el.classList.add('show');
   if (opt.sticky) el.classList.add('sticky');
   const alerts = box.querySelectorAll('.tmsg.alert:not(.sticky), .tmsg.good');
   for (let j = 0; j < alerts.length - 3; j++) alerts[j].remove();   // at most 3 stacked
@@ -7427,10 +7531,12 @@ function updateHud() {
   }
   flightHud();
   const M = C.mw, short = M.machines > 0 && C.sat < 0.999;
-  $('val-power').textContent = M.need || M.max ? `${fmtNum(M.need)} / ${fmtNum(M.max)} MW` : '-';
-  $('val-power').classList.toggle('short', short);
-  $('rate-power').textContent = short ? `${Math.round(C.sat * 100)}% POWERED` : M.city >= 0.05 ? `CITIES ${fmtNum(M.city)}` : M.need ? 'OK' : '';
-  $('rate-power').classList.toggle('neg', short);
+  const cityShort = C.pw.capPow > 0.5 && poweredShare(C) < 0.995;
+  $('val-power').textContent = M.need || M.max ? `${fmtNum(M.need)} / ${fmtNum(M.max)} MW` : C.pw.capPow > 0.5 ? `0 / 0 MW` : '-';
+  $('val-power').title = `Using ${fmtNum(M.need)} of the ${fmtNum(M.max)} MW ${C.short} can make (machines ${fmtNum(M.machines || 0)}, cities ${fmtNum(M.city || 0)})`;
+  $('val-power').classList.toggle('short', short || cityShort);
+  $('rate-power').textContent = short ? `${Math.round(C.sat * 100)}% POWERED` : C.pw.capPow > 0.5 ? `CITIES ${Math.round(poweredShare(C) * 100)}%` : M.need ? 'OK' : '';
+  $('rate-power').classList.toggle('neg', short || cityShort);
   $('val-terr').textContent = (game.ownedCount / game.landTiles * 100).toFixed(1) + '%';
   $('val-time').textContent = fmtTime(game.time);
   $('save-note').textContent = game.savedAt != null && game.time - game.savedAt < 2.5 ? 'SAVED' : '';
@@ -7439,7 +7545,7 @@ function updateHud() {
     : cam.zoom > fitZoom() * 0.8 ? 'Map' : 'Orbit';
   $('people-lbl').textContent = alive > 1 ? `PEOPLE · EMPIRE ${fmtNum(game.population)}` : 'PEOPLE';
   $('val-people').textContent = `${fmtNum(C.people)} / ${fmtNum(C.cap)}`;
-  $('val-people').title = `Land holds ${fmtNum(C.capBase)}; power adds ${fmtNum(C.powCap || 0)} of up to ${fmtNum(C.pw.capPow)} more (${CFG.settlement.perMW} people per spare MW). Keeps a crew of ${fmtNum(crewOf(C))}: trains and ships bring people when it's short.`;
+  $('val-people').title = `Land holds ${fmtNum(C.capBase)}; city levels add ${fmtNum(C.powCap || 0)} of up to ${fmtNum(C.pw.capPow)} more on power (${CFG.settlement.perMW} people per spare MW). Keeps a crew of ${fmtNum(crewOf(C))}: trains and ships bring people when it's short.`;
   $('people-fill').style.width = (C.cap ? clamp(C.people / C.cap, 0, 1) * 100 : 0) + '%';
   $('people-rate').innerHTML = (inc.people >= 1 ? `<span class="incoming">+${fmtNum(inc.people)} arriving</span> ` : '') + (C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : C.growth < 0 ? `<span style="color:var(--bad)">Overcrowded: ${C.growth.toFixed(1)} / sec</span>` : (C.people > C.cap + 0.5 ? 'Crew on hand' : C.people >= C.cap - 0.5 ? 'Full' : '')) + (C.fireCap > 0 ? ` <span style="color:var(--bad)">Under fire</span>` : '');
   $('send-n').textContent = `= ${sendFrom(C)} people`;
@@ -7508,7 +7614,7 @@ function updateHover() {
     if (depositOf[t.i] >= 0) info += ` · ${deposits[depositOf[t.i]].type}`;
     if (building[t.i] === BLD_CODE.settlement) {
       const sb = buildingAt(t.i), lit = owner[t.i] ? settlementCap(sb) - sb.base : 0;
-      info += ` · ${CFG.settlement.levels[settlementLevel(sb)].name} · holds ${Math.round(settlementCap(sb))} people: ${Math.round(sb.base)} from ${sb.tiles} tiles in reach${lit >= 0.5 ? ` + ${Math.round(lit)} powered` : ''}${underFire(sb) ? ` · under fire: not growing for ${fireLeft(sb)}s` : ''}`;
+      info += ` · ${CFG.settlement.levels[settlementLevel(sb)].name}${cityLevel(sb) > 1 ? ` (level ${cityLevel(sb)})` : ''} · holds ${Math.round(settlementCap(sb))} people: ${Math.round(sb.base)} from ${sb.tiles} tiles in reach${lit >= 0.5 ? ` + ${Math.round(lit)} powered` : ''}${underFire(sb) ? ` · under fire: not growing for ${fireLeft(sb)}s` : ''}`;
     } else if (building[t.i]) {
       const hb = buildingAt(t.i);
       info += ` · ${CFG.buildings[hb.type].name}`;
@@ -7581,6 +7687,7 @@ function updateHover() {
     tip.style.display = 'none'; return;
   }
   if (game.tool === 'bridge') { const [html, bad] = bridgeTip(t); placeTip(html, bad); return; }
+  if (game.tool === 'settlement') { const u = upgradeTargetAt(t.i); if (u) { const [html, bad] = upgradeTip(u); placeTip(html, bad); return; } }
   const type = game.tool, bdef = CFG.buildings[type];
   const why = canBuild(t.i, type);
   const plan = planFor(t.i, type);
@@ -7600,7 +7707,7 @@ function updateHover() {
     const g = owner[t.i] ? settlementGain(t.i) : { gain: 0, fresh: 0, shared: 0 }, S = CFG.settlement;
     html += `<div class="${g.gain >= 1 ? 'g' : 'r'}">+${Math.round(g.gain)} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
     html += `<div class="d">${g.fresh} new tiles in reach${g.shared ? ` · ${g.shared} already served by another settlement` : ''}</div>`;
-    html += `<div class="d">Grows as you claim more land within ${S.reach} tiles. Spare power adds up to ${Math.round(S.boost * 100)}% more housing (${S.perMW} people per MW).</div>`;
+    html += `<div class="d">Grows as you claim more land within ${S.reach} tiles. Place a settlement on it later to upgrade it: each level adds housing that runs on power.</div>`;
   } else if (plan) {
     if (plan.route) {
       html += type === 'station'
@@ -7868,6 +7975,17 @@ function drawBuildPreview(z) {
     else if (p.tiles && p.tiles.length) drawBridge(p.s, p.tiles[p.tiles.length - 1], z, '#ff7a6b');
     return;
   }
+  if (type === 'settlement') {
+    const u = upgradeTargetAt(t.i);
+    if (u) {
+      const [sx, sy] = toScreen(...tileCenter(u.i)), ok = !missingFor(upgradeStep(cityLevel(u)).cost, countryAt(u.i));
+      const r = Math.max(14, z * 3.2) * (1 + 0.06 * Math.sin(game.time * 6));
+      ctx.setLineDash([6, 5]); ctx.lineWidth = 3; ctx.strokeStyle = ok ? '#8fd3ff' : '#ff7a6b';
+      ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      pill(sx, sy - r - 12, `Upgrade to level ${cityLevel(u) + 1}`, { fg: ok ? '#8fd3ff' : '#ff7a6b', border: ok ? '#8fd3ff' : '#ff7a6b', size: 12 });
+      return;
+    }
+  }
   const plan = planFor(t.i, type);
   const ok = !canBuild(t.i, type) && !missingFor(totalCost(type, plan, t.i), countryAt(t.i) || activeCountry());
   if (plan && plan.path) strokeRoute(plan.path, type === 'station' ? 'rail' : 'sea', z, true);
@@ -7938,7 +8056,7 @@ function start() {
   setInterval(() => (window.requestIdleCallback ? requestIdleCallback(saveGame, { timeout: 2000 }) : saveGame()), 10000);
   if (params.has('bot')) {                         // ?bot: a simple AI plays your side (prototype/bot.js), for playtesting
     const sc = document.createElement('script');
-    sc.src = 'bot.js';
+    sc.src = 'bot.js?v=2';
     document.body.appendChild(sc);
   }
   window.addEventListener('beforeunload', saveGame);
@@ -7984,5 +8102,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { TOUCH, DISK, makeStation, orbitOf, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive };
+window.__game = { TOUCH, DISK, makeStation, orbitOf, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive, upgradeCity, upgradeStep, cityLevel, poweredShare, poweredHousing, upgradeTargetAt };
 init();
