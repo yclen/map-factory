@@ -172,6 +172,7 @@ const CFG = {
     truck: { accel: 26, turn: 2.8, drag: { grass: 2.4, desert: 3.4, mountain: 6.5, ice: 6.5 } },   // about 11 / 7.5 / 4 tiles a second
     boat: { accel: 9, turn: 1.6, drag: 0.9 },                                            // about 10, and it drifts
     supplies: 90,              // seconds of supplies on board
+    minCrew: 10,               // a truck or boat takes the send-% of free people, but at least this many if there are
     starve: 1,                 // people lost per second once they run out
     landReach: 2,              // a boat can put settlers ashore on free land this close
   },
@@ -2382,22 +2383,33 @@ function borderTileOf(C, tx, ty) {
   }
   return best >= 0 ? best : idx(Math.floor(C.lx), Math.floor(C.ly));
 }
-// supplies to get a colony started, taken from home if it can spare them
-function packKit(C) {
+// Supplies to get a colony started: the send-% of each stockpile, but at least the basic kit if home has it.
+// `paying` is what the launch itself costs: the kit is worked out from what's left once that's paid.
+function kitFor(C, paying = {}) {
   const kit = {};
   for (const r of CARGO_RES) {
-    const want = Math.max(CFG.expeditionKit[r] || 0, C.res[r] * game.sendPct / 100);
-    kit[r] = Math.floor(Math.min(want, C.res[r]));
-    C.res[r] -= kit[r];
+    const have = Math.max(0, C.res[r] - (paying[r] || 0));
+    kit[r] = Math.floor(Math.min(have, Math.max(CFG.expeditionKit[r] || 0, have * game.sendPct / 100)));
   }
   return kit;
+}
+function packKit(C) {
+  const kit = kitFor(C);
+  for (const r of CARGO_RES) C.res[r] -= kit[r];
+  return kit;
+}
+// A vehicle's crew: the send-% of the country's free people, but at least CFG.drive.minCrew when it has them,
+// so a small country can still send a boat. 0 when fewer than 2 are free.
+function crewFor(C) {
+  const free = Math.floor(freePeople(C));
+  return free < 2 ? 0 : Math.min(free, Math.max(sendFrom(C), CFG.drive.minCrew));
 }
 // Vehicles (build menu, Vehicles): a truck rolls out of one of your stations, a boat out of one of your ports,
 // with the send-% of the country's free people and a starter package. You drive it (see driveStep); where it
 // settles it founds a colony that remembers the way it came (game.routes), for that colony's first station or port.
 function launchVehicle(i, type, C, cost) {
-  const n = sendFrom(C);
-  if (n < 2) return toast(`${C.short} doesn't have enough free people to crew a ${type}`);
+  const n = crewFor(C);
+  if (n < 2) return toast(`${C.short} has no free people to crew a ${type}: its ${Math.floor(C.people)} people are working its cabins and camps or out on a push. Wait for it to grow.`);
   let sx = i % W + 0.5, sy = ((i / W) | 0) + 0.5, a = 0;
   if (type === 'boat') {                           // a boat starts on the water beside its port, facing out to sea
     let best = -1, bd = Infinity;
@@ -2411,7 +2423,8 @@ function launchVehicle(i, type, C, cost) {
   }
   for (const [r, k] of Object.entries(cost)) C.res[r] -= k;
   C.people -= n;
-  const e = { x: sx, y: sy, tx: sx, ty: sy, n, kit: packKit(C), from: C.id, home: i, auto: false,
+  const kit = packKit(C);
+  const e = { x: sx, y: sy, tx: sx, ty: sy, n, kit, from: C.id, home: i, auto: false,
     kind: type, vx: 0, vy: 0, a, supplies: CFG.drive.supplies, trail: [[sx, sy]] };
   game.expeditions.push(e);
   takeWheel(e);
@@ -5517,8 +5530,10 @@ function updateHover() {
   const have = !why && building[t.i] ? buildingAt(t.i).type : null;
   let html = `<div class="t">${bdef.vehicle ? `Launch a ${bdef.name.toLowerCase()}` : have ? `Upgrade ${CFG.buildings[have].name} → ${bdef.name}` : `Place ${bdef.name}`}</div>`;
   if (bdef.vehicle) {
-    const n = TC ? sendFrom(TC) : 0;
-    html += `<div class="${n >= 2 ? 'g' : 'r'}">${n >= 2 ? `Carries ${n} people` : 'Not enough free people to crew it'} and a starter package${TC ? ' from ' + TC.short : ''}</div>`;
+    const n = TC ? crewFor(TC) : 0, kit = TC ? kitFor(TC, cost) : {};
+    const load = Object.entries(kit).filter(([, v]) => v > 0).map(([r, v]) => `${v} ${r}`).join(', ');
+    html += `<div class="${n >= 2 ? 'g' : 'r'}">${n >= 2 ? `Carries ${n} people${load ? ', ' + load : ''}` : `No free people to crew it${TC ? ' in ' + TC.short : ''}`}</div>`;
+    html += `<div class="d">Crew and cargo: your send % (${game.sendPct}%) of ${TC ? TC.short + "'s" : 'the'} free people and stock, at least ${CFG.drive.minCrew} people and ${CFG.expeditionKit.wood} wood and ${CFG.expeditionKit.stone} stone when it has them</div>`;
     html += `<div class="d">You drive it to free land and settle a colony there. The colony's first ${bdef.vehicle} links home along the way it came.</div>`;
   } else if (type === 'settlement') {
     const g = owner[t.i] ? settlementGain(t.i) : { gain: 0, fresh: 0, shared: 0 }, S = CFG.settlement;
