@@ -1845,24 +1845,74 @@ function drawStations(z) {
     if (RAS.rocket) ctx.drawImage(RAS.rocket[size * dpr > 44 ? 0 : 1], -size / 2, -size / 2, size, size);
     ctx.restore();
   }
-  for (const st of game.orbitals) {                // the stations: a hub, a truss and two solar wings, turning slowly
-    const [sx, sy] = toScreen(...shownOrbit(st)), s = clamp(z * 3, 22, 80) * (1 + 0.12 * (st.level - 1));
-    if (sx < -s * 2 || sy < -s * 2 || sx > cw + s * 2 || sy > ch + s * 2) continue;
-    ctx.save(); ctx.translate(sx, sy); ctx.rotate(st.a);
-    ctx.fillStyle = '#9aa6b4'; ctx.fillRect(-s * 0.62, -s * 0.035, s * 1.24, s * 0.07);          // truss
-    for (const side of [-1, 1]) {                                                               // solar wings
-      ctx.fillStyle = '#2b5f9e'; ctx.fillRect(side > 0 ? s * 0.22 : -s * 0.62, -s * 0.2, s * 0.4, s * 0.4);
-      ctx.strokeStyle = 'rgba(160,200,255,0.55)'; ctx.lineWidth = 1;
-      for (let q = 1; q < 4; q++) { const gx = (side > 0 ? s * 0.22 : -s * 0.62) + q * s * 0.1; ctx.beginPath(); ctx.moveTo(gx, -s * 0.2); ctx.lineTo(gx, s * 0.2); ctx.stroke(); }
-    }
-    for (let q = 0; q < st.level; q++) {                                                        // a ring of modules per level
-      const a = q * 2.4, rr = q ? s * 0.12 : 0;
-      ctx.fillStyle = q ? '#c9d1db' : '#e6ebf1'; ctx.strokeStyle = '#56606c'; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, s * (q ? 0.09 : 0.14), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    }
-    ctx.restore();
-    if (s > 24) pill(sx, sy + s * 0.5 + 12, `Station ${st.n} · ${Math.floor(st.people)} / ${stationCap(st)} people`, { size: 10, dot: '#f2c14e' });
+  for (const st of game.orbitals) drawStation(st, z);
+}
+// how big a station is drawn (pixels across its ring): bigger as it grows
+const stationSize = (st, z) => clamp(z * 6, 56, 170) * (1 + 0.1 * (st.level - 1));
+// A space station: solar wings on a long truss, and a spinning habitat ring of lit windows round a central hub.
+// Its windows light up as people move in (one in so many per person), so a full station glows.
+function drawStation(st, z) {
+  const [sx, sy] = toScreen(...shownOrbit(st)), s = stationSize(st, z) / 2;   // s: the ring's radius
+  if (sx < -s * 3 || sy < -s * 3 || sx > cw + s * 3 || sy > ch + s * 3) return;
+  const fill = clamp(st.people / stationCap(st), 0, 1), lw = Math.max(1, s * 0.03);
+  ctx.save(); ctx.translate(sx, sy); ctx.rotate(-0.35 + (cam.rot || 0));
+  // the truss and its solar wings (they don't spin); each level adds a module on each side, pushing the wings out
+  const out = s * 1.25 + (st.level - 1) * s * 0.34;  // where the wings start
+  ctx.fillStyle = '#7d8896'; ctx.fillRect(-out - s * 1.0, -s * 0.05, (out + s * 1.0) * 2, s * 0.1);
+  for (const side of [-1, 1]) for (const k of [0, 1]) {
+    const x0 = side * (out + k * s * 0.5) - (side < 0 ? s * 0.46 : 0), w = s * 0.46, h = s * 0.62;
+    ctx.fillStyle = '#1f4f8c'; ctx.fillRect(x0, -h, w, h * 2);
+    ctx.strokeStyle = 'rgba(150,195,255,0.6)'; ctx.lineWidth = Math.max(0.6, lw * 0.5);
+    ctx.beginPath();
+    for (let q = 1; q < 3; q++) { ctx.moveTo(x0 + q * w / 3, -h); ctx.lineTo(x0 + q * w / 3, h); }
+    for (let q = -2; q <= 2; q++) { ctx.moveTo(x0, q * h / 3); ctx.lineTo(x0 + w, q * h / 3); }
+    ctx.stroke();
+    ctx.strokeStyle = '#0e2442'; ctx.lineWidth = lw; ctx.strokeRect(x0, -h, w, h * 2);
   }
+  // extra modules on the truss between the ring and the wings, one pair per level after the first, with windows
+  for (let q = 1; q < st.level; q++) for (const side of [-1, 1]) {
+    const cx = side * (s * 1.08 + q * s * 0.34), cy = 0;
+    ctx.fillStyle = '#d5dbe3'; ctx.strokeStyle = '#4a5562'; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.roundRect(cx - s * 0.14, cy - s * 0.12, s * 0.28, s * 0.24, s * 0.07); ctx.fill(); ctx.stroke();
+    for (const wx of [-0.07, 0, 0.07]) {
+      ctx.fillStyle = fill > (q - 1) / st.level ? '#ffd27a' : '#2a3442';
+      ctx.fillRect(cx + wx * s - s * 0.02, cy - s * 0.03, s * 0.04, s * 0.06);
+    }
+  }
+  // the habitat ring, spinning
+  ctx.save(); ctx.rotate(st.a);
+  for (let q = 0; q < 4; q++) {                    // spokes
+    const a = q * Math.PI / 2;
+    ctx.strokeStyle = '#8e99a6'; ctx.lineWidth = s * 0.07;
+    ctx.beginPath(); ctx.moveTo(Math.cos(a) * s * 0.22, Math.sin(a) * s * 0.22); ctx.lineTo(Math.cos(a) * s * 0.86, Math.sin(a) * s * 0.86); ctx.stroke();
+  }
+  ctx.lineWidth = s * 0.3; ctx.strokeStyle = '#3d4753';                 // the ring: a dark rim, then its hull
+  ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = s * 0.24; ctx.strokeStyle = '#dfe4ea';
+  ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = s * 0.05; ctx.strokeStyle = '#b9c2cc';                // a seam down the middle
+  ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.stroke();
+  const N = 24;                                    // windows all the way round: lit ones glow warm
+  for (let k = 0; k < N; k++) {
+    const a = k / N * Math.PI * 2, lit = ((k * 0.618034) % 1) < fill;
+    ctx.save(); ctx.rotate(a); ctx.translate(s, 0);
+    if (lit) { ctx.shadowColor = 'rgba(255,200,90,0.9)'; ctx.shadowBlur = s * 0.12; }
+    ctx.fillStyle = lit ? '#ffd27a' : '#253041';
+    ctx.fillRect(-s * 0.05, -s * 0.045, s * 0.1, s * 0.09);
+    ctx.restore();
+  }
+  ctx.restore();
+  // the hub: a pressurised core with a ring of portholes and a docking port
+  ctx.fillStyle = '#eef1f5'; ctx.strokeStyle = '#4a5562'; ctx.lineWidth = lw * 1.2;
+  ctx.beginPath(); ctx.arc(0, 0, s * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  for (let k = 0; k < 6; k++) {
+    const a = k / 6 * Math.PI * 2, lit = fill > 0 && k < Math.ceil(fill * 6);
+    ctx.fillStyle = lit ? '#ffd27a' : '#2a3442';
+    ctx.beginPath(); ctx.arc(Math.cos(a) * s * 0.16, Math.sin(a) * s * 0.16, s * 0.04, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#9aa6b4'; ctx.fillRect(-s * 0.06, -s * 0.06, s * 0.12, s * 0.12);
+  ctx.restore();
+  if (s > 18) pill(sx, sy + s * 1.35 + 10, `Space Station ${st.n} · ${Math.floor(st.people)} / ${stationCap(st)} people`, { size: 11, dot: '#f2c14e' });
 }
 function cardStation(st, { row, bar, note, sep, button }) {
   const S = CFG.station, home = liveCountry(st.home ?? -1), pad = st.pad != null ? buildingAt(st.pad) : null, cap = stationCap(st);
@@ -5778,7 +5828,7 @@ const expSize = () => clamp(cam.zoom * 2.6, 26, 60);
 function pickAt(x, y) {
   const z = cam.zoom, [wx, wy] = toWorld(x, y), tx = Math.floor(wx), ty = Math.floor(wy);
   const near = (p, r) => { const [sx, sy] = toScreen(p[0], p[1]); return Math.hypot(sx - x, sy - y) < r; };
-  for (const st of game.orbitals) if (near(shownOrbit(st), clamp(z * 3, 22, 80) * 0.6)) return st;
+  for (const st of game.orbitals) if (near(shownOrbit(st), stationSize(st, z) * 0.6)) return st;
   for (const f of game.flights) if (!f.done && near(shownFlight(f), clamp(z * 2.4, 18, 64) * 0.6)) return f;
   for (const e of game.expeditions) if (!e.auto && !e.done && near(shownPos(e), expSize() * 0.55)) return e;
   if (z >= 1) for (const L of game.links.concat(game.freight)) if (near(vehiclePos(L), Math.max(10, z * 1.1))) return L;
@@ -5825,7 +5875,7 @@ function ringGeom(o, z) {
   switch (kindOf(o)) {
     case 'exp': { const [x, y] = shownPos(o); return [x, y, expSize() * 0.68]; }
     case 'flight': { const [x, y] = shownFlight(o); return [x, y, clamp(z * 2.4, 18, 64) * 0.8]; }
-    case 'orbital': { const [x, y] = shownOrbit(o); return [x, y, clamp(z * 3, 22, 80) * 0.75 * (1 + 0.12 * (o.level - 1))]; }
+    case 'orbital': { const [x, y] = shownOrbit(o); return [x, y, stationSize(o, z) * 0.72]; }
     case 'link': { const [x, y] = vehiclePos(o); return [x, y, o.kind === 'sea' ? Math.max(14, z * 1.1) : Math.max(12, z * 1.3)]; }
     case 'bridge': {
       const [ax, ay] = tileCenter(o.s), [bx, by] = tileCenter(o.b);
