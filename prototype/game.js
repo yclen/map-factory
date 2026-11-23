@@ -715,6 +715,8 @@ const game = {
   sendPct: 25, tool: null, netDirty: true,
   nations: [],                     // AI nations
   hotbar: ['settlement', 'cabin', 'camp', null, null, null, null, null, null, null],   // the build bar: keys 1-9, 0
+  barUsed: [3, 2, 1, 0, 0, 0, 0, 0, 0, 0], useTick: 3,   // when each slot was last built from: what you build takes the least recently used slot
+  seenTech: new Set(),    // unlocked buildings you've looked at in the E menu (the rest show NEW)
   missiles: [], blasts: [], scorch: [], tracers: [], smoke: [], aiming: false,
   raids: [],                       // waves of a nation's soldiers pushing into your land
   driving: null,                   // the expedition you're steering right now
@@ -2677,11 +2679,11 @@ function checkUnlocks(quiet = false) {
     game.unlocked.add(type);
     addToBar(type);                                // new unlocks (and, on load, anything newly unlocked by an update) take a free slot
     changed = true;
-    if (!quiet) toast(`Unlocked: ${b.name}! Your empire reached ${b.unlock} people. ${say('Press E', 'Tap Build')} to see it.`);
+    if (!quiet) toast(`Unlocked: ${b.name}! Your empire reached ${fmtNum(b.unlock)} people. ${say('Press E', 'Tap Build')} → ${tabOf(type).name} to build it.`, { good: true });
   }
   // this runs every time the population sets a new record (most ticks while it grows), so only
   // rebuild the bar when something was actually unlocked
-  if (changed) refreshBuildBar();
+  if (changed) { refreshBuildBar(); renderNewBadges(); if (techOpen) renderTechTree(); }
   if (menuOpen) renderBuildMenu();
 }
 
@@ -2940,6 +2942,7 @@ function tryBuild(i, type) {
   noteSpend(C, cost);
   const before = empireCap();
   placeBuilding(i, type);
+  noteBuilt(type);
   popIn(i);
   if (plan && plan.path) layLink(i, type, plan);
   recomputeBuildings();
@@ -3020,6 +3023,7 @@ function bridgeClick(i) {
   for (const [r, n] of Object.entries(p.cost)) C.res[r] -= n;
   const br = { s: p.s, b: p.b, tiles: p.tiles, len: p.len };
   addBridge(br);
+  noteBuilt('bridge');
   const free = !owner[p.b], other = countryAt(p.b);
   if (free) claim(p.b, C.id);                      // a bridge to free land claims the tile it lands on
   game.netDirty = true;                            // joins the land on both ends into one country
@@ -3156,6 +3160,7 @@ function launchVehicle(i, type, C, cost) {
   const e = { x: sx, y: sy, tx: sx, ty: sy, n, kit, from: C.id, home: i, auto: false,
     kind: type, vx: 0, vy: 0, a, supplies: CFG.drive.supplies, trail: [[sx, sy]] };
   game.expeditions.push(e);
+  noteBuilt(type);
   takeWheel(e);
   toast(`${type === 'boat' ? 'Boat' : 'Truck'} ready with ${n} people. ${say('Arrow keys or WASD to drive, Space to settle, Esc to let go', 'Steer with the arrows, and tap Settle when you like the spot')}.`);
 }
@@ -3569,7 +3574,7 @@ function saveGame() {
     for (const F of game.freight) { const c = F.cargo && liveCountry(F.to); if (c) for (const r of CARGO_RES) back[c.id][r] += F.cargo[r] || 0; }   // freighters aren't saved: their goods land
     const data = {
       v: SAVE_V, lv: 1, seed: SEED, savedAt: Date.now(), time: game.time, active: game.active, peakPop: game.peakPop,
-      sendPct: game.sendPct, unlocked: [...game.unlocked], hotbar: game.hotbar,
+      sendPct: game.sendPct, unlocked: [...game.unlocked], hotbar: game.hotbar, barUsed: game.barUsed, useTick: game.useTick, seenTech: [...game.seenTech],
       countries: game.countries.map(c => ({ short: c.short, full: c.full, tier: c.tier, alive: c.alive, mergedInto: c.mergedInto,
         people: c.people + back[c.id].people, res: { wood: c.res.wood + back[c.id].wood, stone: c.res.stone + back[c.id].stone, iron: c.res.iron + back[c.id].iron, fuel: c.res.fuel || 0, uranium: (c.res.uranium || 0) + back[c.id].uranium } })),
       nations: game.nations.map(n => ({ people: n.people, alive: n.alive, hostile: !!n.hostile, iron: n.iron ?? CFG.iron.aiStart })),
@@ -3649,6 +3654,9 @@ function loadGame(sv) {
   }
   Object.assign(game, { time: sv.time, active: sv.active, peakPop: sv.peakPop, sendPct: sv.sendPct, unlocked: new Set(sv.unlocked) });
   if (sv.hotbar) game.hotbar = sv.hotbar;
+  if (sv.barUsed) { game.barUsed = sv.barUsed; game.useTick = sv.useTick || 0; }
+  else { game.barUsed = game.hotbar.map((t, k) => (t ? 10 - k : 0)); game.useTick = 10; }   // a save from before: keep its order
+  game.seenTech = new Set(sv.seenTech || sv.unlocked);   // from before NEW tags: nothing is new
   scanNationTiles();
   buildFronts();
   recomputeNetwork();
@@ -6967,6 +6975,7 @@ window.addEventListener('keydown', e => {
   if (k === 'enter' && game.flying && !e.repeat) makeStation(game.flying);
   if (k === 'f' && !e.repeat) setAiming(!game.aiming);
   if (k === 'e' && !e.repeat && !game.flying) toggleBuildMenu();   // flying, E is throttle up
+  if (k === 't' && !e.repeat) toggleTechTree();
   if (k === 'c' && !e.repeat) {
     const t = mouse.in ? hoverTile() : null;
     if (t) pasteAt(t.x, t.y);
@@ -7004,7 +7013,7 @@ function cancelAll() {
     toast('Let go of the rocket: engine off, it keeps flying. Press X to take it again.');
   }
   if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast(say('Parked. Press X to take the wheel again.', 'Parked. Tap Drive to take the wheel again.')); }
-  setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false);
+  setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false); if (techOpen) toggleTechTree(false);
   inspect(null); camRide = null;
   if (logOpen) toggleLog(false);
 }
@@ -7108,8 +7117,12 @@ function bindTouchButtons() {
     else if (act === 'drive') nextVehicle();
     else if (act === 'cancel') cancelAll();
     else if (act === 'log') toggleLog();
+    else if (act === 'tech') toggleTechTree();
   });
   $('logbtn').addEventListener('click', () => toggleLog());
+  $('buildbtn').addEventListener('click', () => toggleBuildMenu());
+  $('techbtn').addEventListener('click', () => toggleTechTree());
+  document.querySelector('#techtree .tt-x').addEventListener('click', () => toggleTechTree(false));
   for (const b of document.querySelectorAll('#dpad [data-key]')) {
     const k = b.dataset.key, up = () => { keys.delete(k); b.classList.remove('on'); };
     b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); keys.add(k); b.classList.add('on'); });
@@ -7308,15 +7321,47 @@ function applyFollow() {
 function iconFill() {
   document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = SVG[el.dataset.icon]; });
 }
-// The build bar is a hotbar: 10 slots on keys 1-9, 0. New unlocks fill empty slots; in the E menu,
-// hover any building and press a number to put it on that key (right-click a bar button to clear it).
+// The build bar is a hotbar: 10 slots on keys 1-9, 0. It fills itself with what you build: something new
+// takes an empty slot, or the one you built from least recently (what's already on it keeps its key).
+// In the E menu, hover any building and press a number to pin it to that key (right-click a bar button to clear it).
+// On a phone the bar scrolls, so it shows the most recent first.
 const SLOT_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
-const CATEGORIES = ['Housing', 'Resources', 'Energy', 'Transport', 'Vehicles', 'Military', 'Space'];
+// the E menu's tabs, each a few of the buildings' categories
+const BUILD_TABS = [
+  { id: 'settle', name: 'Settlement', cats: ['Housing', 'Transport'] },
+  { id: 'mining', name: 'Mining', cats: ['Resources'] },
+  { id: 'power', name: 'Power', cats: ['Energy'] },
+  { id: 'weapons', name: 'Weapons', cats: ['Military'] },
+  { id: 'vehicles', name: 'Vehicles', cats: ['Vehicles'] },
+  { id: 'space', name: 'Space', cats: ['Space'] },
+];
+const tabOf = type => BUILD_TABS.find(t => t.cats.includes(CFG.buildings[type].cat)) || BUILD_TABS[0];
+const tabTypes = tab => Object.keys(CFG.buildings).filter(t => tab.cats.includes(CFG.buildings[t].cat))
+  .sort((a, b) => (CFG.buildings[a].unlock || 0) - (CFG.buildings[b].unlock || 0) || tab.cats.indexOf(CFG.buildings[a].cat) - tab.cats.indexOf(CFG.buildings[b].cat));
+// NEW: unlocked by your population, and not looked at in the E menu yet (the starting buildings never are)
+const isNewTech = type => isUnlocked(type) && (CFG.buildings[type].unlock || 0) > 0 && !game.seenTech.has(type);
+const newCount = types => types.filter(isNewTech).length;
 let menuHover = null;
+// something was just built from `type`: it goes on the bar
+function noteBuilt(type) {
+  if (!CFG.buildings[type]) return;
+  let k = game.hotbar.indexOf(type);
+  if (k < 0) {
+    k = game.hotbar.indexOf(null);
+    if (k < 0) { k = 0; for (let j = 1; j < game.hotbar.length; j++) if (game.barUsed[j] < game.barUsed[k]) k = j; }
+    game.hotbar[k] = type;
+  }
+  game.barUsed[k] = ++game.useTick;
+  if (isNewTech(type)) { game.seenTech.add(type); renderNewBadges(); }
+  renderBuildBar();
+}
 function renderBuildBar() {
   const wrap = $('build');
   wrap.innerHTML = '';
-  game.hotbar.forEach((type, k) => {
+  const order = game.hotbar.map((t, k) => k);
+  if (TOUCH) order.sort((a, b) => (game.barUsed[b] || 0) - (game.barUsed[a] || 0));
+  order.forEach(k => {
+    const type = game.hotbar[k];
     if (!type || !CFG.buildings[type] || !isUnlocked(type)) return;
     const b = CFG.buildings[type];
     const el = document.createElement('div');
@@ -7334,15 +7379,16 @@ function renderBuildBar() {
 function pinToBar(type, k) {
   if (!isUnlocked(type)) return toast(`${CFG.buildings[type].name} isn't unlocked yet`);
   const old = game.hotbar.indexOf(type);
-  if (old >= 0) game.hotbar[old] = game.hotbar[k];   // swap places
+  if (old >= 0) { game.hotbar[old] = game.hotbar[k]; [game.barUsed[old], game.barUsed[k]] = [game.barUsed[k], game.barUsed[old]]; }   // swap places
   game.hotbar[k] = type;
+  game.barUsed[k] = ++game.useTick;
   renderBuildBar();
   if (menuOpen) renderBuildMenu();
 }
 function addToBar(type) {                           // a new unlock takes the first empty slot
   if (game.hotbar.includes(type)) return;
   const k = game.hotbar.indexOf(null);
-  if (k >= 0) game.hotbar[k] = type;
+  if (k >= 0) { game.hotbar[k] = type; game.barUsed[k] = 0; }   // (used least: the first slot what you build takes)
 }
 function buildMenu() {
   renderBuildBar();
@@ -7380,58 +7426,137 @@ function setTool(t) {
 // the bottom bar only shows what you've unlocked
 function refreshBuildBar() { renderBuildBar(); }
 
-// ---------- the build menu (E): everything, with what's still locked ----------
-let menuOpen = false;
+// ---------- the build menu (E): tabs of buildings, with what's still locked and what's NEW ----------
+let menuOpen = false, menuTab = 'settle';
 function toggleBuildMenu(force) {
+  const was = menuOpen;
   menuOpen = force === undefined ? !menuOpen : force;
+  if (menuOpen && !was) {
+    if (techOpen) toggleTechTree(false);
+    const fresh = BUILD_TABS.find(t => newCount(tabTypes(t)));   // open on the tab with something new in it
+    if (fresh) menuTab = fresh.id;
+  }
+  if (!menuOpen && was) markTabSeen();
   $('buildmenu').classList.toggle('show', menuOpen);
   if (menuOpen) renderBuildMenu();
+}
+// what's new on the tab you're leaving (or closing) has been seen
+function markTabSeen() {
+  const tab = BUILD_TABS.find(t => t.id === menuTab);
+  if (!tab) return;
+  for (const t of tabTypes(tab)) if (isUnlocked(t)) game.seenTech.add(t);
+  renderNewBadges();
+}
+// the count of NEW buildings on the Build buttons
+function renderNewBadges() {
+  const n = newCount(Object.keys(CFG.buildings));
+  for (const el of document.querySelectorAll('.newn')) el.textContent = !n ? '' : el.closest('#tbar') ? String(n) : `${n} new`;   // the phone's button row is tight
 }
 function renderBuildMenu() {
   const C = activeCountry();
   $('bm-sub').textContent = `Your empire: ${fmtNum(game.population)} people (peak ${fmtNum(game.peakPop)}) · building in ${C ? C.short : '-'}`;
+  const tabs = $('bm-tabs');
+  tabs.innerHTML = '';
+  for (const t of BUILD_TABS) {
+    const n = newCount(tabTypes(t)), el = document.createElement('button');
+    el.className = 'bm-tab' + (t.id === menuTab ? ' on' : '');
+    el.innerHTML = `${t.name}${n ? ` <span class="bm-tabn">${n}</span>` : ''}`;
+    el.addEventListener('click', () => {
+      if (t.id === menuTab) return;
+      markTabSeen(); menuTab = t.id; renderBuildMenu();
+      $('buildmenu').scrollTop = 0;
+    });
+    tabs.appendChild(el);
+  }
   const grid = $('bm-grid');
   grid.innerHTML = '';
   menuHover = null;
-  for (const cat of CATEGORIES) {
-    const list = Object.entries(CFG.buildings).filter(([, b]) => b.cat === cat).sort((a, b) => (a[1].unlock || 0) - (b[1].unlock || 0));
-    if (!list.length) continue;
-    const head = document.createElement('div');
-    head.className = 'bm-cat'; head.textContent = cat;
-    grid.appendChild(head);
-    const sub = document.createElement('div');
-    sub.className = 'bm-catgrid';
-    grid.appendChild(sub);
-  for (const [type, b] of list) {
-    const open = isUnlocked(type), slot = game.hotbar.indexOf(type);
+  const sub = document.createElement('div');
+  sub.className = 'bm-catgrid';
+  grid.appendChild(sub);
+  for (const type of tabTypes(BUILD_TABS.find(t => t.id === menuTab) || BUILD_TABS[0])) {
+    const b = CFG.buildings[type], open = isUnlocked(type), slot = game.hotbar.indexOf(type);
     const el = document.createElement('div');
-    el.className = 'bm-card' + (open ? '' : ' locked') + (game.tool === type ? ' sel' : '');
+    el.className = 'bm-card' + (open ? '' : ' locked') + (game.tool === type ? ' sel' : '') + (isNewTech(type) ? ' new' : '');
     const cost = Object.entries(b.cost).map(([r, n]) =>
       `<span class="${C && C.res[r] < n ? 'no' : ''}">${SVG[RES_ICON[r]]}${n}</span>`).join('');
+    const togo = Math.max(1, Math.ceil((b.unlock || 0) - game.peakPop));
     el.innerHTML = `<div class="tile">${SVG[type]}</div>
-      <div class="bm-body"><div class="bm-name">${b.name}${slot >= 0 ? ` <span class="bm-key" title="on your bar">${SLOT_KEYS[slot]}</span>` : ''}</div>
+      <div class="bm-body"><div class="bm-name">${b.name}${isNewTech(type) ? ' <span class="tag-new">NEW</span>' : ''}${slot >= 0 ? ` <span class="bm-key" title="on your bar">${SLOT_KEYS[slot]}</span>` : ''}</div>
       <div class="bm-desc">${TOUCH ? (b.desc || '').replace('Press F, then click', 'Tap Fire, then tap') : b.desc || ''}</div>
       <div class="bm-foot"><div class="cost">${cost}</div>
-      <div class="bm-status">${open ? (type === 'settlement' ? `capacity from land · ${b.people} people` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : `🔒 unlocks at ${b.unlock} people`}</div></div></div>`;
+      <div class="bm-status">${open ? (type === 'settlement' ? `capacity from land · ${b.people} people` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : `🔒 at ${fmtNum(b.unlock)} people · ${fmtNum(togo)} to go`}</div></div></div>`;
     if (open) el.addEventListener('click', () => { setTool(type); toggleBuildMenu(false); });
     el.addEventListener('mouseenter', () => { menuHover = type; });
     el.addEventListener('mouseleave', () => { if (menuHover === type) menuHover = null; });
-    const toggleBar = () => {
-      if (slot >= 0) { game.hotbar[slot] = null; renderBuildBar(); renderBuildMenu(); }
-      else if (!open) toast(`${b.name} isn't unlocked yet`);
-      else if (game.hotbar.includes(null)) { addToBar(type); renderBuildBar(); renderBuildMenu(); }
-      else toast(say('Your bar is full: hover a building and press 1–0 to replace a slot', 'Your bar is full: take something off it first'));
-    };
-    el.addEventListener('contextmenu', e => { e.preventDefault(); toggleBar(); });   // right-click: on / off the bar
-    if (TOUCH && open) {
-      const pin = document.createElement('button');
-      pin.className = 'bm-pin'; pin.textContent = slot >= 0 ? 'On your bar ✓' : 'Add to bar';
-      pin.addEventListener('click', e => { e.stopPropagation(); toggleBar(); });
-      el.querySelector('.bm-body').appendChild(pin);
-    }
+    el.addEventListener('contextmenu', e => {         // right-click: on / off the bar
+      e.preventDefault();
+      if (slot >= 0) game.hotbar[slot] = null;
+      else if (!open) return toast(`${b.name} isn't unlocked yet`);
+      else if (game.hotbar.includes(null)) addToBar(type);
+      else return toast('Your bar is full: hover a building and press 1–0 to replace a slot');
+      renderBuildBar(); renderBuildMenu();
+    });
     sub.appendChild(el);
   }
-  }
+}
+
+// ---------- the tech tree (T): every building, by the population that unlocks it ----------
+// Nothing to click to research: each tier opens by itself when your empire's peak population reaches it,
+// and stays open if the population falls back. Tap a building for what it does.
+let techOpen = false, techSel = null;
+function toggleTechTree(force) {
+  techOpen = force === undefined ? !techOpen : force;
+  if (techOpen && menuOpen) toggleBuildMenu(false);
+  $('techtree').classList.toggle('show', techOpen);
+  for (const el of document.querySelectorAll('#tbar [data-act="tech"], #techbtn')) el.classList.toggle('on', techOpen);
+  if (techOpen) { renderTechTree(); scrollTechToNext(); }
+}
+function scrollTechToNext() {
+  const next = $('tt-list').querySelector('.tt-row.next'), box = $('techtree');
+  if (next) box.scrollTop = Math.max(0, next.offsetTop - box.clientHeight / 2);
+}
+function renderTechTree() {
+  const peak = game.peakPop, B = CFG.buildings;
+  const tiers = [...new Set(Object.values(B).map(b => b.unlock || 0))].sort((a, b) => a - b);
+  const total = Object.keys(B).length, have = Object.keys(B).filter(isUnlocked).length;
+  $('tt-sub').textContent = `Peak population ${fmtNum(peak)} · ${have} of ${total} buildings unlocked`;
+  const list = $('tt-list');
+  list.innerHTML = '';
+  tiers.forEach((u, j) => {
+    const reached = peak >= u, prev = j ? tiers[j - 1] : 0, nextU = tiers[j + 1];
+    const isNext = !reached && peak >= prev;
+    // the rail down to the next tier fills as the population climbs toward it
+    const fill = nextU === undefined ? 0 : peak >= nextU ? 100 : reached ? clamp((peak - u) / (nextU - u), 0, 1) * 100 : 0;
+    const types = Object.keys(B).filter(t => (B[t].unlock || 0) === u);
+    const row = document.createElement('div');
+    row.className = 'tt-row' + (reached ? ' done' : isNext ? ' next' : '');
+    row.innerHTML = `<div class="tt-rail"><div class="tt-dot"></div>${nextU === undefined ? '' : `<div class="tt-line"><i style="height:${fill}%"></i></div>`}</div>
+      <div class="tt-main"><div class="tt-pop">${u ? `${fmtNum(u)} people` : 'Start'}
+        <span class="tt-state">${reached ? '✓ Unlocked' : isNext ? `${fmtNum(Math.ceil(u - peak))} more people` : '🔒 Locked'}</span></div>
+        ${isNext ? `<div class="tt-bar"><i style="width:${clamp((peak - prev) / (u - prev), 0, 1) * 100}%"></i></div>` : ''}
+        <div class="tt-items"></div></div>`;
+    const items = row.querySelector('.tt-items');
+    for (const t of types) {
+      const el = document.createElement('button');
+      el.className = 'tt-item' + (isUnlocked(t) ? '' : ' locked') + (techSel === t ? ' on' : '');
+      el.innerHTML = `<span class="tile">${SVG[t]}</span>${B[t].name}${isNewTech(t) ? ' <span class="tag-new">NEW</span>' : ''}`;
+      el.addEventListener('click', () => { techSel = techSel === t ? null : t; renderTechTree(); });
+      items.appendChild(el);
+    }
+    if (types.includes(techSel)) {
+      const b = B[techSel], d = document.createElement('div');
+      d.className = 'tt-detail';
+      const cost = Object.entries(b.cost).map(([r, n]) => `<span>${SVG[RES_ICON[r]]}${n}</span>`).join('');
+      d.innerHTML = `<div class="tt-dhead"><b>${b.name}</b><span class="tt-tab">${tabOf(techSel).name} tab</span></div>
+        <div>${TOUCH ? (b.desc || '').replace('Press F, then click', 'Tap Fire, then tap') : b.desc || ''}</div>
+        <div class="tt-dfoot"><div class="cost">${cost}</div>${isUnlocked(techSel) ? '<button class="tt-go">Build it</button>' : ''}</div>`;
+      const go = d.querySelector('.tt-go');
+      if (go) go.addEventListener('click', () => { const t = techSel; toggleTechTree(false); setTool(t); });
+      row.querySelector('.tt-main').appendChild(d);
+    }
+    list.appendChild(row);
+  });
 }
 
 function setPct(p) {
@@ -8127,6 +8252,7 @@ function start() {
   buildMenu();
   bindTouchButtons();
   checkUnlocks(true);
+  renderNewBadges();
   // autosave every 10 s, in a moment the browser has nothing else to do (not in the middle of a frame)
   setInterval(() => (window.requestIdleCallback ? requestIdleCallback(saveGame, { timeout: 2000 }) : saveGame()), 10000);
   if (params.has('bot')) {                         // ?bot: a simple AI plays your side (prototype/bot.js), for playtesting

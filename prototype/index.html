@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#04050b">
   <title>Factory Conquest</title>
-  <link rel="stylesheet" href="style.css?v=28">
+  <link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -35,7 +35,7 @@
 
   <!-- touch screens: buttons for the keys (shown or hidden as they make sense) -->
   <div id="tbar">
-    <button data-act="build">Build</button><button data-act="fire">Fire</button><button data-act="drive" hidden>Drive</button>
+    <button data-act="build">Build <span class="newn"></span></button><button data-act="tech">Tech</button><button data-act="fire">Fire</button><button data-act="drive" hidden>Drive</button>
     <button data-act="next" hidden>Next country</button><button data-act="map">Map</button><button data-act="home">Home</button>
     <button data-act="log">Events <span class="logn"></span></button><button data-act="cancel" hidden>Cancel</button>
   </div>
@@ -75,7 +75,7 @@
       <div class="help-row"><b>Click</b> near your border: expand (into a nation: conquer) · <b>Click</b> a country: view it (zoomed out: fly to it) · <b>Click</b> anything of yours (building, city, vehicle, train, bridge): its stats</div>
       <div class="help-row"><b>E → Vehicles</b>, then click a station (truck) or port (boat): send an expedition · <b>Arrows / WASD</b> drive it · <b>Space</b> settle · <b>Esc</b> let go · <b>X</b> take the wheel</div>
       <div class="help-row"><b>Drag</b> a box over solar panels or burners: select · <b>C</b> paste a copy at the cursor</div>
-      <div class="help-row"><b>E</b> build menu · <b>1–0</b> build bar (set it in <b>E</b>) · <b>F</b> aim and fire weapons · <b>Tab</b> next country · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>M</b> map / orbit · <b>⌫</b> latest alert · <b>N</b> new map</div>
+      <div class="help-row"><b>E</b> build menu · <b>1–0</b> build bar (fills with what you build) · <b>T</b> tech tree · <b>F</b> aim and fire weapons · <b>Tab</b> next country · <b>Esc</b> cancel · <b>[ ]</b> send % · <b>M</b> map / orbit · <b>⌫</b> latest alert · <b>N</b> new map</div>
       <div class="help-row"><b>Scroll</b> zoom · <b>Right-drag</b> or <b>WASD</b> pan · <b>Click</b> any planet, moon or the Sun to lock on</div>
       <div class="help-row">Rocket: <b>Space</b> engine on / off · <b>E / Q</b> throttle up / down · <b>A / D</b> turn · <b>Esc</b> let go · <b>Click</b> a rocket to fly it · in orbit, <b>Enter</b>: make it a space station</div>
       <div class="help-row">Lock-on keys: <b>L</b> Moon · <b>V</b> Vulcan · <b>R</b> Aries · <b>Z</b> Zeus · <b>P</b> Poseidon · <b>G</b> seed world · <b>U</b> Sun</div>
@@ -87,10 +87,21 @@
   <div id="buildmenu" class="panel">
     <div class="bm-head">
       <div><div class="bm-title">Build</div><div class="bm-sub" id="bm-sub"></div></div>
-      <div class="bm-close">E or Esc to close<br>Hover + 1–0: put on your bar · right-click: on/off</div>
+      <div class="bm-close">E or Esc to close · T tech tree<br>Your bar fills with what you build · hover + 1–0: pin to a key</div>
       <button id="bm-new">New map</button>
     </div>
+    <div id="bm-tabs"></div>
     <div id="bm-grid"></div>
+  </div>
+
+  <!-- tech tree (T): every building by the population that unlocks it; nothing to research, it opens as you grow -->
+  <div id="techtree" class="panel">
+    <div class="bm-head">
+      <div><div class="bm-title">Tech tree</div><div class="bm-sub" id="tt-sub"></div></div>
+      <button class="tt-x" aria-label="Close">&times;</button>
+    </div>
+    <div class="tt-note">New buildings unlock by themselves as your empire's population grows, and stay unlocked even if it shrinks. They show up in the Build menu marked NEW.</div>
+    <div id="tt-list"></div>
   </div>
 
   <div id="loading"><div class="spin"></div>Generating world…</div>
@@ -103,9 +114,13 @@
   <div id="tooltip"></div>
   <div id="toast"></div>
   <!-- the event log: wars, raids, conquests, lost countries; click one to fly there -->
-  <button id="logbtn" title="Event log: wars, raids, conquests · Backspace flies to the latest alert">Events <span class="logn"></span></button>
+  <div id="hudbtns">
+    <button id="buildbtn" class="hudbtn" title="Build menu (E)">Build <span class="newn"></span></button>
+    <button id="techbtn" class="hudbtn" title="Tech tree (T): what your population unlocks next">Tech tree</button>
+    <button id="logbtn" class="hudbtn" title="Event log: wars, raids, conquests · Backspace flies to the latest alert">Events <span class="logn"></span></button>
+  </div>
   <div id="loglist" class="panel"></div>
 
-  <script src="game.js?v=49"></script>
+  <script src="game.js?v=50"></script>
 </body>
 </html>
