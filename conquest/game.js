@@ -1,5 +1,5 @@
 /*
- * Map Conquest: a territory-conquest game on the Map Factory disk world and its solar system.
+ * Test Game 1 (was Map Conquest): a side game, territory conquest on the Factory Conquest disk world and its solar system.
  * You and the AI nations share one pool of troops each; click land to attack it. Troops cross
  * your border on foot, cross water by boat, and cross space by rocket from a launch pad.
  * Every landable body (the disk, the Moon, the planets, the giants' moons) is its own tile map.
@@ -10,7 +10,7 @@
 // CONFIG: all tuning numbers live here
 // ======================================================================
 const CFG = {
-  // the home disk (same generator and numbers as Map Factory)
+  // the home disk (same generator and numbers as Factory Conquest)
   diskSize: 1000, continentScale: 115, climateScale: 150,
   iceWall: { min: 2.5, extra: 4 }, waterFraction: 0.5, mountainShare: 0.13, desertShare: 0.24,
 
@@ -72,7 +72,7 @@ const CFG = {
   tickHz: 10, botThink: 1.5,
   scanTiles: 100000,             // tiles of border scanning per tick (the whole system takes about 3 seconds)
 
-  // the solar system, as defined in Map Factory (distances in tiles)
+  // the solar system, as defined in Factory Conquest (distances in tiles)
   space: {
     au: 360000, year: 720, sunR: 6000,
     moon: { r: 130, orbit: 15000, period: 240 },
@@ -175,7 +175,7 @@ const svgIcon = (name, size) => `<svg viewBox="0 0 24 24" width="${size}" height
 const VOID = 0, WATER = 1, PLAIN = 2, ROUGH = 3, PEAK = 4, ICE = 5, WALL = 6;
 const isLandT = t => t >= PLAIN && t <= ICE;
 
-// The home disk: continents inside an ice wall, the same recipe as Map Factory's generateTerrain,
+// The home disk: continents inside an ice wall, the same recipe as Factory Conquest's generateTerrain,
 // plus an ice continent at the north and south poles (the top and bottom of the disk).
 function genDisk() {
   const S = CFG.diskSize, N = S * S, s = SEED, cx = S / 2, cy = S / 2, R = S / 2 - 2;

@@ -1,6 +1,6 @@
 'use strict';
 /*
- * Map Factory — playable prototype of the core loop (design v3).
+ * Factory Conquest — playable prototype of the core loop (design v3). (It was called Map Factory.)
  *
  *   land you own near a settlement -> people capacity -> people regrow -> spend people to claim land
  *   -> deposits inside your territory produce -> resources build settlements

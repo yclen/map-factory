@@ -1,8 +1,8 @@
-# Map Factory
+# Factory Conquest
 
 A Factorio-style growth game played entirely from a **map view**, in the spirit of openfront.io. Your territory is a border line that grows across a seeded **disk world floating in space**. People are the currency: the land you own, within reach of a settlement, sets how many you can have; you spend people to claim land, and the land you own produces the resources that build more settlements.
 
-**▶ Play it in your browser:** https://yclen.github.io/map-factory/
+**▶ Play Factory Conquest in your browser:** https://yclen.github.io/map-factory/
 
 **Your game autosaves in your browser** every 10 seconds; just open the link again to carry on. Press **N** in game for a fresh map.
 
@@ -49,9 +49,9 @@ Add `?seed=123` to the address to play a specific map (this starts that map, and
 
 **On a phone or tablet:** tap to expand, drag to pan, pinch to zoom, and long-press outside your border to send an expedition (a long press also puts a picked building down). Building and firing take two taps: the first shows the preview, the second on the same spot builds or fires. A button row stands in for the keys (Build, Fire, Drive, Next country, Map, Home, Cancel), a steering pad with **Settle** and **Park** appears while you drive, and **New map** is in the Build menu. Box select and copy-paste are mouse-only.
 
-## Map Conquest (a second game on the same world)
+## Test Game 1 (a side game on the same world)
 
-[`conquest/`](conquest/) is a separate, faster game on the same seeded disk and solar system: a territory-conquest game against 22 AI nations. Open `conquest/index.html`, or once pushed, https://yclen.github.io/map-factory/conquest/ (`?seed=42` works here too).
+[`conquest/`](conquest/) is a side game, separate from Factory Conquest: a faster game on the same seeded disk and solar system: a territory-conquest game against 22 AI nations. Open `conquest/index.html`, or once pushed, https://yclen.github.io/map-factory/conquest/ (`?seed=42` works here too).
 
 - **Spawn** anywhere on the disk with 25,000 troops. Troops, gold and combat follow OpenFront's published rules: the troop cap is 2 × (tiles^0.6 × 1,000 + 50,000) plus 250,000 per city, troops regrow fastest at about 42% full, and gold comes in at 1,000 a second.
 - **Click land to attack it** with a share of your troops (20% by default). One click picks the way there: over your border on foot, by **boat** if a sea route exists, or by **rocket** if the land is on another world.
