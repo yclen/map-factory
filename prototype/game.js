@@ -914,6 +914,7 @@ const COL = {
 };
 
 function paintTerr(i) {
+  landTouch(i);                                    // every change of hands repaints the tile: the land recompute only redoes these
   const o = i * 4, f = fillLayer.img.data, b = borderLayer.img.data;
   const x = i % W, y = (i / W) | 0;
   markDirty(fillLayer, x, y); markDirty(borderLayer, x, y);
@@ -1404,6 +1405,7 @@ function recomputeNetwork() {
     countryOf[i] = c.id;
     addTileStats(c, i);
   }
+  landFull = true;                                 // tiles may have changed country: the land recompute starts over
   game.netDirty = false;
   if (game.started) for (const c of game.countries) {
     if (!c.alive || c.tiles) continue;               // every tile of it was taken
@@ -1839,34 +1841,102 @@ function reachDisk(R) {
   REACH_DISK.set(R, D);
   return D;
 }
+// Incremental: paintTerr notes every tile that changed hands (landTouch). recomputeLand then re-assigns only those
+// tiles, plus the reach of any settlement that appeared, vanished or changed hands, and re-totals only the
+// settlements within reach of that area (found through 32 x 32-tile chunks). The result is the same as a full
+// pass, which still runs when countries merge or split (every tile's country can change then), when very many
+// tiles changed at once, and every 20 s as a safety net. servBy holds the serving settlement's id (b.sid).
+const landStamp = new Uint32Array(N), landTouched = [];
+let landGen = 1, landFull = true, landFullAt = -1e9, landPrev = new Map(), settleSid = 0;
+const LCH = 32, LCW = Math.ceil(W / LCH), landChunk = new Uint32Array(LCW * Math.ceil(H / LCH));
+function landTouch(i) {
+  if (landFull || landStamp[i] === landGen) return;
+  landStamp[i] = landGen;
+  if (landTouched.length < 40000) landTouched.push(i); else landFull = true;
+}
 function recomputeLand() {
-  servN++;
-  const S = [], D = reachDisk(CFG.settlement.reach), { dx, dy, d2, n } = D;
-  for (const b of game.buildings) if (b.type === 'settlement') S.push(b);
-  for (let k = 0; k < S.length; k++) {
-    const b = S[k], side = sideOf(b.i), cx = b.i % W, cy = (b.i / W) | 0;
-    b.base = 0; b.tiles = 0; b._n = -1;
-    if (!side) continue;
-    for (let j = 0; j < n; j++) {
-      const x = cx + dx[j], y = cy + dy[j];
-      if (x < 0 || y < 0 || x >= W || y >= H) continue;
-      const t = y * W + x;
-      if (sideOf(t) !== side || !isLand(t)) continue;
-      if (servStamp[t] !== servN || d2[j] < servD[t]) { servStamp[t] = servN; servD[t] = d2[j]; servBy[t] = k; }
+  const S = [], { dx, dy, d2, n } = reachDisk(CFG.settlement.reach), R = CFG.settlement.reach;
+  for (const b of game.buildings) if (b.type === 'settlement') { S.push(b); if (!b.sid) b.sid = ++settleSid; }
+  if (landFull || game.time - landFullAt > 20 || game.time < landFullAt) {
+    servN++;
+    for (const b of S) {
+      const side = sideOf(b.i), cx = b.i % W, cy = (b.i / W) | 0;
+      b.base = 0; b.tiles = 0; b._n = -1;
+      if (!side) continue;
+      for (let j = 0; j < n; j++) {
+        const x = cx + dx[j], y = cy + dy[j];
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const t = y * W + x;
+        if (sideOf(t) !== side || !isLand(t)) continue;
+        if (servStamp[t] !== servN || d2[j] < servD[t]) { servStamp[t] = servN; servD[t] = d2[j]; servBy[t] = b.sid; }
+      }
+    }
+    landTotals(S, n, dx, dy);
+    landFullAt = game.time;
+    roadsDirty = true;
+  } else {
+    const region = landTouched;                    // the touched tiles are already stamped with landGen
+    const addDisk = i => {
+      const cx = i % W, cy = (i / W) | 0;
+      for (let j = 0; j < n; j++) {
+        const x = cx + dx[j], y = cy + dy[j];
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const t = y * W + x;
+        if (landStamp[t] !== landGen) { landStamp[t] = landGen; region.push(t); }
+      }
+    };
+    const now = new Set();
+    for (const b of S) { now.add(b.sid); if (!landPrev.has(b.sid) || b._side !== sideOf(b.i)) addDisk(b.i); }
+    for (const [sid, i] of landPrev) if (!now.has(sid)) addDisk(i);
+    if (region.length) {
+      for (const t of region) { servStamp[t] = 0; landChunk[(((t / W) | 0) / LCH | 0) * LCW + ((t % W) / LCH | 0)] = landGen; }
+      const A = [];                                // settlements whose reach overlaps a changed chunk, in the usual order
+      for (const b of S) {
+        const cx = b.i % W, cy = (b.i / W) | 0;
+        const c0 = Math.max(0, cx - R) / LCH | 0, c1 = Math.min(W - 1, cx + R) / LCH | 0, r0 = Math.max(0, cy - R) / LCH | 0, r1 = Math.min(H - 1, cy + R) / LCH | 0;
+        let hit = false;
+        for (let r = r0; r <= r1 && !hit; r++) for (let c = c0; c <= c1; c++) if (landChunk[r * LCW + c] === landGen) { hit = true; break; }
+        if (hit) A.push(b);
+      }
+      for (const b of A) {
+        const side = sideOf(b.i), cx = b.i % W, cy = (b.i / W) | 0;
+        if (!side) continue;
+        for (let j = 0; j < n; j++) {
+          const x = cx + dx[j], y = cy + dy[j];
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          const t = y * W + x;
+          if (landStamp[t] !== landGen || sideOf(t) !== side || !isLand(t)) continue;
+          if (servStamp[t] !== servN || d2[j] < servD[t]) { servStamp[t] = servN; servD[t] = d2[j]; servBy[t] = b.sid; }
+        }
+      }
+      for (const b of A) { b.base = 0; b.tiles = 0; b._n = -1; }
+      landTotals(A, n, dx, dy);
+      roadsDirty = true;
     }
   }
-  for (let k = 0; k < S.length; k++) {
-    const b = S[k], cx = b.i % W, cy = (b.i / W) | 0;
+  landPrev = new Map();
+  for (const b of S) { landPrev.set(b.sid, b.i); b._side = sideOf(b.i); }
+  landGen++; landTouched.length = 0; landFull = false;
+  game.landDirty = false;
+}
+// the deposit tiles a country owns, by kind (counted when asked: a walk over every deposit tile on the map)
+function ownedDepOf(c) {
+  const out = { forest: 0, stone: 0, iron: 0 };
+  for (const d of deposits) for (const t of d.tiles) if (owner[t] && countryOf[t] === c.id) out[d.type]++;
+  return out;
+}
+// add up the land each of these settlements serves
+function landTotals(list, n, dx, dy) {
+  for (const b of list) {
+    const cx = b.i % W, cy = (b.i / W) | 0;
     if (!sideOf(b.i)) continue;
     for (let j = 0; j < n; j++) {
       const x = cx + dx[j], y = cy + dy[j];
       if (x < 0 || y < 0 || x >= W || y >= H) continue;
       const t = y * W + x;
-      if (servStamp[t] === servN && servBy[t] === k) { b.base += landCapAt(t); b.tiles++; }
+      if (servStamp[t] === servN && servBy[t] === b.sid) { b.base += landCapAt(t); b.tiles++; }
     }
   }
-  game.landDirty = false;
-  roadsDirty = true;
 }
 // what a settlement holds right now: its land, plus its share of the housing its country's spare power builds
 function settlementCap(b) {
@@ -1981,7 +2051,7 @@ function recomputeBuildings() {
   pipesDirty = true;
   for (const c of game.countries) { c.powCap = Math.min(c.powCap || 0, c.pw.capPow); c.cap = c.capBase + c.powCap; }
   for (const c of game.countries) if (c.alive && c.tiles) retitle(c, !game.started);
-  for (const d of deposits) for (const t of d.tiles) if (owner[t]) game.countries[countryOf[t]].ownedDep[d.type]++;
+  // (c.ownedDep used to be counted here over every deposit tile on the map; nothing reads it, so ownedDepOf(c) does it on demand)
   recomputeNations();
   game.bldDirty = false;
 }
@@ -4941,16 +5011,26 @@ function render() {
 // rubble, ore chunks with bright flecks. Thick in the middle of a deposit, thinner and smaller at its edge.
 const GROUND = { forest: 'rgba(32,62,30,0.36)', stone: 'rgba(118,122,126,0.38)', iron: 'rgba(120,66,44,0.42)' };
 const ROCKS = { stone: ['rockA', 'rockB', 'rockC'], iron: ['oreA', 'oreB', 'oreC'] };
-function drawDepositsDetail(x0, y0, x1, y1, z) {
+// Paint the deposits of tiles x0..x1, y0..y1 into context g: `s` = g pixels per tile, `devK` = device pixels per
+// g pixel, map(wx, wy) = where a world point lands in g. Used straight onto the screen, and for the chunk cache.
+function paintDeposits(g, x0, y0, x1, y1, s, devK, map) {
   const ground = { forest: new Path2D(), stone: new Path2D(), iron: new Path2D() };
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const dep = depositOf[idx(x, y)];
     if (dep < 0) continue;
-    const [sx, sy] = toScreen(x + 0.5 + (hash2(x, y, 31) - 0.5) * 0.3, y + 0.5 + (hash2(x, y, 32) - 0.5) * 0.3);
-    const r = z * (0.62 + hash2(x, y, 33) * 0.2), g = ground[deposits[dep].type];
-    g.moveTo(sx + r, sy); g.arc(sx, sy, r, 0, Math.PI * 2);
+    const [sx, sy] = map(x + 0.5 + (hash2(x, y, 31) - 0.5) * 0.3, y + 0.5 + (hash2(x, y, 32) - 0.5) * 0.3);
+    const r = s * (0.62 + hash2(x, y, 33) * 0.2), gp = ground[deposits[dep].type];
+    gp.moveTo(sx + r, sy); gp.arc(sx, sy, r, 0, Math.PI * 2);
   }
-  for (const t in ground) { ctx.fillStyle = GROUND[t]; ctx.fill(ground[t]); }
+  for (const t in ground) { g.fillStyle = GROUND[t]; g.fill(ground[t]); }
+  const sprite = (name, wx, wy, size) => {         // as drawSprite, onto g
+    const ras = RAS[name];
+    if (!ras) return;
+    const img = size * devK <= 44 ? ras[1] : ras[0], [sx, sy] = map(wx, wy), smooth = g.imageSmoothingEnabled;
+    if (PIXEL_ART.has(name)) g.imageSmoothingEnabled = size * devK < img.width;
+    g.drawImage(img, sx - size / 2, sy - size / 2, size, size);
+    g.imageSmoothingEnabled = smooth;
+  };
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {     // row by row, so nearer rows overlap the ones behind
     const i = idx(x, y), dep = depositOf[i];
     if (dep < 0 || building[i]) continue;
@@ -4964,12 +5044,84 @@ function drawDepositsDetail(x0, y0, x1, y1, z) {
       const wx = x + 0.5 + (h1 - 0.5) * 0.85, wy = y + 0.5 + (h2 - 0.5) * 0.6 + (k - (n - 1) / 2) * 0.3;
       if (t === 'forest') {
         const name = pine ? (h3 < 0.78 ? 'treeC' : 'treeB') : h3 < 0.42 ? 'treeA' : h3 < 0.76 ? 'treeB' : h3 < 0.92 ? 'treeD' : 'treeC';
-        drawSprite(name, wx, wy, z * (1.75 + h1 * 0.9) * (inner ? 1 : 0.78));
+        sprite(name, wx, wy, s * (1.75 + h1 * 0.9) * (inner ? 1 : 0.78));
       } else {
         const big = inner && k === 0, name = ROCKS[t][big ? (h3 < 0.6 ? 0 : 1) : h3 < 0.3 ? 0 : h3 < 0.65 ? 1 : 2];
-        drawSprite(name, wx, wy, z * (big ? 2.1 + h1 * 0.6 : 1.35 + h1 * 0.7));
+        sprite(name, wx, wy, s * (big ? 2.1 + h1 * 0.6 : 1.35 + h1 * 0.7));
       }
     }
+  }
+}
+// Up close the deposits are thousands of sprites a frame, so they're cached: each 8 x 8-tile chunk keeps an image
+// of exactly its own square of the finished picture (everything within 2 tiles of it is drawn in the usual order,
+// clipped to the square), so the chunks fit together into the same picture with no seams. Chunks sit on a
+// device-pixel grid fixed to the world, and are redrawn only when the zoom settles at a new level, or when a
+// building goes up or comes down on or near one. While zooming (or with the camera turned) it draws directly.
+const DEP_CH = 8, depCache = new Map();
+let depView = { z: 0, dpr: 0, at: 0 }, depMem = 0, depCount = 0;
+function depSig(X0, Y0) {                         // what a chunk's picture depends on: deposits and buildings near it
+  let h = 0; depCount = 0;
+  for (let y = Math.max(0, Y0 - 3); y < Math.min(H, Y0 + DEP_CH + 3); y++) for (let x = Math.max(0, X0 - 3); x < Math.min(W, X0 + DEP_CH + 3); x++) {
+    const i = y * W + x, d = depositOf[i];
+    if (d >= 0) depCount++;
+    h = (Math.imul(h, 31) + (d + 2) * 3 + (building[i] ? 1 : 0)) | 0;
+  }
+  return h;
+}
+// a chunk's cached picture if it's still good (null if it needs drawing)
+function depCached(cx, cy, ver, now) {
+  const key = cy * 4096 + cx, e = depCache.get(key);
+  if (!e || e.ver !== ver) return null;
+  if (now - e.at > 150) {                         // look for new or removed buildings around it a few times a second
+    if (e.sig !== depSig(cx * DEP_CH, cy * DEP_CH)) return null;
+    e.at = now;
+  }
+  depCache.delete(key); depCache.set(key, e);    // most recently used last
+  return e;
+}
+function depChunk(cx, cy, s, ver) {
+  const key = cy * 4096 + cx, X0 = cx * DEP_CH, Y0 = cy * DEP_CH, sig = depSig(X0, Y0);
+  let e = depCache.get(key);
+  if (e) { depMem -= e.mem; depCache.delete(key); }
+  const X1 = Math.min(W, X0 + DEP_CH), Y1 = Math.min(H, Y0 + DEP_CH);
+  const px0 = Math.round(X0 * s), py0 = Math.round(Y0 * s), w = Math.round(X1 * s) - px0, h = Math.round(Y1 * s) - py0;
+  e = { sig, ver, px0, py0, c: null, mem: 0, at: performance.now() };
+  if (depCount && w > 0 && h > 0) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    paintDeposits(c.getContext('2d'), Math.max(0, X0 - 2), Math.max(0, Y0 - 2), Math.min(W - 1, X1 + 1), Math.min(H - 1, Y1 + 1), s, 1,
+      (wx, wy) => [wx * s - px0, wy * s - py0]);
+    e.c = c; e.mem = w * h; depMem += e.mem;
+  }
+  depCache.set(key, e);
+  for (const [k, old] of depCache) { if (depMem <= 12e6) break; depMem -= old.mem; depCache.delete(k); }   // keep it under ~48 MB
+  return e;
+}
+function drawDepositsDetail(x0, y0, x1, y1, z) {
+  const now = performance.now();
+  if (z !== depView.z || dpr !== depView.dpr) { depView = { z, dpr, at: now }; depCache.clear(); depMem = 0; }
+  if (cam.rot || now - depView.at < 200 || z * dpr > 64) { paintDeposits(ctx, x0, y0, x1, y1, z, dpr, toScreen); return; }
+  const s = z * dpr, ver = Object.keys(RAS).length * 1000 + PIXEL_ART.size;   // (sprites that finish loading later redraw the chunks)
+  const offX = Math.round((cam.x * z - cw / 2) * dpr), offY = Math.round((cam.y * z - ch / 2) * dpr);   // the screen's corner on that grid
+  // Chunks that need drawing get a few milliseconds a frame. One that isn't ready yet is drawn directly, clipped to
+  // its own square: since every chunk is exactly its square of the picture, cached and direct ones fit together.
+  // Time left over goes to the ring of chunks just outside the view, so panning finds them ready.
+  const t0 = performance.now(), cx0 = Math.floor(x0 / DEP_CH), cx1 = Math.floor(x1 / DEP_CH), cy0 = Math.floor(y0 / DEP_CH), cy1 = Math.floor(y1 / DEP_CH);
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false;
+  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+    let e = depCached(cx, cy, ver, t0);
+    if (!e && performance.now() - t0 < 4) e = depChunk(cx, cy, s, ver);
+    if (e) { if (e.c) ctx.drawImage(e.c, e.px0 - offX, e.py0 - offY); continue; }
+    const X0 = cx * DEP_CH, Y0 = cy * DEP_CH, X1 = Math.min(W, X0 + DEP_CH), Y1 = Math.min(H, Y0 + DEP_CH), px0 = Math.round(X0 * s), py0 = Math.round(Y0 * s);
+    ctx.save(); ctx.beginPath(); ctx.rect(px0 - offX, py0 - offY, Math.round(X1 * s) - px0, Math.round(Y1 * s) - py0); ctx.clip();
+    paintDeposits(ctx, Math.max(0, X0 - 2), Math.max(0, Y0 - 2), Math.min(W - 1, X1 + 1), Math.min(H - 1, Y1 + 1), s, 1, (wx, wy) => [wx * s - offX, wy * s - offY]);
+    ctx.restore();
+  }
+  ctx.restore();
+  for (let cy = cy0 - 1; cy <= cy1 + 1; cy++) for (let cx = cx0 - 1; cx <= cx1 + 1; cx++) {
+    if (cy >= cy0 && cy <= cy1 && cx >= cx0 && cx <= cx1) continue;
+    if (performance.now() - t0 >= 4) return;
+    if (cx >= 0 && cy >= 0 && cx * DEP_CH < W && cy * DEP_CH < H && !depCached(cx, cy, ver, t0)) depChunk(cx, cy, s, ver);
   }
 }
 
@@ -5250,6 +5402,7 @@ function pickAt(x, y) {
   }
   return best;
 }
+const buildingNear = (x, y) => { const o = pickAt(x, y); return kindOf(o) === 'building' ? o : null; };
 // what the mouse is pointing at right now (nothing while you build, aim, paste, drag or drive)
 const pointedAt = () => !mouse.in || mouse.dragged || mouse.down >= 0 || game.tool || game.aiming || blueprint || game.driving
   ? null : pickAt(mouse.x, mouse.y);
@@ -5585,7 +5738,6 @@ function drawVehicle(e, z) {
   }
   const size = clamp(z * 2.6, 26, 60), spr = e.kind === 'boat' ? SPR.boat : SPR.truck, left = Math.cos(e.a) < 0;
   ctx.save();
-const buildingNear = (x, y) => { const o = pickAt(x, y); return kindOf(o) === 'building' ? o : null; };
   ctx.translate(sx, sy);
   if (mine) { ctx.beginPath(); ctx.arc(0, 0, size * 0.62, 0, Math.PI * 2); ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.stroke(); }
   // a small arrow for the heading, then the vehicle (a truck turns with it; a boat just faces left or right)
@@ -5665,13 +5817,20 @@ function textImage(text, weight, size, spacing, lw, color) {
   TEXT_IMG.set(key, im);
   return im;
 }
+const POP_SHOWN = new WeakMap();                    // country/nation -> the population text on its label right now
 const stampText = (im, x, y) => ctx.drawImage(im.c, x - im.w / 2, y - im.h / 2, im.w, im.h);
 
 function drawCountryLabels(z) {
   if (z < 0.15) return;
-  const under = (people, sx, sy, size, color) => {   // the population, in smaller type under the name
+  const under = (who, people, sx, sy, size, color) => {   // the population, in smaller type under the name
+    // the number changes nearly every tick: show a new one twice a second, so its image isn't redrawn 20 times a second
+    const now = performance.now(), shown = POP_SHOWN.get(who);
+    let txt = shown ? shown.txt : null;
+    if (!shown || (now - shown.at > 500 && shown.n !== Math.floor(people))) {
+      txt = `${fmtNum(people)} people`; POP_SHOWN.set(who, { txt, n: Math.floor(people), at: now });
+    }
     const s2 = Math.max(10, size * 0.6);
-    stampText(textImage(`${fmtNum(people)} people`, 700, s2, 0, 3, color), sx, sy + size * 0.55 + s2 * 0.7);
+    stampText(textImage(txt, 700, s2, 0, 3, color), sx, sy + size * 0.55 + s2 * 0.7);
   };
   for (const c of game.countries) {
     if (!c.alive || !c.tiles) continue;
@@ -5682,7 +5841,7 @@ function drawCountryLabels(z) {
     const sy = sy0 + (z < CFG.detailZoom ? 14 + size * 0.6 : z * 3.2);   // sit below the settlement at the centre
     const text = (span > 140 ? c.full : c.short).toUpperCase();
     stampText(textImage(text, 800, size, Math.round(size * 0.12), 4, c.id === game.active ? '#ffffff' : 'rgba(214,228,255,0.88)'), sx, sy);
-    under(c.people, sx, sy, size, '#f2c14e');
+    under(c, c.people, sx, sy, size, '#f2c14e');
   }
   for (const n of game.nations) {
     if (!n.alive) continue;
@@ -5694,7 +5853,7 @@ function drawCountryLabels(z) {
     const text = (span > 160 ? n.full : n.short).toUpperCase();
     const [r, g, b] = n.col;
     stampText(textImage(text, 800, size, Math.round(size * 0.12), 4, `rgb(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)})`), sx, sy);
-    under(n.people, sx, sy, size, 'rgba(255,255,255,0.85)');
+    under(n, n.people, sx, sy, size, 'rgba(255,255,255,0.85)');
   }
 }
 
