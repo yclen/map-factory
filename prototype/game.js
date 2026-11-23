@@ -2909,13 +2909,16 @@ function bridgeClick(i) {
   const C = countryAt(p.s), miss = missingFor(p.cost, C);
   if (miss) return toast(`${C.short} doesn't have enough ${miss}: this bridge costs ${fmtNum(p.cost.stone)} stone`);
   for (const [r, n] of Object.entries(p.cost)) C.res[r] -= n;
-  addBridge({ s: p.s, b: p.b, tiles: p.tiles, len: p.len });
+  const br = { s: p.s, b: p.b, tiles: p.tiles, len: p.len };
+  addBridge(br);
   const free = !owner[p.b], other = countryAt(p.b);
   if (free) claim(p.b, C.id);                      // a bridge to free land claims the tile it lands on
   game.netDirty = true;                            // joins the land on both ends into one country
   game.bridgeStart = null;
   const [fx, fy] = tileCenter(p.b);
   floatText(fx, fy - 1, `Bridge: ${p.len} tiles${free ? ` · new land for ${C.short}` : other && other !== C ? ` · joins ${other.short}` : ''}`, '#7bd389');
+  setTool(null);                                   // one bridge per pick: the tool doesn't stay on over the new bridge
+  inspect(br);                                     // and its card opens
 }
 
 // ======================================================================
@@ -5838,7 +5841,14 @@ function pickAt(x, y) {
       const b = buildingAt(t);
       if (b && (z >= CFG.cityZoom || b.type === 'station' || b.type === 'port' || b.type === 'pad')) return b;
     }
-    if (bridgeAt[t] && z >= 1) { const br = game.bridges.find(q => q.tiles.includes(t)); if (br) return br; }
+  }
+  // a bridge: anywhere on its deck as drawn (a straight span from shore to shore), not only the stair of water
+  // tiles it was traced through, which a diagonal deck only half covers
+  if (z >= 0.5) for (const br of game.bridges) {
+    const [ax, ay] = toScreen(...tileCenter(br.s)), [bx, by] = toScreen(...tileCenter(br.b));
+    const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy || 1, u = ((x - ax) * vx + (y - ay) * vy) / L2;
+    if (u < 0.04 || u > 0.96) continue;            // the shores themselves are land, not the bridge
+    if (Math.hypot(x - (ax + vx * u), y - (ay + vy * u)) < Math.max(8, z * 0.65)) return br;
   }
   let best = null, bd = Math.max(18, z * 1.6);
   for (const b of game.buildings) {
@@ -6179,10 +6189,10 @@ function cardLink(L, ui) {
   return [L.kind === 'rail' ? 'Train' : 'Cargo ship', L.kind === 'rail' ? 'engine' : 'ship', `${A ? A.short : '?'} ⇄ ${B ? B.short : '?'}`];
 }
 function cardBridge(br, { row, note }) {
-  const n = br.tiles.length, B = CFG.bridge, on = new Set(br.tiles);
+  const n = br.len, on = new Set(br.tiles);
   const A = countryAt(br.s), Z = countryAt(br.b), rails = game.links.filter(L => L.kind === 'rail' && L.path.some(t => on.has(t))).length;
   row('Over the water', `${n} tiles`);
-  row('Built for', `${B.stone * n + B.grow * n * (n - 1) / 2} stone`);
+  row('Built for', `${fmtNum(bridgeCost(n).stone)} stone`);
   row('Joins', A && Z && A !== Z ? `${A.short} and ${Z.short}` : A ? `${A.short}, both shores` : '-');
   row('Rail lines on it', `${rails}`);
   note('Trucks drive over it; rail follows it');
