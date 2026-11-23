@@ -13,6 +13,13 @@
  * Add ?seed=123 to the URL to replay a specific map.
  */
 
+// An error while the page loads or the world generates would otherwise leave "Generating world…" spinning
+// forever with nothing said: put the error on the loading screen instead.
+window.addEventListener('error', e => {
+  const ld = document.getElementById('loading');
+  if (ld) ld.innerHTML = `<div style="max-width:520px;text-align:center;line-height:1.5">The game couldn't start: ${String(e.message || e.error || 'unknown error').replace(/</g, '&lt;')}<br><span style="opacity:0.7;font-size:12px">Reload to try again. If it keeps happening, the details are in the browser console.</span></div>`;
+});
+
 // ======================================================================
 // CONFIG — all tuning numbers live here
 // ======================================================================
@@ -979,6 +986,7 @@ function claim(i, cid, conquer = false) {
   game.ownedCount++;
   frontier.delete(i);
   paintTerr(i);
+  if (game.started) noteClaim(i);
   addTileStats(game.countries[cid], i);
   if (depositOf[i] >= 0 || building[i]) game.bldDirty = true;   // a deposit's collector may now cover more tiles
   if (bridgeEnd[i]) game.netDirty = true;          // a bridge lands here: it may join this country to the one across
@@ -1046,7 +1054,7 @@ function retitle(c, quiet) {
   const old = c.full;
   c.full = titleFor(c);
   if (grew && !quiet && old !== c.full) {
-    toast(`${old} is now ${c.full}!`);
+    toast(`${old} is now ${c.full}!`, { good: true, at: [c.lx, c.ly] });
     floatText(c.lx, c.ly - 3, `Now ${c.full}`, '#f2c14e');
   }
 }
@@ -1121,7 +1129,7 @@ function recomputeNations() {
   for (const n of game.nations) {
     if (n.tiles) { n.lx = n.sx / n.tiles + 0.5; n.ly = n.sy / n.tiles + 0.5; }
     n.people = Math.min(n.people, n.cap);          // lost land or settlements: the people who lived there are gone
-    if (n.alive && !n.tiles) { n.alive = false; n.people = 0; toast(`You conquered ${n.full}!`); }
+    if (n.alive && !n.tiles) { n.alive = false; n.people = 0; toast(`You conquered ${n.full}!`, { good: true, at: [n.lx, n.ly] }); }
   }
 }
 const nationAt = i => (aiOf[i] ? game.nations[aiOf[i] - 1] : null);
@@ -1202,7 +1210,7 @@ function aiSpot(n, px, py, rad, rnd = Math.random) {
 function provoke(n) {
   if (!n || n.hostile || !n.alive) return;
   n.hostile = true;
-  if (game.started) toast(`${n.full} is now at war with you: its missile silos will fire on your buildings.`);
+  if (game.started) toast(`${n.full} is now at war with you: its missile silos will fire on your buildings.`, { alert: true, at: [n.lx, n.ly] });
 }
 function aiThink(n) {
   if (!n.alive || !n.tiles) return;
@@ -1253,12 +1261,12 @@ function aiThink(n) {
   // 4) war: boxed in with you next door, it declares war; at war, it pushes into your land
   if (!n.hostile && n.warFront.size && (n.stuck || 0) >= A.boxedThinks) {
     n.hostile = true;
-    toast(`${n.full} has run out of room and declared war on you!`);
+    toast(`${n.full} has run out of room and declared war on you!`, { alert: true, at: [n.lx, n.ly] });
   }
   // a neighbour may simply turn on you once your borders touch
   if (!n.hostile && Math.random() < A.aggression && touchesYou(n)) {
     n.hostile = true;
-    toast(`${n.full} has turned on you: its soldiers are massing at your border.`);
+    toast(`${n.full} has turned on you: its soldiers are massing at your border.`, { alert: true, at: [n.lx, n.ly] });
   }
   // at war: send a wave of soldiers into your land, aimed at your nearest settlement
   if (n.hostile && n.people >= n.cap * A.attackAt && game.time - (n.lastRaid ?? -99) >= A.raidEvery &&
@@ -1272,7 +1280,7 @@ function aiThink(n) {
     const budget = n.people * A.raidShare;
     n.people -= budget; n.lastRaid = game.time;
     game.raids.push({ n: n.id, budget, work: 0, tx: tgt % W + 0.5, ty: ((tgt / W) | 0) + 0.5, lx: null, ly: null });
-    toast(`${n.full} sends ${Math.round(budget)} soldiers into your land! Push back to retake it.`);
+    toast(`${n.full} sends ${Math.round(budget)} soldiers into your land! Push back to retake it.`, { alert: true, at: [tgt % W + 0.5, ((tgt / W) | 0) + 0.5] });
   }
 }
 // does this nation's border touch your land right now? (drops stale entries as it looks)
@@ -1339,7 +1347,10 @@ function aiFire() {
     launchShot(b, tgt[0], tgt[1], def.weapon, n);
     n.iron -= Wp.cost.iron || 0;
     b.rd = Wp.reload * A.reloadMult[def.weapon]; b.ready = game.time + b.rd;
-    if (!n.warned) { n.warned = true; toast(`${n.full} is firing on you! Keep out of range of its mortars, or knock them out.`); }
+    if (!n.hostile) {                              // opening fire on you is war: from now on your mortars fire back
+      n.hostile = true;
+      toast(`${n.full} opened fire on you: you are at war, and your mortars fire back. Keep out of its range, or knock its mortars out.`, { alert: true, at: [bx, by] });
+    }
   }
 }
 // extra people it costs to take one tile of a nation's land: the more crowded they are, the harder they fight
@@ -1430,12 +1441,11 @@ function recomputeNetwork() {
   if (game.started) for (const c of game.countries) {
     if (!c.alive || c.tiles) continue;               // every tile of it was taken
     c.alive = false; c.people = 0;
-    toast(`${c.full} has fallen!`);
+    toast(`${c.full} has fallen!`, { alert: true, at: isFinite(c.box[0]) ? [(c.box[0] + c.box[2]) / 2 + 0.5, (c.box[1] + c.box[3]) / 2 + 0.5] : null });
   }
   if (game.started && !game.over && !game.countries.some(c => c.alive)) {
     game.over = true; game.driving = null; game.aiming = false;
-    $('toast').classList.add('show'); clearTimeout(toastTimer);
-    $('toast').textContent = `Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`;
+    toast(`Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`, { alert: true, sticky: true });
   }
   recomputeBuildings();
 }
@@ -2288,6 +2298,8 @@ function recomputeBuildings() {
       const lvl = settlementLevel(b);              // tell the player when one grows up (not on the first look, and never twice)
       if (b.peak !== undefined && lvl > b.peak && game.started) {
         floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, `Now a ${CFG.settlement.levels[lvl].name}`, '#f2c14e');
+        b.bump = game.time;                        // the town swells for a moment, with a gold ring round it
+        ringBurst(b.i % W + 0.5, ((b.i / W) | 0) + 0.5, 5 + lvl, '#f2c14e');
       }
       b.peak = Math.max(b.peak ?? lvl, lvl);
     }
@@ -2833,6 +2845,7 @@ function tryBuild(i, type) {
   noteSpend(C, cost);
   const before = empireCap();
   placeBuilding(i, type);
+  popIn(i);
   if (plan && plan.path) layLink(i, type, plan);
   recomputeBuildings();
   const gained = empireCap() - before;
@@ -3180,7 +3193,7 @@ function arrive(e) {
     const t = idx(x, y);
     if (owner[t] && countryOf[t] === col.id && depositOf[t] < 0 && !building[t]) { site = t; sd = d; }
   }
-  if (site >= 0) placeBuilding(site, 'settlement');
+  if (site >= 0) { placeBuilding(site, 'settlement'); popIn(site); }
   recomputeNetwork();
   // a boat's settlers build a port where they came ashore, free, and its shipping lane follows the boat home
   let port = -1;
@@ -3193,7 +3206,7 @@ function arrive(e) {
       if (d < pd) { pd = d; port = idx(x, y); }
     }
     if (port >= 0) {
-      placeBuilding(port, 'port');
+      placeBuilding(port, 'port'); popIn(port);
       const plan = linkPlan(port, 'port');
       if (plan && plan.path) layLink(port, 'port', plan);
       recomputeBuildings();
@@ -3703,8 +3716,10 @@ function explode(x, y, m) {
       if (b.type === 'settlement') {               // never damaged: the hit kills a share of the people living there
         loseSettlement(i, Wp.kill);
         b.hitAt = game.time;                       // and it stops regrowing for a while
+        b.hitFx = game.time;
       } else {
         b.dmg = (b.dmg || 0) + Wp.damage;
+        b.hitFx = game.time;                       // it shudders where it stands
         if (b.dmg >= hpOf(b)) { removeBuilding(i); wrecked++; } else damaged++;
       }
     }
@@ -3717,7 +3732,7 @@ function explode(x, y, m) {
     if (e.done || Math.hypot(e.x - x, e.y - y) > R + 0.8) continue;
     e.done = true; lost += Math.floor(e.n);
     if (game.driving === e) game.driving = null;
-    toast(foe ? `Your expedition was destroyed by ${foe.full}!` : 'Your expedition was caught in the blast.');
+    toast(foe ? `Your expedition was destroyed by ${foe.full}!` : 'Your expedition was caught in the blast.', { alert: true, at: [e.x, e.y] });
   }
   recomputeBuildings();                            // lost settlements: nations lose the people who lived there
   const killed = Math.round(before - everyone()) + lost;
@@ -3739,6 +3754,69 @@ function explode(x, y, m) {
 }
 
 function floatText(x, y, text, color) { game.floats.push({ x, y, text, color, t: 0 }); }
+
+// ---------- little effects: buildings popping up, rings, freshly claimed land glowing ----------
+// Drawing only: none of this is saved, and none of it changes the game.
+const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2; };
+// how big to draw a building right now: it pops up when built, bounces when its settlement grows, shudders when hit
+function popScale(b) {
+  let s = 1;
+  if (b.born != null) { const t = (game.time - b.born) / 0.45; if (t >= 1) b.born = null; else s *= 0.15 + 0.85 * easeOutBack(Math.max(0, t)); }
+  if (b.bump != null) { const t = (game.time - b.bump) / 0.6; if (t >= 1) b.bump = null; else s *= 1 + 0.22 * Math.sin(Math.max(0, t) * Math.PI) * (1 - t); }
+  if (b.hitFx != null) { const t = (game.time - b.hitFx) / 0.4; if (t >= 1) b.hitFx = null; else s *= 1 + 0.1 * Math.sin(Math.max(0, t) * 38) * (1 - t); }
+  return s;
+}
+// a ring that grows and fades where something happened (a building put down, a settlement growing up)
+const burstFx = [];
+function ringBurst(x, y, R, col) { if (burstFx.length < 60) burstFx.push({ x, y, R, col, t0: game.time }); }
+function drawRingFx(z) {
+  for (let j = burstFx.length - 1; j >= 0; j--) {
+    const r = burstFx[j], t = (game.time - r.t0) / 0.6;
+    if (t >= 1) { burstFx.splice(j, 1); continue; }
+    if (t < 0) continue;
+    const [sx, sy] = toScreen(r.x, r.y), e = 1 - (1 - t) ** 3;
+    ctx.globalAlpha = (1 - t) * 0.9;
+    ctx.strokeStyle = r.col; ctx.lineWidth = 1 + 3 * (1 - t);
+    ctx.beginPath(); ctx.arc(sx, sy, Math.max(6, r.R * z) * (0.35 + 0.65 * e), 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+// you built something: it pops up out of a puff of dust with a gold ring
+function popIn(i) {
+  const b = buildingAt(i);
+  if (!b) return;
+  b.born = game.time;
+  const [x, y] = tileCenter(i);
+  ringBurst(x, y, 1.8, '#f2c14e');
+  for (let j = 0; j < 6; j++) {
+    const a = j / 6 * Math.PI * 2 + Math.random() * 0.6;
+    addSmoke(x, y + 0.3, 0, 0, false, { vx: Math.cos(a) * 0.7, vy: Math.sin(a) * 0.45, life: 0.8, size: 0.7, rise: 1.5 });
+  }
+}
+// land you just claimed glows for a moment and fades into your colour: a ring buffer of (tile, time)
+const CLAIM_FX = 8192, claimI = new Int32Array(CLAIM_FX), claimT = new Float64Array(CLAIM_FX);
+let claimHead = 0, claimLen = 0;
+function noteClaim(i) {
+  claimI[claimHead] = i; claimT[claimHead] = game.time;
+  claimHead = (claimHead + 1) % CLAIM_FX;
+  if (claimLen < CLAIM_FX) claimLen++;
+}
+function drawClaimFlash(z, x0, y0, x1, y1) {
+  const LIFE = 1.1, s = Math.max(z, 1.5);
+  ctx.fillStyle = '#d8ecff';
+  let k = 0;
+  for (; k < claimLen; k++) {
+    const j = (claimHead - 1 - k + CLAIM_FX) % CLAIM_FX, age = game.time - claimT[j];
+    if (age > LIFE) break;                         // newest first: everything after this is older still
+    const i = claimI[j], x = i % W, y = (i / W) | 0;
+    if (x < x0 || x > x1 || y < y0 || y > y1 || age < 0) continue;
+    const [sx, sy] = toScreen(x, y);
+    ctx.globalAlpha = 0.75 * (1 - age / LIFE) ** 2;
+    ctx.fillRect(sx, sy, s, s);
+  }
+  claimLen = k;                                    // forget the faded ones
+  ctx.globalAlpha = 1;
+}
 
 // ---------- what each collector is doing ----------
 // A cabin, camp or rig's own share of its country's output: the tiles it works times the yield, slowed by too few
@@ -5424,6 +5502,7 @@ function render() {
     for (const key in paths) if (key[0] === 'n') { ctx.strokeStyle = game.nations[+key.slice(1) - 1].hex; ctx.stroke(paths[key]); }
     ctx.lineCap = 'butt';
   }
+  drawClaimFlash(z, x0, y0, x1, y1);
 
   drawBridges(z);
   drawRoads(z);
@@ -5436,13 +5515,14 @@ function render() {
     drawDepositsDetail(x0, y0, x1, y1, z);
     for (const b of game.buildings) {
       const x = b.i % W, y = (b.i / W) | 0;
-      if (b.type === 'settlement' && x >= x0 - 9 && x <= x1 + 9 && y >= y0 - 9 && y <= y1 + 9) drawSettlementDetail(b, z);
+      if (b.type === 'settlement' && x >= x0 - 9 && x <= x1 + 9 && y >= y0 - 9 && y <= y1 + 9) drawSettlementDetail(b, z * popScale(b));
     }
     for (const b of game.buildings) {
       const x = b.i % W, y = (b.i / W) | 0;
       if (b.type === 'settlement' || x < x0 || x > x1 || y < y0 || y > y1) continue;
-      if (DEFENCE_TOPS[b.type]) { drawDefence(b, z); continue; }
-      drawSprite(b.type, x + 0.5, y + 0.5 + (DRILL_ANIM[b.type] ? drillJolt(b, z) : 0), z * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : 1.25));
+      const k = popScale(b);
+      if (DEFENCE_TOPS[b.type]) { drawDefence(b, z * k); continue; }
+      drawSprite(b.type, x + 0.5, y + 0.5 + (DRILL_ANIM[b.type] ? drillJolt(b, z) : 0), z * k * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : 1.25));
     }
     for (const b of game.buildings) {               // workers out on the tiles, then smoke on top of everything
       const x = b.i % W, y = (b.i / W) | 0;
@@ -5462,6 +5542,7 @@ function render() {
     drawFar(z);
   }
 
+  drawRingFx(z);
   drawPops(z);
   drawVehicles(z);
   drawFlights(z);
@@ -5519,7 +5600,8 @@ function render() {
   for (const f of game.floats) {
     const [sx, sy] = toScreen(f.x, f.y);
     ctx.globalAlpha = clamp(1.7 - f.t / 1.4, 0, 1);
-    pill(sx, sy - 18 - f.t * 22, f.text, { fg: f.color, size: 12 });
+    const pop = f.t < 0.25 ? 0.55 + 0.45 * easeOutBack(f.t / 0.25) : 1;   // pops in with a little overshoot
+    pill(sx, sy - 18 - f.t * 22, f.text, { fg: f.color, size: 12 * pop });
     ctx.globalAlpha = 1;
   }
 }
@@ -6675,11 +6757,23 @@ canvas.addEventListener('mouseleave', () => { mouse.in = false; });
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
   cam.anim = null;
-  const [bx, by] = toWorld(e.clientX, e.clientY);
-  cam.zoom = clamp(cam.zoom * Math.exp(-e.deltaY * 0.0022), CFG.zoomMin, CFG.zoomMax);
-  const [ax, ay] = toWorld(e.clientX, e.clientY);
-  nudgeCam(bx - ax, by - ay);
+  // the wheel sets where the zoom is going; stepZoom glides there over a few frames
+  const from = zoomGoal && zoomGoal.last === cam.zoom ? zoomGoal.z : cam.zoom;
+  zoomGoal = { z: clamp(from * Math.exp(-e.deltaY * 0.0022), CFG.zoomMin, CFG.zoomMax), sx: e.clientX, sy: e.clientY, last: cam.zoom };
 }, { passive: false });
+let zoomGoal = null;
+function stepZoom(dt) {
+  const g = zoomGoal;
+  if (!g) return;
+  if (g.last !== cam.zoom || cam.anim) { zoomGoal = null; return; }   // something else moved the zoom: it wins
+  const [bx, by] = toWorld(g.sx, g.sy);
+  const k = 1 - Math.exp(-dt * 16);                // about 90% of the way in 0.15 s
+  const near = Math.abs(Math.log(g.z / cam.zoom)) < 0.002;
+  cam.zoom = near ? g.z : cam.zoom * Math.pow(g.z / cam.zoom, k);
+  const [ax, ay] = toWorld(g.sx, g.sy);
+  nudgeCam(bx - ax, by - ay);
+  if (near) zoomGoal = null; else g.last = cam.zoom;
+}
 
 // double-click a body to lock onto it; double-click empty space to let go
 canvas.addEventListener('dblclick', e => {
@@ -6693,6 +6787,9 @@ canvas.addEventListener('dblclick', e => {
 
 const keys = new Set();
 window.addEventListener('keydown', e => {
+  // Ctrl / Alt / Cmd combinations belong to the browser (Ctrl+R reloads, Ctrl+C copies): never let them
+  // paste a blueprint, aim a missile or lock onto a planet on the way
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   keys.add(e.key.toLowerCase());
   const k = e.key.toLowerCase();
   const slot = SLOT_KEYS.indexOf(k);
@@ -6726,9 +6823,17 @@ window.addEventListener('keydown', e => {
   if (k === 'h') goHome();
   if (k === 'tab') { e.preventDefault(); nextCountry(e.shiftKey ? -1 : 1); }
   if ('wasd'.includes(k) || k.startsWith('arrow')) cam.anim = null;
-  if (k === 'n') { newGame(); }
+  if (k === 'backspace' && !e.repeat) { e.preventDefault(); goToLastAlert(); }
+  if (k === 'n' && !e.repeat) {
+    keys.clear();                                  // the dialog swallows the key-up
+    if (confirm('Start a new map? This deletes your saved game.')) newGame();
+  }
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+// a key held while the window loses focus never sends its key-up: forget held keys, or the camera
+// (or the truck you drive) keeps going on its own when you come back
+window.addEventListener('blur', () => keys.clear());
+document.addEventListener('visibilitychange', () => { if (document.hidden) keys.clear(); });
 
 // Esc: let go of whatever you're doing
 function cancelAll() {
@@ -6739,8 +6844,14 @@ function cancelAll() {
   if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast(say('Parked. Press X to take the wheel again.', 'Parked. Tap Drive to take the wheel again.')); }
   setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false);
   inspect(null); camRide = null;
+  if (logOpen) toggleLog(false);
 }
-function goHome() { game.driving = null; stopFollow(); cam.anim = null; cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
+// home: fly back to where you started; from a map or orbit view, come back down to the land too
+function goHome() {
+  game.driving = null; stopFollow(); camRide = null;
+  if (mapStage) { savedView = null; mapStage = 0; }
+  flyCam(spawn.x + 0.5, spawn.y + 0.5, cam.zoom < CFG.cityZoom ? CFG.startZoom * 0.7 : cam.zoom);
+}
 function nextCountry(dir) {
   const alive = game.countries.filter(c => c.alive && c.tiles);
   if (!alive.length) return;
@@ -6834,7 +6945,9 @@ function bindTouchButtons() {
     else if (act === 'home') goHome();
     else if (act === 'drive') nextVehicle();
     else if (act === 'cancel') cancelAll();
+    else if (act === 'log') toggleLog();
   });
+  $('logbtn').addEventListener('click', () => toggleLog());
   for (const b of document.querySelectorAll('#dpad [data-key]')) {
     const k = b.dataset.key, up = () => { keys.delete(k); b.classList.remove('on'); };
     b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); keys.add(k); b.classList.add('on'); });
@@ -6882,16 +6995,21 @@ function toggleMapView() {
   game.driving = null;
   stopFollow();
   if (mapStage === 0) {
-    savedView = { ...cam }; mapStage = 1;
-    cam.zoom = fitZoom(); cam.x = DISK.cx; cam.y = DISK.cy + 36 / cam.zoom;
+    savedView = { ...cam, anim: null }; mapStage = 1;
+    const z = fitZoom(); flyCam(DISK.cx, DISK.cy + 36 / z, z);
   } else if (mapStage === 1) {
     mapStage = 2;
-    cam.zoom = orbitZoom(); cam.x = DISK.cx; cam.y = DISK.cy + 36 / cam.zoom;
+    const z = orbitZoom(); flyCam(DISK.cx, DISK.cy + 36 / z, z);
   } else if (mapStage === 2) {
+    cam.anim = null;
     followBody('sun', { zoom: systemZoom(), quiet: true, keepView: true });   // the whole system, centred on the sun
     mapStage = 3;
   } else {
-    if (savedView) Object.assign(cam, savedView);
+    if (savedView) {                               // glide back down to where you were
+      const { x, y, zoom } = savedView;
+      Object.assign(cam, savedView, { x: cam.x, y: cam.y, zoom: cam.zoom });
+      flyCam(x, y, zoom);
+    }
     savedView = null; mapStage = 0;
   }
 }
@@ -6957,7 +7075,7 @@ const followSun = () => followBody('sun');
 function lockWorld() {
   stopFollow();
   setCamRot(0);
-  cam.zoom = fitZoom(); cam.x = DISK.cx; cam.y = DISK.cy + 36 / cam.zoom;
+  const z = fitZoom(); flyCam(DISK.cx, DISK.cy + 36 / z, z);
   savedView = null; mapStage = 1;
   toast('Locked onto your world.');
 }
@@ -6969,16 +7087,26 @@ function flyToCountry(c) {
   stopFollow();
   const [x0, y0, x1, y1] = c.box;
   const z = clamp(Math.min(cw / (x1 - x0 + 16), (ch - 230) / (y1 - y0 + 16)), 1.2, 24);
-  cam.anim = { x0: cam.x, y0: cam.y, z0: cam.zoom, x1: (x0 + x1) / 2 + 0.5, y1: (y0 + y1) / 2 + 0.5, z1: z, t: 0 };
+  flyCam((x0 + x1) / 2 + 0.5, (y0 + y1) / 2 + 0.5, z);
   toast(`${c.full} · ${fmtNum(c.people)} people · ${c.tiles} tiles`);
+}
+// glide the camera to a spot and zoom: eased in and out, longer for a bigger change of scale
+function flyCam(x, y, z, dur) {
+  zoomGoal = null;
+  const zz = clamp(z, CFG.zoomMin, CFG.zoomMax);
+  const d = Math.hypot(x - cam.x, y - cam.y), screens = d * Math.min(cam.zoom, zz) / Math.max(cw, ch);
+  // far away: rise up mid-flight (zoom out until both ends fit), then come back down, instead of smearing the map past
+  const hop = screens > 1.5 ? Math.log(Math.min(cam.zoom, zz) / clamp(Math.max(cw, ch) * 0.9 / d, CFG.zoomMin, CFG.zoomMax)) : 0;
+  const span = Math.abs(Math.log(zz / cam.zoom)) + Math.min(screens, 3) + Math.max(0, hop);
+  cam.anim = { x0: cam.x, y0: cam.y, z0: cam.zoom, x1: x, y1: y, z1: zz, t: 0, hop: Math.max(0, hop), dur: dur || clamp(0.45 + span * 0.12, 0.45, 1.3) };
 }
 function stepCamAnim(dt) {
   const a = cam.anim;
   if (!a) return;
-  a.t = Math.min(1, a.t + dt / 0.7);
+  a.t = Math.min(1, a.t + dt / (a.dur || 0.7));
   const e = a.t < 0.5 ? 2 * a.t * a.t : 1 - (-2 * a.t + 2) ** 2 / 2;   // ease in-out
   cam.x = a.x0 + (a.x1 - a.x0) * e; cam.y = a.y0 + (a.y1 - a.y0) * e;
-  cam.zoom = a.z0 * Math.pow(a.z1 / a.z0, e);
+  cam.zoom = a.z0 * Math.pow(a.z1 / a.z0, e) * (a.hop ? Math.exp(-a.hop * Math.sin(Math.PI * e)) : 1);
   if (a.t >= 1) cam.anim = null;
 }
 function stopFollow() {
@@ -7149,13 +7277,115 @@ function setPct(p) {
 }
 
 let toastTimer = 0;
-function toast(msg) {
-  const el = $('toast');
-  el.textContent = msg; el.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+// Messages. A plain toast is a hint: one slot, the next hint replaces it. An alert (war, raids, a fallen
+// country) or a good-news event stacks under it, stays for a while, goes into the event log, and when it
+// says where it happened, a click on it (or Backspace) flies the camera there.
+//   toast('Not enough wood')                                   a hint
+//   toast('X sends 40 soldiers!', { alert: true, at: [x, y] })  an alert with a place
+//   toast('You conquered X!', { good: true, at: [x, y] })       good news
+const eventLog = [];                               // newest last: { msg, kind, at, time }
+let logUnseen = 0, logOpen = false;
+function toast(msg, opt) {
+  const box = $('toast');
+  if (!opt || !(opt.alert || opt.good)) {
+    let el = box.querySelector('.tmsg.hint');
+    if (!el) { el = document.createElement('div'); el.className = 'tmsg hint'; box.prepend(el); }
+    el.textContent = msg;
+    requestAnimationFrame(() => el.classList.add('show'));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+    return;
+  }
+  const kind = opt.alert ? 'alert' : 'good', at = opt.at || null;
+  eventLog.push({ msg, kind, at, time: game.time });
+  if (eventLog.length > 60) eventLog.shift();
+  if (!logOpen) logUnseen++;
+  renderLog();
+  const el = document.createElement('div');
+  el.className = `tmsg ${kind}`;
+  el.textContent = msg;
+  if (at) {
+    const go = document.createElement('span');
+    go.className = 'tgo'; go.textContent = TOUCH ? 'Go ›' : 'Go › ⌫';
+    el.appendChild(go);
+    el.addEventListener('click', () => { flyToSpot(at); el.classList.remove('show'); });
+  }
+  box.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  if (opt.sticky) el.classList.add('sticky');
+  const alerts = box.querySelectorAll('.tmsg.alert:not(.sticky), .tmsg.good');
+  for (let j = 0; j < alerts.length - 3; j++) alerts[j].remove();   // at most 3 stacked
+  if (!opt.sticky) setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, kind === 'alert' ? 9000 : 6000);
+}
+// fly the camera to a spot on the disk, close enough to see what's happening there
+function flyToSpot([x, y]) {
+  game.driving = null; stopFollow(); camRide = null;
+  if (mapStage) { savedView = null; mapStage = 0; }
+  flyCam(x, y, Math.max(cam.zoom, CFG.cityZoom * 1.6));
+}
+function goToLastAlert() {
+  for (let j = eventLog.length - 1; j >= 0; j--) if (eventLog[j].at && eventLog[j].kind === 'alert') return flyToSpot(eventLog[j].at);
+  for (let j = eventLog.length - 1; j >= 0; j--) if (eventLog[j].at) return flyToSpot(eventLog[j].at);
+  toast('Nothing has happened yet that you could fly to.');
+}
+// the event log: a button in the top bar with a count of new alerts, and a list that opens under it
+function renderLog() {
+  const list = $('loglist');
+  if (!list) return;
+  const hot = logUnseen > 0 && eventLog.slice(-logUnseen).some(e => e.kind === 'alert');
+  for (const btn of [$('logbtn'), document.querySelector('#tbar [data-act="log"]')]) {
+    if (!btn) continue;
+    btn.querySelector('.logn').textContent = logUnseen ? String(logUnseen) : '';
+    btn.classList.toggle('hot', hot);
+  }
+  if (!logOpen) return;
+  list.innerHTML = '';
+  if (!eventLog.length) { list.innerHTML = '<div class="lempty">Nothing yet. Wars, raids, conquests and lost countries show up here.</div>'; return; }
+  for (let j = eventLog.length - 1; j >= 0; j--) {
+    const e = eventLog[j], row = document.createElement('div');
+    row.className = `lrow ${e.kind}${e.at ? ' go' : ''}`;
+    row.innerHTML = `<span class="lt">${fmtTime(e.time)}</span><span class="lm"></span>${e.at ? '<span class="tgo">Go ›</span>' : ''}`;
+    row.querySelector('.lm').textContent = e.msg;
+    if (e.at) row.addEventListener('click', () => flyToSpot(e.at));
+    list.appendChild(row);
+  }
+}
+function toggleLog(on = !logOpen) {
+  logOpen = on; logUnseen = 0;
+  $('loglist').classList.toggle('show', on);
+  renderLog();
+}
+// a bug shouldn't freeze the game without a word: say so once, keep running, and log the details
+let errShown = false;
+function reportError(err) {
+  console.error(err);
+  if (errShown) return;
+  errShown = true;
+  const el = document.createElement('div');
+  el.id = 'errbar';
+  el.textContent = `Something went wrong (${(err && err.message) || err}). The game keeps running; reload the page if it misbehaves. Click to hide.`;
+  el.addEventListener('click', () => el.remove());
+  document.body.appendChild(el);
 }
 
+// The resource numbers roll toward their new value instead of jumping, and the whole cell gives a little
+// bump when a lump arrives (a shipment, a harvest) or flashes red when you spend.
+const hudShown = {};
+function shownRes(C, r) {
+  const v = C.res[r] || 0, prev = hudShown['p' + r];
+  if (hudShown['c' + r] !== C.id) { hudShown['c' + r] = C.id; hudShown[r] = v; hudShown['p' + r] = v; return v; }   // another country: no roll
+  const d = v - prev, steady = Math.abs(C.rates[r] || 0) * 0.1;
+  const cell = $('val-' + r) && $('val-' + r).closest('.res');
+  if (cell && cell.animate) {
+    if (d > Math.max(6, steady * 3 + 4)) cell.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.07)', filter: 'brightness(1.5)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'ease-out' });
+    else if (d < -Math.max(3, steady * 3 + 2)) $('val-' + r).animate([{ color: '#ff7a6b' }, { color: '#eef2f8' }], { duration: 600, easing: 'ease-out' });
+  }
+  hudShown['p' + r] = v;
+  let sh = hudShown[r] + (v - hudShown[r]) * 0.45;
+  if (Math.abs(v - sh) < 1) sh = v;
+  hudShown[r] = sh;
+  return sh;
+}
 function updateHud() {
   const C = activeCountry();
   if (!C) return;                                  // game over: nothing left to show
@@ -7165,7 +7395,7 @@ function updateHud() {
   const inc = incomingTo(C);
   const fromTxt = [...inc.bySrc].map(([s, n]) => `${s.short} (${fmtNum(n)})`).join(', ');
   for (const r of ['wood', 'stone', 'iron']) {
-    $('val-' + r).innerHTML = fmtNum(C.res[r]) + (inc[r] >= 1 ? `<span class="incoming" title="On its way by ship or train${fromTxt ? ' from ' + fromTxt : ''}">+${fmtNum(inc[r])}</span>`
+    $('val-' + r).innerHTML = fmtNum(shownRes(C, r)) + (inc[r] >= 1 ? `<span class="incoming" title="On its way by ship or train${fromTxt ? ' from ' + fromTxt : ''}">+${fmtNum(inc[r])}</span>`
       : askOf(C, r) >= 1 ? `<span class="incoming" style="color:var(--bad)" title="${C.short} asked your empire for ${Math.ceil(askOf(C, r))} ${r}: ships and trains bring it as soon as a country can spare it">asked</span>` : '');
     {                                               // every store has a ceiling: show it, and how full it is
       $('val-' + r).style.whiteSpace = 'nowrap';
@@ -7722,12 +7952,17 @@ function start() {
   const step = 1 / CFG.tickHz;
   let last = performance.now(), acc = 0, hudT = 0;
   function frame(now) {
+    // ask for the next frame first: a bug in one frame must never stop the game for good
+    requestAnimationFrame(frame);
+    try { frameBody(now); } catch (err) { reportError(err); }
+  }
+  function frameBody(now) {
     const dt = Math.min(0.25, (now - last) / 1000);
     last = now;
     acc += dt;
     // catch up at most 3 steps a frame: a slow phone that can't keep up runs the game a little slower,
     // instead of piling up more and more steps each frame until it freezes
-    for (let n = 0; acc >= step && n < 3; n++) { tick(step); acc -= step; }
+    for (let n = 0; acc >= step && n < 3; n++) { acc -= step; tick(step); }
     if (acc > step) acc = step;
     // The sim steps 20 times a second, the screen 60+. Draw the world `lead` seconds past the last step
     // (game.time moved forward just for the drawing), so the sun, moon, planets, trucks and trains glide
@@ -7737,13 +7972,13 @@ function start() {
     try {
       panKeys(dt);
       stepCamAnim(dt);
+      stepZoom(dt);
       applyFollow();
       render();
     } finally { game.time = simTime; lead = 0; }
     hudT += dt;
     // touch buttons first: they read the layout, which is only clean before the HUD writes into the page
     if (hudT > 0.1) { if (TOUCH) updateTouchButtons(); updateHud(); updateInspect(); hudT = 0; }
-    requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 }

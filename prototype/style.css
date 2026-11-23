@@ -194,13 +194,49 @@ canvas#game.building { cursor: copy; }
 #inspect .ibtn:hover { background: rgba(242, 193, 78, 0.26); }
 #inspect .ibtn:disabled { border-color: var(--line); background: transparent; color: var(--dim); cursor: default; }
 
+/* messages: a hint slot on top, alerts and good news stacked under it (click one to fly there) */
 #toast {
-  position: fixed; left: 50%; top: 74px; transform: translateX(-50%); z-index: 6;
-  background: rgba(20, 26, 37, 0.95); border: 1px solid var(--accent); color: var(--text);
-  padding: 7px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
-  opacity: 0; transition: opacity 0.25s; pointer-events: none;
+  position: fixed; left: 50%; top: 74px; transform: translateX(-50%); z-index: 9;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none;
+  width: max-content; max-width: calc(100vw - 24px);
 }
-#toast.show { opacity: 1; }
+.tmsg {
+  background: rgba(20, 26, 37, 0.95); border: 1px solid var(--accent); color: var(--text);
+  padding: 7px 16px; border-radius: 9px; font-size: 13px; font-weight: 600; text-align: center;
+  opacity: 0; transform: translateY(-8px) scale(0.97); transition: opacity 0.25s, transform 0.3s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.tmsg.show { opacity: 1; transform: none; }
+.tmsg.hint:not(.show) { position: absolute; }    /* a faded hint takes no room from the alerts under it */
+.tmsg.alert { border-color: var(--bad); background: rgba(58, 20, 22, 0.96); pointer-events: auto; cursor: pointer; }
+.tmsg.good { border-color: var(--good); background: rgba(18, 44, 28, 0.96); pointer-events: auto; cursor: pointer; }
+.tmsg.alert:hover, .tmsg.good:hover { filter: brightness(1.15); }
+.tgo { margin-left: 10px; color: var(--accent); font-weight: 800; white-space: nowrap; }
+
+#logbtn {
+  position: fixed; right: 14px; top: 70px; z-index: 5; padding: 6px 12px; border-radius: 9px; cursor: pointer;
+  background: rgba(20, 26, 37, 0.94); border: 1px solid #3a4560; color: var(--dim); font: 700 12px inherit; font-family: inherit;
+}
+#logbtn:hover { color: var(--text); border-color: var(--accent); }
+#logbtn.hot, #tbar button.hot { color: var(--bad); border-color: var(--bad); }
+.logn:not(:empty) { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 11px; line-height: 17px; text-align: center; }
+#loglist {
+  position: fixed; right: 14px; top: 106px; width: 360px; max-width: calc(100vw - 24px); max-height: 50vh; overflow-y: auto;
+  z-index: 9; padding: 6px; display: none; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+#loglist.show { display: block; }
+.lrow { display: flex; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 7px; font-size: 12.5px; line-height: 1.35; }
+.lrow.go { cursor: pointer; }
+.lrow.go:hover { background: var(--panel-hi); }
+.lrow.alert .lm { color: #ffb8ae; }
+.lrow.good .lm { color: var(--good); }
+.lt { flex: none; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.lm { flex: 1; }
+.lempty { color: var(--dim); font-size: 12px; padding: 8px; }
+#errbar {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 40; max-width: min(560px, 90vw);
+  background: rgba(58, 20, 22, 0.97); border: 1px solid var(--bad); color: var(--text); border-radius: 10px;
+  padding: 12px 16px; font-size: 13px; font-weight: 600; line-height: 1.45; cursor: pointer; text-align: center;
+}
 
 /* narrower screens: the build bar grows with unlocks, so the controls panel gives way first */
 @media (max-width: 1560px) { #help { display: none; } }
@@ -220,6 +256,8 @@ canvas#game.building { cursor: copy; }
 #tbar button.on, #dpad button.on { background: var(--panel-hi); border-color: var(--accent); }
 #tbar button[hidden] { display: none; }
 @media (pointer: coarse) {
+  #logbtn { display: none; }
+  #loglist { top: calc(var(--top-h, 58px) + 48px); }
   #tbar { display: flex; gap: 6px; position: fixed; top: 66px; left: 50%; transform: translateX(-50%); z-index: 9; }   /* above the build menu, so Build and Cancel still close it */
   #buildmenu { top: 116px; transform: translateX(-50%); max-height: calc(100% - 140px); }
   #toast { top: 116px; }
