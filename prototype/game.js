@@ -56,7 +56,17 @@ const CFG = {
   // with, an ice colony `iceCrew` (ice is costly to claim and holds almost nobody). Trains and ships bring people
   // from countries with more than their crew to the ones short of theirs, hop by hop like goods. A crew never
   // dies off for lack of housing: only people above both housing and crew do.
-             crew: 40, iceCrew: 100 },
+             crew: 40, iceCrew: 100,
+  // Demand. A build that fails for lack of goods asks the empire for them (`ask` = one build's worth per try, fading
+  // with time constant `askTau` s); what a country spends on building it wants back (`used`, fading over `usedTau` s),
+  // so a colony that is building a lot keeps getting stocked. For goods someone asks for (or is busy spending),
+  // the others give down to their `floor` (base + their own asks, busy spending and rockets), not just their surplus.
+             askTau: 150, usedTau: 90, busyMin: 40 },   // busy = spent at least busyMin of it lately (a building spree)
+  // Freighters: every port has one. Every `every` s the idle ones look over the whole empire and sail straight to the
+  // port of the country that needs goods most (asked-for goods count `urgent` x, nearer ports win), carrying up to
+  // `cargo` goods of what this country can spare; shipments under `min` goods wait unless asked for. On the way back
+  // they bring whatever home is short of.
+  freight: { cargo: 50, every: 1.5, min: 10, urgent: 4 },
 
   // people regrowth:  growth/sec = rate * P * (1 - P/C) + base
   growthRate: 0.06, growthBase: 0.3,
@@ -125,19 +135,19 @@ const CFG = {
     // space: ice drills turn polar ice into rocket fuel, launch pads store it (and, next, launch rockets)
     drill:   { cat: 'Space', name: 'Ice drill', cap: 0, unlock: 800, cost: { stone: 20, iron: 25 }, use: 6, fuel: 0.5,
                desc: 'Only on polar ice. Drills ice and splits it into rocket fuel: 0.5 fuel/s on full power, and it draws 6 MW. A pipe lays itself to your nearest launch pad in the same country; with no pad, it waits.' },
-    pad:     { cat: 'Space', name: 'Launch pad', cap: 0, unlock: 800, cost: { stone: 80, iron: 60 }, tank: 500,
-               desc: 'Holds 500 rocket fuel, piped in by your ice drills in the same country, and builds rockets by itself: 150 iron each, taken as you have it, then fuelled as fast as your ice drills make fuel (0.5/s for each drill). Click a pad to pause or resume it.' },
+    pad:     { cat: 'Space', name: 'Launch pad', cap: 0, unlock: 800, cost: { stone: 80, iron: 60 },
+               desc: 'Builds rockets by itself: 150 iron each, taken as you have it. Then your ice drills in the same country pump fuel straight into the rocket, 0.5/s for each drill, so more drills fuel it faster. Click a pad to pause or resume it.' },
   },
   // Rockets: a launch pad assembles one by itself, taking `iron` a little at a time (`ironRate` a second, never
-  // below `ironReserve`, so your mortars keep firing), then fills its `tank` from the pads' fuel tanks as fast as the
-  // country's ice drills make fuel (drill.fuel a second each, shared by the pads fuelling at once).
+  // below `ironReserve`, so your mortars keep firing), then the country's ice drills pump fuel straight into its `tank`:
+  // drill.fuel a second each on full power, shared by the pads fuelling at once. With no rocket to fuel, the drills wait.
   rocket: { iron: 150, ironRate: 1.5, ironReserve: 20, tank: 400,
     // Flight, in tiles and seconds. Gravity pulls toward the middle of the disk: mu / r^2 beyond the rim, and weaker
     // toward the middle inside it (as inside a solid ball). A circular orbit just above the air takes about 100 s.
     // The air: full thickness over the disk, thinning out over `atm` tiles past the rim (scale height `scaleH`), none beyond.
     // Drag = drag x air x speed^2 / mass. The rocket: `dry` mass empty plus `wet` mass of fuel when the tank is full;
     // the engine pushes with `thrust` and throws fuel out at `ve` (so a full tank is worth ve x ln(4) = 125 tiles/s of speed; a good gravity turn reaches orbit with about 13% to spare).
-    // W/S open and close the throttle at `throttleRate` per second; A/D turn at `turn` radians a second.
+    // Space turns the engine on and off; E/Q (or W/S) set the throttle at `throttleRate` per second; A/D turn at `turn` radians a second.
     flight: { mu: 1.08e6, atm: 120, scaleH: 35, drag: 0.008, dry: 1, wet: 3, ve: 90, thrust: 24, turn: 1.8, throttleRate: 0.8, lost: 40 } },
   power: { burnerWood: 0.25, rigMult: 3 },
   // AI nations (v1: static). Taking a tile of theirs costs extra people: defenseBase + defensePerDensity x (their people per tile)
@@ -660,6 +670,7 @@ const game = {
   time: 0, landTiles: 0, ownedCount: 0,
   ownedDep: { forest: 0, stone: 0, iron: 0 },
   buildings: [], stations: [], ports: [], links: [],
+  freight: [],                     // freighters out from a port: { freight, kind: 'sea', home, dest, path, t, dir, cargo, to }
   pushes: [], expeditions: [], floats: [],
   routes: [],                      // the way each colony's truck or boat came: { kind, home, colony, path } (see routePlan)
   bridges: [],                     // { s, b, tiles, len }: from shore tile s over the water `tiles` to land tile b
@@ -1515,9 +1526,11 @@ const rocketState = b => !b.rocket ? 'none' : b.rocket.iron < CFG.rocket.iron ? 
 function stepRockets(c, dt) {
   const R = CFG.rocket;
   let ironUse = 0, fuelUse = 0;
-  // the rockets being fuelled share what the drills make: more ice drills, faster fuelling
+  // the ice drills pump straight into the rockets being fuelled, as fast as their power lets them: more drills,
+  // faster fuelling. Several rockets fuelling at once share it. No rocket to fuel: the drills wait.
   const fuelling = c.pw.padList.filter(b => !b.paused && b.rocket && b.rocket.iron >= R.iron && b.rocket.fuel < R.tank).length;
-  const perPad = fuelling ? c.pw.drills * CFG.buildings.drill.fuel / fuelling : 0;
+  const pumping = fuelling ? c.pw.drills * CFG.buildings.drill.fuel * (c.sat ?? 1) : 0;
+  const perPad = fuelling ? pumping / fuelling : 0;
   for (const b of c.pw.padList) {
     b.useIron = 0; b.useFuel = 0;                  // what it's taking right now, for its card
     if (b.paused) continue;
@@ -1527,28 +1540,39 @@ function stepRockets(c, dt) {
       const take = Math.max(0, Math.min(R.ironRate * dt, R.iron - k.iron, c.res.iron - R.ironReserve));
       c.res.iron -= take; k.iron += take; ironUse += take; b.useIron = dt > 0 ? take / dt : 0;
       if (k.iron >= R.iron - 1e-6) { k.iron = R.iron; floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, 'Rocket built: fuelling', '#f2c14e'); }
-    } else if (k.fuel < R.tank) {                  // built: fill it from the pads' tanks
-      const take = Math.max(0, Math.min(perPad * dt, R.tank - k.fuel, c.res.fuel));
-      c.res.fuel -= take; k.fuel += take; fuelUse += take; b.useFuel = dt > 0 ? take / dt : 0;
+    } else if (k.fuel < R.tank) {                  // built: the drills fill it
+      const take = Math.max(0, Math.min(perPad * dt, R.tank - k.fuel));
+      k.fuel += take; fuelUse += take; b.useFuel = dt > 0 ? take / dt : 0;
       if (k.fuel >= R.tank - 1e-6) { k.fuel = R.tank; floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, 'Rocket ready', '#f2c14e'); }
     }
   }
-  if (dt > 0) { c.rates.iron -= ironUse / dt; c.rates.fuel -= fuelUse / dt; }   // the top bar shows what is left after the rockets
+  if (dt > 0) c.rates.iron -= ironUse / dt;       // the top bar shows what is left after the rockets
+  // the top bar's FUEL: what's in the rockets on the pads, out of what they hold, and how fast it's going in
+  c.store.fuel = c.pw.pads * R.tank;
+  c.res.fuel = c.pw.padList.reduce((a, b) => a + (b.rocket ? b.rocket.fuel : 0), 0);
+  c.rates.fuel = dt > 0 ? fuelUse / dt : 0;
+  c.fuelFlow = fuelUse > 0;                        // fuel moving in the pipes right now (the drills pound, the pipes flow)
 }
 // ---------- rocket flight: real thrust, mass, gravity and air ----------
 // Launch from a ready pad. The rocket starts pointing straight out from the middle of the world, and lifts off
 // once the engine pushes harder than gravity pulls. Coming back down inside the rim, falling, is a crash.
 function launchRocket(b) {
   const x = b.i % W + 0.5, y = ((b.i / W) | 0) + 0.5;
-  const f = { x, y, vx: 0, vy: 0, a: Math.atan2(y - DISK.cy, x - DISK.cx), fuel: b.rocket.fuel, throttle: 0,
+  const f = { x, y, vx: 0, vy: 0, a: Math.atan2(y - DISK.cy, x - DISK.cx), fuel: b.rocket.fuel, throttle: 1, engine: false,
     landed: true, left: false, orbit: false, t: 0, trail: [[x, y]], n: ++rocketCount };
   b.rocket = null;
   game.flights.push(f);
   takeRocket(f);
-  toast(say('Rocket on the pad. W / S: throttle up and down · A / D: turn · Shift: full · Space: cut the engine · Esc: let go',
-    'Rocket on the pad. Hold ▲ to open the throttle, ▼ to close it, ◀ ▶ to turn. Cut engine stops it; Let go leaves it flying.'));
+  toast(say('Rocket on the pad. Space: engine on / off · E / Q: throttle up / down · A / D: turn · Esc: let go',
+    'Rocket on the pad. Engine on starts it, ▲ ▼ set the throttle, ◀ ▶ turn. Let go leaves it flying.'));
 }
 let rocketCount = 0;
+// Space (or the Engine button): light the engine at the throttle setting, or cut it
+function toggleEngine(f) {
+  f.engine = !f.engine;
+  if (f.engine && f.throttle < 0.05) f.throttle = 1;   // lit with the throttle closed: open it, or nothing happens
+  if (f.engine && f.fuel <= 0) toast('No fuel left: the engine has nothing to burn');
+}
 function takeRocket(f) {
   stopFollow(); cam.anim = null;
   game.driving = null; game.flying = f;
@@ -1576,13 +1600,13 @@ function stepFlight(f, dt) {
   const F = CFG.rocket.flight, on = game.flying === f && !menuOpen;
   const key = (...ks) => on && ks.some(k => keys.has(k));
   if (key('shift')) f.throttle = 1;
-  if (key('w', 'arrowup')) f.throttle = Math.min(1, f.throttle + F.throttleRate * dt);
-  if (key('s', 'arrowdown')) f.throttle = Math.max(0, f.throttle - F.throttleRate * dt);
+  if (key('e', 'w', 'arrowup')) f.throttle = Math.min(1, f.throttle + F.throttleRate * dt);
+  if (key('q', 's', 'arrowdown')) f.throttle = Math.max(0, f.throttle - F.throttleRate * dt);
   f.a += ((key('d', 'arrowright') ? 1 : 0) - (key('a', 'arrowleft') ? 1 : 0)) * F.turn * dt;
   const n = Math.max(1, Math.ceil(dt / 0.02)), h = dt / n, tank = CFG.rocket.tank;
   for (let k = 0; k < n && !f.done; k++) {
     const m = rocketMass(f);
-    let thrust = f.fuel > 0 ? F.thrust * f.throttle : 0;
+    let thrust = f.fuel > 0 && f.engine ? F.thrust * f.throttle : 0;
     const burn = thrust / F.ve / F.wet * tank * h;             // fuel thrown out: mass flow = thrust / exhaust speed
     if (burn > f.fuel) { thrust *= f.fuel / burn; f.fuel = 0; } else f.fuel -= burn;
     f.burning = thrust > 0;
@@ -1734,13 +1758,14 @@ function flightHud() {
   const st = flightStatus(f), stCol = f.orbit ? '#7be08a' : st === 'Falling back' ? '#ff7a6b' : '#f2c14e';
   const air = airAt(r);
   el.innerHTML = `<div style="font-size:13px;letter-spacing:0.04em">ROCKET ${f.n} · <span style="color:${stCol}">${st.toUpperCase()}</span></div>
-    <div style="opacity:0.7;margin-top:4px">THROTTLE ${Math.round(f.throttle * 100)}%</div>${bar(f.throttle, '#ff9a3c')}
+    <div style="margin-top:4px">ENGINE <b style="color:${f.engine ? (f.fuel > 0 ? '#ff9a3c' : '#ff7a6b') : '#97a3b6'}">${f.engine ? (f.fuel > 0 ? 'ON' : 'ON · NO FUEL') : 'OFF'}</b></div>
+    <div style="opacity:0.7;margin-top:2px">THROTTLE ${Math.round(f.throttle * 100)}%${f.engine ? '' : ' (when on)'}</div>${bar(f.throttle, f.engine ? '#ff9a3c' : 'rgba(255,154,60,0.35)')}
     <div style="opacity:0.7">FUEL ${Math.round(f.fuel)} / ${CFG.rocket.tank}</div>${bar(f.fuel / CFG.rocket.tank, '#5fc4f0')}
     <div>Speed <b>${Math.hypot(f.vx, f.vy).toFixed(1)}</b> tiles/s</div>
     <div>Height <b>${r < DISK.R ? 'over the disk' : alt(r) + ' tiles'}</b>${air > 0.001 ? ` · air ${Math.round(air * 100)}%` : ' · no air'}</div>
     <div>Apoapsis <b>${o.escape ? 'none: escaping' : alt(o.ap)}</b></div>
     <div>Periapsis <b style="color:${o.pe > DISK.R + F.atm ? '#7be08a' : '#ff9a8a'}">${o.pe < DISK.R ? 'under the rim' : alt(o.pe)}</b></div>
-    <div style="opacity:0.6;font-size:11px;margin-top:6px">Orbit = periapsis above ${F.atm} (out of the air)<br>${TOUCH ? '▲ ▼ throttle · ◀ ▶ turn · Drive takes it back' : 'W/S throttle · A/D turn · Shift full · Space cut · Esc let go · X take back'}</div>`;
+    <div style="opacity:0.6;font-size:11px;margin-top:6px">Orbit = periapsis above ${F.atm} (out of the air)<br>${TOUCH ? 'Engine on / off · ▲ ▼ throttle · ◀ ▶ turn · Drive takes it back' : 'Space engine on / off · E / Q throttle up / down · A / D turn · Shift full throttle · Esc let go · X or click it to take it back'}</div>`;
 }
 function padClick(b) {
   if (rocketState(b) === 'ready') launchRocket(b); else togglePad(b);
@@ -1763,6 +1788,12 @@ function drawRockets(z, x0, y0, x1, y1) {
     const f = st === 'building' ? b.rocket.iron / R.iron : b.rocket.fuel / R.tank;
     ctx.fillStyle = 'rgba(20,26,37,0.85)'; ctx.fillRect(sx - w / 2 - 1, sy - 1, w + 2, h + 2);
     ctx.fillStyle = b.paused ? '#8a9198' : st === 'building' ? '#bd7b56' : '#5fc4f0'; ctx.fillRect(sx - w / 2, sy, w * f, h);
+    if (z >= CFG.cityZoom) {                       // say what the bar is: the rocket being built, or its fuel going in
+      ctx.font = `700 ${Math.round(clamp(z * 0.42, 9, 13))}px 'Segoe UI', Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      const txt = b.paused ? 'Paused' : `${st === 'building' ? 'Building' : 'Fuel'} ${Math.floor(f * 100)}%`;
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(4,6,12,0.85)'; ctx.strokeText(txt, sx, sy + h + 3);
+      ctx.fillStyle = b.paused ? '#c4cad2' : st === 'building' ? '#e8a77f' : '#8fd8ff'; ctx.fillText(txt, sx, sy + h + 3);
+    }
   }
 }
 
@@ -2084,13 +2115,47 @@ const isRocketCountry = C => C.geo.ice > 0 || C.pw.drills > 0 || C.pw.pads > 0;
 const crewOf = C => C.pw.workers + (isRocketCountry(C) ? CFG.supply.iceCrew : CFG.supply.crew);
 // what a country wants in stock: enough to keep building, a reserve once it's established, and for an
 // ice colony the stone and iron for drills, a launch pad and rockets. Never more than it can store.
+// On top of that: what it asked for and couldn't build, what it has been spending on buildings lately, and the iron
+// its launch pads still need for the rockets they're assembling.
 function supplyWish(C) {
   const S = CFG.supply, w = { people: crewOf(C) };
   for (const r of CARGO_RES) {
-    const store = C.store ? C.store[r] : CFG.storage[r].base;
-    w[r] = Math.min(store, Math.max(S.base[r], store * S.keep) + (isRocketCountry(C) ? S.ice[r] : 0));
+    const store = storeOf(C, r);
+    w[r] = Math.min(store, Math.max(S.base[r], store * S.keep) + (isRocketCountry(C) ? S.ice[r] : 0) + demandOf(C, r));
   }
   return w;
+}
+const storeOf = (C, r) => C.store ? C.store[r] : CFG.storage[r].base;
+const askOf = (C, r) => (C.ask ? C.ask[r] : 0);
+const usedOf = (C, r) => (C.used ? C.used[r] : 0);
+function padIronNeed(C) {
+  let n = 0;
+  for (const b of C.pw.padList || []) if (!b.paused) n += Math.max(0, CFG.rocket.iron - (b.rocket ? b.rocket.iron : 0));
+  return n;
+}
+const demandOf = (C, r) => askOf(C, r) + usedOf(C, r) + (r === 'iron' ? padIronNeed(C) : 0);
+// is a country pressing for this resource: it asked for it, or it's busy building with it?
+const pressing = (C, r) => askOf(C, r) >= 1 || usedOf(C, r) >= CFG.supply.busyMin;
+// the least a country keeps when another one is pressing for something: its base stock plus its own demand
+const floorOf = (C, r) => Math.min(storeOf(C, r), CFG.supply.base[r] + demandOf(C, r));
+// what a country can give away: above its wish list, or (to someone pressing for it) above its floor
+const spareOf = (C, r, press) => Math.max(0, C.res[r] - (press ? floorOf(C, r) : supplyWish(C)[r]));
+// spending on buildings: it wants that much back in stock, and it no longer needs what it had asked for
+function noteSpend(C, cost) {
+  if (!C.used) C.used = { wood: 0, stone: 0, iron: 0 };
+  if (!C.ask) C.ask = { wood: 0, stone: 0, iron: 0 };
+  for (const r of CARGO_RES) if (cost[r] > 0) { C.used[r] = Math.min(storeOf(C, r), C.used[r] + cost[r]); C.ask[r] = Math.max(0, C.ask[r] - cost[r]); }
+}
+// asks and busy spending fade away when nothing renews them
+function stepDemand(dt) {
+  const S = CFG.supply, ka = Math.exp(-dt / S.askTau), ku = Math.exp(-dt / S.usedTau);
+  for (const C of game.countries) {
+    if (!C.alive) continue;
+    for (const r of CARGO_RES) {
+      if (C.ask) C.ask[r] = C.ask[r] * ka < 0.5 ? 0 : C.ask[r] * ka;
+      if (C.used) C.used[r] = C.used[r] * ku < 0.5 ? 0 : C.used[r] * ku;
+    }
+  }
 }
 // what the countries reached through `dst` (never back through `src`) still want, after counting what they
 // hold above their own wish lists and what's already on its way to them
@@ -2100,14 +2165,15 @@ function needBeyond(src, dst) {
     const A = countryAt(L.a), B = countryAt(L.b);
     if (A && B && A !== B) { link(A, B); link(B, A); }
   }
-  const seen = new Set([src, dst]), q = [dst], need = { wood: 0, stone: 0, iron: 0, people: 0 };
+  const seen = new Set([src, dst]), q = [dst], need = { wood: 0, stone: 0, iron: 0, people: 0 }, press = {};
   for (let h = 0; h < q.length; h++) {
     const C = q[h], w = supplyWish(C), inc = incomingTo(C);
-    for (const r of CARGO_RES) need[r] += w[r] - C.res[r] - inc[r];
+    for (const r of CARGO_RES) { need[r] += w[r] - C.res[r] - inc[r]; if (pressing(C, r)) press[r] = true; }
     need.people += w.people - C.people - inc.people;   // a country with more than its crew passes the rest on
     for (const n of adj.get(C) || []) if (!seen.has(n)) { seen.add(n); q.push(n); }
   }
   for (const r in need) need[r] = Math.max(0, need[r]);
+  need.press = press;                              // goods someone down the line is pressing for
   return need;
 }
 function loadAt(L, src, dst) {
@@ -2116,7 +2182,7 @@ function loadAt(L, src, dst) {
   const V = CFG.vehicles[L.kind], cargo = { wood: 0, stone: 0, iron: 0, people: 0, from: src.id };
   const wish = supplyWish(src), need = needBeyond(src, dst), want = {};
   let total = 0;
-  for (const r of CARGO_RES) { want[r] = Math.max(0, Math.min(need[r], src.res[r] - wish[r])); total += want[r]; }
+  for (const r of CARGO_RES) { want[r] = Math.min(need[r], spareOf(src, r, need.press[r])); total += want[r]; }
   const k = total > V.cargo ? V.cargo / total : 1; // a full load is split across what's wanted
   for (const r of CARGO_RES) { cargo[r] = Math.floor(want[r] * k); src.res[r] -= cargo[r]; }
   // people: first to the countries down the line short of their crew, out of what this one has above its own crew
@@ -2132,13 +2198,136 @@ function loadAt(L, src, dst) {
 // goods (and people) on their way to a country right now, and from where (bySrc: country -> amount of goods)
 function incomingTo(C) {
   const inc = { wood: 0, stone: 0, iron: 0, people: 0, bySrc: new Map() };
-  for (const L of game.links) {
+  for (const list of [game.links, game.freight]) for (const L of list) {
     if (!L.cargo || liveCountry(L.to) !== C) continue;
     for (const r of ['wood', 'stone', 'iron', 'people']) inc[r] += L.cargo[r];
     const from = liveCountry(L.cargo.from ?? -1), goods = L.cargo.wood + L.cargo.stone + L.cargo.iron;
     if (from && goods) inc.bySrc.set(from, (inc.bySrc.get(from) || 0) + goods);
   }
   return inc;
+}
+
+// ---------- freighters: any port ships to any other, wherever the need is ----------
+// Each port has one freighter. An idle one looks over every country with a port, scores what it could bring each
+// (goods that country is short of and this one can spare; asked-for goods count CFG.freight.urgent times; nearer
+// is better) and sails straight there. It unloads, takes back whatever home is short of, and comes home to wait.
+let freightTimer = 0;
+const seaRoutes = new Map();                       // "a>b" -> sea path from port a to port b, or null (the sea never changes)
+function freightPath(a, b) {
+  const key = a + '>' + b;
+  if (!seaRoutes.has(key)) { const r = seaPath(a, [b]); seaRoutes.set(key, r ? r.path : null); }
+  return seaRoutes.get(key);
+}
+// what T is short of right now: its wish list less what it holds and what's on its way
+function shortOf(T) {
+  const w = supplyWish(T), inc = incomingTo(T), s = {};
+  for (const r of CARGO_RES) s[r] = Math.max(0, w[r] - T.res[r] - inc[r]);
+  return s;
+}
+// load a freighter at S for T: the goods T is pressing for first (sharing the hold between them), then the rest of
+// T's shortfall in whatever room is left
+function freightLoad(S, T, short) {
+  const cargo = { wood: 0, stone: 0, iron: 0, people: 0, from: S.id };
+  let room = CFG.freight.cargo;
+  for (const press of [true, false]) {
+    const rs = CARGO_RES.filter(r => pressing(T, r) === press), want = {};
+    let total = 0;
+    for (const r of rs) { want[r] = Math.max(0, Math.min(short[r], spareOf(S, r, press))); total += want[r]; }
+    const k = total > room ? room / total : 1;
+    for (const r of rs) { cargo[r] = Math.floor(want[r] * k); room -= cargo[r]; }
+  }
+  for (const r of CARGO_RES) S.res[r] -= cargo[r];
+  return cargo.wood + cargo.stone + cargo.iron > 0 ? cargo : null;
+}
+// how much an idle port in S could do for T, or 0 when it isn't worth a trip
+function freightScore(S, T, short) {
+  const F = CFG.freight;
+  let goods = 0, score = 0, urgent = false;
+  for (const r of CARGO_RES) {
+    const press = pressing(T, r), g = Math.min(short[r], spareOf(S, r, press), F.cargo);
+    goods += g; score += g * (press ? F.urgent : 1);
+    if (press && g >= 1) urgent = true;
+  }
+  return goods >= F.min || urgent ? score : 0;
+}
+function dispatchFreight() {
+  const out = new Set(game.freight.map(F => F.home)), byCountry = new Map(), sent = [];
+  for (const p of game.ports) {
+    const C = countryAt(p);
+    if (C && building[p] === BLD_CODE.port) { if (!byCountry.has(C)) byCountry.set(C, []); byCountry.get(C).push(p); }
+  }
+  if (byCountry.size < 2) return sent;
+  for (const [S, ports] of byCountry) for (const p of ports) {
+    if (out.has(p)) continue;
+    const px = p % W, py = (p / W) | 0, picks = [];
+    for (const [T, tps] of byCountry) {
+      if (T === S) continue;
+      const short = shortOf(T), score = freightScore(S, T, short);
+      if (score <= 0) continue;
+      const near = tps.map(q => [q, Math.hypot(q % W - px, ((q / W) | 0) - py)]).sort((a, b) => a[1] - b[1]);
+      picks.push({ T, short, ports: near, score: score / (near[0][1] + 40) });
+    }
+    picks.sort((a, b) => b.score - a.score);
+    for (const pk of picks) {
+      const dest = pk.ports.map(([q]) => q).find(q => freightPath(p, q));
+      if (dest === undefined) continue;            // no water between them
+      const cargo = freightLoad(S, pk.T, pk.short);
+      if (!cargo) break;
+      const F = { freight: true, kind: 'sea', home: p, dest, path: freightPath(p, dest), t: 0, dir: 1, cargo, to: pk.T.id };
+      game.freight.push(F); out.add(p); sent.push(F);
+      break;
+    }
+  }
+  return sent;
+}
+function stepFreight(dt) {
+  for (const F of game.freight) {
+    F.t += CFG.shipSpeed * dt * F.dir;
+    const end = F.path.length - 1;
+    if (F.dir > 0 && F.t >= end) {                 // arrived: unload, take back what home is short of, turn round
+      F.t = end; F.dir = -1;
+      const T = building[F.dest] === BLD_CODE.port ? countryAt(F.dest) : null, home = countryAt(F.home);
+      if (T && F.cargo) {
+        const [x, y] = tileCenter(F.dest), from = liveCountry(F.cargo.from);
+        floatText(x, y - 1, `+${listRes(F.cargo, CARGO_RES)}${from && from !== T ? ' from ' + from.short : ''}`, '#7bd389');
+        unloadAt(F, T);
+      }
+      if (T && home && home !== T && !F.cargo) F.cargo = freightLoad(T, home, shortOf(home));
+      if (F.cargo) F.to = (home || liveCountry(F.cargo.from) || { id: -1 }).id;   // cargo still aboard (port gone): it goes home
+    } else if (F.dir < 0 && F.t <= 0) {            // home: unload whatever it carries and wait for the next job
+      F.t = 0; F.done = true;
+      const home = countryAt(F.home) || liveCountry(F.to);
+      if (home && F.cargo) unloadAt(F, home);
+    }
+  }
+  if (game.freight.some(F => F.done)) game.freight = game.freight.filter(F => !F.done);
+}
+// A build failed for lack of goods: ask the empire for them, send what can be sent now, and say what's coming.
+function askFor(C, cost) {
+  const short = Object.entries(cost).filter(([r, n]) => C.res[r] < n);
+  const goods = short.filter(([r]) => CARGO_RES.includes(r));
+  if (!goods.length) return toast(`${C.short} doesn't have enough ${short.length ? short[0][0] : 'resources'}`);
+  if (!C.ask) C.ask = { wood: 0, stone: 0, iron: 0 };
+  for (const [r, n] of goods) C.ask[r] = Math.min(storeOf(C, r), C.ask[r] + n);
+  dispatchFreight();
+  const what = goods.map(([r, n]) => `${Math.ceil(n - C.res[r])} ${r}`).join(' and ');
+  // what's on its way to C with any of those goods, and the soonest arrival
+  const from = new Set();
+  let soon = Infinity, any = false;
+  for (const list of [game.links, game.freight]) for (const L of list) {
+    if (!L.cargo || liveCountry(L.to) !== C || !goods.some(([r]) => L.cargo[r] >= 1)) continue;
+    any = true;
+    const f = liveCountry(L.cargo.from); if (f) from.add(f.short);
+    const end = L.dir > 0 ? L.path.length - 1 : 0;
+    soon = Math.min(soon, Math.abs(end - L.t) / (L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed));
+  }
+  const mine = game.ports.filter(p => countryAt(p) === C), linked = game.links.some(L => countryAt(L.a) === C || countryAt(L.b) === C);
+  const others = game.ports.filter(p => { const o = countryAt(p); return o && o !== C; });
+  if (any) return toast(`${C.short} is short ${what}. On its way${from.size ? ' from ' + [...from].join(', ') : ''}: first there in ${secs(soon)}`);
+  if (!mine.length && !linked) return toast(`${C.short} is short ${what}. Build a port (or a station) there and the rest of your empire will ship it in.`);
+  if (mine.length && !linked && !others.some(p => mine.some(q => freightPath(p, q))))
+    return toast(`${C.short} is short ${what}. ${others.length ? 'No ship of yours can reach its port by sea' : 'Your other countries need a port too'} (or link it by rail).`);
+  toast(`${C.short} is short ${what}. Asked your empire: nobody has it to spare yet${mine.length ? '' : ' (a port there lets any port ship it in)'}.`);
 }
 
 // which of your countries is closest to a spot (measured to its border)
@@ -2419,13 +2608,13 @@ function tryBuild(i, type) {
   const C = countryAt(i);                       // every building is paid for by the country it's built in
   const plan = planFor(i, type);
   const cost = totalCost(type, plan, i);
-  const miss = missingFor(cost, C);
-  if (miss) return toast(`${C.short} doesn't have enough ${miss}`);
+  if (missingFor(cost, C)) return askFor(C, cost);   // the rest of the empire ships it in
   if (CFG.buildings[type].vehicle) return launchVehicle(i, type, C, cost);
   const settlers = CFG.buildings[type].people || 0;   // a settlement is founded by people, like an expedition
   if (freePeople(C) < settlers) return toast(`${C.short} needs ${settlers} free people to found a settlement`);
   C.people -= settlers;
   for (const [r, n] of Object.entries(cost)) C.res[r] -= n;
+  noteSpend(C, cost);
   const before = empireCap();
   placeBuilding(i, type);
   if (plan && plan.path) layLink(i, type, plan);
@@ -2922,12 +3111,7 @@ function tick(dt) {
       (c.prod || (c.prod = {}))[r] = prod;
     }
     // fuel: ice drills make it as fast as their power allows and pipe it to the launch pads' tanks. No pad, nowhere to put it.
-    c.store.fuel = P.pads * B.pad.tank;
-    const fuel = P.pads ? P.drills * B.drill.fuel * c.sat : 0;
-    c.fuelFlow = fuel > 0 && c.res.fuel < c.store.fuel - 0.01;    // fuel moving in the pipes right now (for the drawing)
-    c.res.fuel = Math.min(c.store.fuel, c.res.fuel + fuel * dt);
-    c.rates.fuel = fuel;
-    stepRockets(c, dt);
+    stepRockets(c, dt);                            // builds the rockets, and the ice drills pump fuel into them
     if (c.cap > 0 && c.people < c.cap) {
       c.growth = (CFG.growthRate * c.people * (1 - c.people / c.cap) + CFG.growthBase) * growing(c);
       c.people = Math.min(c.cap, c.people + c.growth * dt);
@@ -2989,6 +3173,10 @@ function tick(dt) {
     if (L.t >= end) { L.t = end; L.dir = -1; unloadAt(L, B); loadAt(L, B, A); }
     else if (L.t <= 0) { L.t = 0; L.dir = 1; unloadAt(L, A); loadAt(L, A, B); }
   }
+  stepDemand(dt);
+  stepFreight(dt);
+  freightTimer += dt;
+  if (freightTimer >= CFG.freight.every) { freightTimer = 0; dispatchFreight(); }
   for (const f of game.flights) stepFlight(f, dt);
   if (game.flights.some(f => f.done)) game.flights = game.flights.filter(f => !f.done);
   for (const f of game.floats) f.t += dt;
@@ -3023,6 +3211,7 @@ function saveGame() {
     const back = game.countries.map(() => ({ people: 0, wood: 0, stone: 0, iron: 0 }));
     for (const q of game.pushes) { const c = liveCountry(q.country); if (c) back[c.id].people += q.budget; }
     for (const e of game.expeditions) { const c = liveCountry(e.from); if (c) { back[c.id].people += e.n; for (const r in e.kit) back[c.id][r] += e.kit[r]; } }
+    for (const F of game.freight) { const c = F.cargo && liveCountry(F.to); if (c) for (const r of CARGO_RES) back[c.id][r] += F.cargo[r]; }   // freighters aren't saved: their goods land
     const data = {
       v: SAVE_V, seed: SEED, savedAt: Date.now(), time: game.time, active: game.active, peakPop: game.peakPop,
       sendPct: game.sendPct, unlocked: [...game.unlocked], hotbar: game.hotbar,
@@ -3034,7 +3223,7 @@ function saveGame() {
       routes: game.routes,
       bridges: game.bridges.map(br => [br.s, br.b, br.len, br.tiles]),
       rockets: game.buildings.filter(b => b.type === 'pad' && (b.rocket || b.paused)).map(b => [b.i, b.rocket ? b.rocket.iron : -1, b.rocket ? b.rocket.fuel : 0, b.paused ? 1 : 0]),
-      flights: game.flights.filter(f => !f.done).map(f => [f.x, f.y, f.vx, f.vy, f.a, f.fuel, f.landed ? 1 : 0, f.everOrbit ? 1 : 0, f.n]),
+      flights: game.flights.filter(f => !f.done).map(f => [f.x, f.y, f.vx, f.vy, f.a, f.fuel, f.landed ? 1 : 0, f.everOrbit ? 1 : 0, f.n, f.throttle]),
       runs, cam: { x: cam.x, y: cam.y, zoom: cam.zoom },
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -3067,7 +3256,7 @@ function loadGame(sv) {
     if (ready) nb.ready = ready;
     if (kept) for (const k of KEPT) if (kept[k] !== undefined) nb[k] = kept[k];
   }
-  game.flights = (sv.flights || []).map(([x, y, vx, vy, a, fuel, landed, everOrbit, n]) => ({ x, y, vx, vy, a, fuel, throttle: 0,
+  game.flights = (sv.flights || []).map(([x, y, vx, vy, a, fuel, landed, everOrbit, n, throttle]) => ({ x, y, vx, vy, a, fuel, throttle: throttle ?? 1, engine: false,
     landed: !!landed, left: Math.hypot(x - DISK.cx, y - DISK.cy) > DISK.R, orbit: false, everOrbit: !!everOrbit, t: 10, trail: [[x, y]], n: n || ++rocketCount }));
   rocketCount = Math.max(rocketCount, ...game.flights.map(f => f.n), 0);
   for (const [bi, iron, fuel, paused] of sv.rockets || []) {   // rockets being built or waiting on their pads
@@ -3077,6 +3266,7 @@ function loadGame(sv) {
     if (paused) b.paused = true;
   }
   game.links = sv.links;
+  game.freight = [];
   game.routes = Array.isArray(sv.routes) ? sv.routes : [];
   clearBridges();
   for (const [s, b, len, tiles] of sv.bridges || []) addBridge({ s, b, len, tiles });
@@ -3361,7 +3551,7 @@ function drawPops(z) {
     ctx.globalAlpha = clamp(Math.min(p.t * 8, (1.6 - p.t) * 2.5), 0, 1);
     ctx.strokeText(p.text, sx, y); ctx.fillStyle = p.color; ctx.fillText(p.text, sx, y);
   }
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.textAlign = 'left';
 }
 
 // A worker out on the nearest tile a cabin or camp works: a lumberjack swinging an axe into a tree, a miner
@@ -3527,9 +3717,22 @@ function pill(x, y, text, { bg = 'rgba(20,26,37,0.9)', fg = '#eef2f8', border = 
   ctx.fillStyle = bg; ctx.fill();
   if (border) { ctx.strokeStyle = border; ctx.lineWidth = 2; ctx.stroke(); }
   if (dot) { ctx.beginPath(); ctx.arc(left + 12, y, 4, 0, Math.PI * 2); ctx.fillStyle = dot; ctx.fill(); }
-  ctx.fillStyle = fg; ctx.textBaseline = 'middle';
+  ctx.fillStyle = fg; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';   // left: other drawing may have centred it
   ctx.fillText(text, left + (dot ? 21 : 10), y + 0.5);
   return w;
+}
+// The one look for "this is the thing you're pointing at / have picked": a gold dashed circle, like the ring round
+// your world from far out. A faint dark line under the dashes keeps it readable on bright ground; `march` slowly
+// runs the dashes round (picked things), `alpha` fades it in and out.
+function dashRing(sx, sy, r, color = '#f2c14e', { alpha = 1, width = 2, march = 0 } = {}) {
+  if (alpha < 0.01 || r < 1) return;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.lineWidth = width + 2; ctx.strokeStyle = 'rgba(10,14,22,0.35)'; ctx.stroke();
+  ctx.setLineDash([5, 4]); ctx.lineDashOffset = march ? -(performance.now() / 1000) * march : 0;
+  ctx.lineWidth = width; ctx.strokeStyle = color; ctx.stroke();
+  ctx.restore();
 }
 
 // ---------- outer space ----------
@@ -4044,7 +4247,7 @@ function drawDiskLabel(z) {
   if (z > 0.15) return;
   const [dx, dy] = toScreen(DISK.cx, DISK.cy);
   if (DISK.R * z < 3) { ctx.fillStyle = '#6fa3d6'; ctx.beginPath(); ctx.arc(dx, dy, 3, 0, Math.PI * 2); ctx.fill(); }
-  pill(dx, dy + Math.max(DISK.R * z, 4) + 18, 'Your world', { fg: '#cfe0ff', size: 12 });
+  pill(dx, dy + Math.max(DISK.R * z, 4) + 28, 'Your world', { fg: '#cfe0ff', size: 12 });   // clear of the ring round it
 }
 
 function overMoon(wx, wy) {
@@ -4682,9 +4885,8 @@ function drawLockHover(z) {
   else return;
   const [sx, sy] = toScreen(tx, ty);
   const r = Math.max(br * z, 10) + 7;
-  ctx.setLineDash([5, 4]); ctx.lineWidth = 2; ctx.strokeStyle = '#f2c14e';
-  ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-  pill(sx, sy - r - 16, 'Click to lock on', { fg: '#f2c14e', border: '#f2c14e', size: 12 });
+  dashRing(sx, sy, r, '#f2c14e', { march: 6 });
+  pill(sx, sy - r - 20, 'Click to lock on', { fg: '#f2c14e', border: '#f2c14e', size: 12 });
   canvas.style.cursor = 'pointer';
 }
 
@@ -4820,7 +5022,7 @@ function cargoLabel(c) {
   return parts.slice(0, 2).join(' · ') + (parts.length > 2 ? ' …' : '');
 }
 function drawVehicles(z) {
-  for (const L of game.links) {
+  for (const L of game.links.concat(game.freight)) {
     const [wx, wy, ang] = vehiclePos(L);
     const [sx, sy] = toScreen(wx, wy);
     if (L.cargo) {                                 // loaded: a gold crate marker, and what it carries up close
@@ -5379,7 +5581,7 @@ function drawHarvestPreview(i, type, z) {
 }
 // pointing at (or near) a settlement shows what it is and how many people live there; nothing is written on it otherwise
 function drawSettlementHover(z) {
-  if (!mouse.in || mouse.down >= 0) return;
+  if (!mouse.in || mouse.down >= 0 || pointingAtBody()) return;
   let best = null, bd = Math.max(20, z * 1.8);
   for (const b of game.buildings) {
     if (b.type !== 'settlement') continue;
@@ -5389,20 +5591,21 @@ function drawSettlementHover(z) {
   if (!best) return;
   const b = best.b, foe = nationAt(b.i), who = foe || countryAt(b.i), cap = settlementCap(b), lvl = settlementLevel(b);
   const living = who && who.cap > 0 ? who.people * cap / who.cap : 0;
-  const r = z >= CFG.detailZoom ? z * (1.5 + lvl * 0.18) : 11 + lvl * 3;
-  pill(best.sx, best.sy + r + 14, `${CFG.settlement.levels[lvl].name} · ${fmtNum(living)} people · holds ${Math.round(cap)}${underFire(b) ? ` · under fire, not growing (${fireLeft(b)}s)` : ''}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
+  const r = ringGeom(b, z)[2] + 2;                 // just below the ring the pointer puts round it
+  pill(best.sx, best.sy + r + 16, `${CFG.settlement.levels[lvl].name} · ${fmtNum(living)} people · holds ${Math.round(cap)}${underFire(b) ? ` · under fire, not growing (${fireLeft(b)}s)` : ''}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
 }
 // ---------- pointing and picking: a ring glides to whatever you point at; clicking one of yours opens its card ----------
 // Anything can be picked: a building, a truck or boat you drove out, a train or cargo ship on its route, a bridge.
-const kindOf = o => !o ? null : o.type ? 'building' : o.supplies !== undefined ? 'exp' : o.path && o.dir !== undefined ? 'link' : o.tiles && o.s !== undefined ? 'bridge' : null;
+const kindOf = o => !o ? null : o.type ? 'building' : o.throttle !== undefined ? 'flight' : o.supplies !== undefined ? 'exp' : o.path && o.dir !== undefined ? 'link' : o.tiles && o.s !== undefined ? 'bridge' : null;
 const expSize = () => clamp(cam.zoom * 2.6, 26, 60);
 // what's at a screen point: a vehicle first (they move over everything), then the building on the tile (zoomed in,
 // or a station/port/pad icon from far out), then a bridge under the pointer, else the nearest settlement within reach
 function pickAt(x, y) {
   const z = cam.zoom, [wx, wy] = toWorld(x, y), tx = Math.floor(wx), ty = Math.floor(wy);
   const near = (p, r) => { const [sx, sy] = toScreen(p[0], p[1]); return Math.hypot(sx - x, sy - y) < r; };
+  for (const f of game.flights) if (!f.done && near([f.x, f.y], clamp(z * 2.4, 18, 64) * 0.6)) return f;
   for (const e of game.expeditions) if (!e.auto && !e.done && near(shownPos(e), expSize() * 0.55)) return e;
-  if (z >= 1) for (const L of game.links) if (near(vehiclePos(L), Math.max(10, z * 1.1))) return L;
+  if (z >= 1) for (const L of game.links.concat(game.freight)) if (near(vehiclePos(L), Math.max(10, z * 1.1))) return L;
   if (inb(tx, ty)) {
     const t = idx(tx, ty);
     if (building[t] && building[t] !== BLD_CODE.settlement) {
@@ -5422,13 +5625,17 @@ function pickAt(x, y) {
 const buildingNear = (x, y) => { const o = pickAt(x, y); return kindOf(o) === 'building' ? o : null; };
 // what the mouse is pointing at right now (nothing while you build, aim, paste, drag or drive)
 const pointedAt = () => !mouse.in || mouse.dragged || mouse.down >= 0 || game.tool || game.aiming || blueprint || game.driving
-  ? null : pickAt(mouse.x, mouse.y);
+  || pointingAtBody() ? null : pickAt(mouse.x, mouse.y);
+// far out (your world is one small disk) or over a moon or planet, the pointer is about that body: nothing on the
+// ground lights up as well, so only one ring and one label show at a time
+const pointingAtBody = () => cam.zoom < WORLD_LOCK_ZOOM || !!bodyUnder(...toWorld(mouse.x, mouse.y));
 // is it still there (and still yours)?
 function stillThere(o) {
   switch (kindOf(o)) {
     case 'building': return building[o.i] && buildingAt(o.i) === o && owner[o.i];
     case 'exp': return game.expeditions.includes(o) && !o.done;
-    case 'link': return game.links.includes(o);
+    case 'flight': return game.flights.includes(o) && !o.done;
+    case 'link': return game.links.includes(o) || game.freight.includes(o);
     case 'bridge': return game.bridges.includes(o);
   }
   return false;
@@ -5440,6 +5647,7 @@ const ringFx = { hover: { x: 0, y: 0, r: 0, a: 0, b: null }, sel: { x: 0, y: 0, 
 function ringGeom(o, z) {
   switch (kindOf(o)) {
     case 'exp': { const [x, y] = shownPos(o); return [x, y, expSize() * 0.68]; }
+    case 'flight': return [o.x, o.y, clamp(z * 2.4, 18, 64) * 0.8];
     case 'link': { const [x, y] = vehiclePos(o); return [x, y, o.kind === 'sea' ? Math.max(14, z * 1.1) : Math.max(12, z * 1.3)]; }
     case 'bridge': {
       const [ax, ay] = tileCenter(o.s), [bx, by] = tileCenter(o.b);
@@ -5456,30 +5664,18 @@ function stepRing(R, o, dt, z) {
   const k = 1 - Math.exp(-dt * 18);
   if (o) {
     const [x, y, r] = ringGeom(o, z), [ax, ay] = toScreen(R.x, R.y), [bx, by] = toScreen(x, y);
-    const fresh = !R.b || R.a < 0.05, moving = kindOf(o) === 'exp' || kindOf(o) === 'link';
+    const fresh = !R.b || R.a < 0.05, moving = kindOf(o) === 'exp' || kindOf(o) === 'link' || kindOf(o) === 'flight';
     if (fresh || Math.hypot(ax - bx, ay - by) > 260) { R.x = x; R.y = y; if (fresh) R.r = r * 0.7; }   // far away: just appear there
     else if (moving && R.b === o) { R.x = x; R.y = y; }   // stay on a moving vehicle
     else { R.x += (x - R.x) * k; R.y += (y - R.y) * k; }
     R.r += (r - R.r) * k; R.a += (1 - R.a) * k; R.b = o;
   } else { R.a -= R.a * k; R.r *= 1 + 0.4 * dt; if (R.a < 0.01) { R.a = 0; R.b = null; } }
 }
+// the gliding ring, drawn in the one dashed-circle look (dashRing): picked things a little bolder, with marching dashes
 function drawRing(R, col, spin, sel) {
   if (R.a < 0.01) return;
-  const [sx, sy] = toScreen(R.x, R.y), t = performance.now() / 1000, r = R.r * (sel ? 1 + 0.035 * Math.sin(t * 3.2) : 1);
-  const c = a => `rgba(${col[0]},${col[1]},${col[2]},${a})`;
-  ctx.save();
-  ctx.globalAlpha = R.a;
-  const g = ctx.createRadialGradient(sx, sy, r * 0.35, sx, sy, r * 1.25);   // a soft glow on the ground
-  g.addColorStop(0, c(0)); g.addColorStop(0.7, c(sel ? 0.16 : 0.1)); g.addColorStop(1, c(0));
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, r * 1.25, 0, Math.PI * 2); ctx.fill();
-  ctx.lineWidth = sel ? 2.4 : 1.8; ctx.strokeStyle = c(sel ? 0.95 : 0.8);
-  ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
-  ctx.lineCap = 'round'; ctx.lineWidth = sel ? 3.4 : 2.8; ctx.strokeStyle = c(1);   // four ticks, slowly turning
-  for (let k = 0; k < 4; k++) {
-    const a = t * spin + k * Math.PI / 2;
-    ctx.beginPath(); ctx.arc(sx, sy, r + 4, a - 0.2, a + 0.2); ctx.stroke();
-  }
-  ctx.restore();
+  const [sx, sy] = toScreen(R.x, R.y);
+  dashRing(sx, sy, R.r, `rgb(${col[0]},${col[1]},${col[2]})`, { alpha: R.a * (sel ? 1 : 0.9), width: sel ? 2.4 : 2, march: spin * 8 });
 }
 function drawRings(z) {
   const now = performance.now(), dt = Math.min(0.1, (now - ringFx.t) / 1000);
@@ -5487,14 +5683,14 @@ function drawRings(z) {
   if (inspected && !stillThere(inspected)) inspect(null);
   const hb = pointedAt();
   stepRing(ringFx.sel, inspected, dt, z);
-  stepRing(ringFx.hover, hb && hb !== inspected ? hb : null, dt, z);
+  stepRing(ringFx.hover, hb && hb !== inspected && hb !== game.flying ? hb : null, dt, z);
   drawRing(ringFx.sel, [242, 193, 78], 0.7, true);
   const foe = ringFx.hover.b && !mineOf(ringFx.hover.b);
-  drawRing(ringFx.hover, foe ? [255, 122, 107] : [238, 242, 248], -0.9, false);
+  drawRing(ringFx.hover, foe ? [255, 122, 107] : [242, 193, 78], 0, false);
 }
 // open (or close, with null) a card
 function inspect(o) {
-  inspected = o;
+  inspected = kindOf(o) === 'flight' ? null : o;   // a rocket has its own readout while you fly it
   updateInspect();
 }
 const secs = s => s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.ceil(s)}s`;
@@ -5558,7 +5754,7 @@ function cardBuilding(b, ui) {
       c.growth < -0.005 ? 'r' : c.growth > 0.005 ? 'g' : '');
     return [L[lvl].name, 'settle' + (Math.min(lvl, 3) + 1), c.full];
   }
-  const M = c.mw || { gen: 0, max: 0, need: 0 };
+  const M = c.mw || { gen: 0, max: 0, need: 0 }, ST = c.store || {};   // (no store yet before the first tick after a load)
   switch (b.type) {
     case 'cabin': case 'camp': case 'rig': {
       const tiles = ['forest', 'stone', 'iron'].filter(k => b.work && b.work[k]);
@@ -5580,7 +5776,7 @@ function cardBuilding(b, ui) {
       }
       row('Reach', `${CFG.collectorReach} tiles`);
       sep();
-      row(`${c.short} stock`, tiles.map(k => DEP_RES[k]).filter((r, i, a) => a.indexOf(r) === i).map(r => `${fmtNum(c.res[r])} / ${fmtNum(c.store[r])} ${r}`).join(' · ') || '-');
+      row(`${c.short} stock`, tiles.map(k => DEP_RES[k]).filter((r, i, a) => a.indexOf(r) === i).map(r => `${fmtNum(c.res[r])} / ${fmtNum(ST[r] || 0)} ${r}`).join(' · ') || '-');
       break;
     }
     case 'burner': {
@@ -5593,7 +5789,7 @@ function cardBuilding(b, ui) {
       row(`${c.short} power`, `${fmtNum(M.need)} / ${fmtNum(M.max)} MW`);
       if (M.machines) row('· machines', `${fmtNum(M.machines)} MW`);
       if (M.city >= 0.05) row('· cities', `${fmtNum(M.city)} MW`);
-      row(`${c.short} wood`, `${fmtNum(c.res.wood)} (${(c.rates.wood || 0) >= 0 ? '+' : ''}${(c.rates.wood || 0).toFixed(2)} / sec)`, (c.rates.wood || 0) < 0 ? 'r' : '');
+      row(`${c.short} wood`, `${fmtNum(c.res.wood)} (${((c.rates || {}).wood || 0) >= 0 ? '+' : ''}${(c.rates.wood || 0).toFixed(2)} / sec)`, (c.rates.wood || 0) < 0 ? 'r' : '');
       break;
     }
     case 'solar': {
@@ -5615,6 +5811,14 @@ function cardBuilding(b, ui) {
         row(`· ${L.kind === 'rail' ? 'train' : 'ship'}`, toHere ? `arriving in ${secs(eta)}` : `leaving, there in ${secs(eta)}`);
         row('· carrying', L.cargo ? listRes(L.cargo) || 'nothing' : 'nothing', L.cargo && listRes(L.cargo) ? 'g' : 'd');
       }
+      if (b.type === 'port') {                    // its own freighter, free to sail to any of your ports
+        const F = game.freight.find(q => q.home === b.i), T = F && countryAt(F.dir > 0 ? F.dest : F.home);
+        row('Freighter', !F ? (game.ports.length > 1 ? 'In port: sails wherever goods are needed' : 'In port: needs a second port to sail to')
+          : `${F.dir > 0 ? 'out to' : 'coming home from'} ${F.dir > 0 ? (T ? T.short : '?') : (countryAt(F.dest) || { short: '?' }).short}, ${secs(Math.abs((F.dir > 0 ? F.path.length - 1 : 0) - F.t) / CFG.shipSpeed)}`, F ? 'g' : 'd');
+        if (F && F.cargo) row('· carrying', listRes(F.cargo, CARGO_RES), 'g');
+      }
+      const asks = CARGO_RES.filter(r => pressing(c, r));
+      if (asks.length) row(`${c.short} is asking for`, asks.map(r => askOf(c, r) >= 1 ? `${Math.ceil(askOf(c, r))} ${r}` : `${r} (building with it)`).join(', '), 'r');
       sep();
       row('Each trip', `${V.cargo} goods · ${V.people} people`);
       note(`${say('Click', 'Tap')} it with a ${b.type === 'station' ? 'truck' : 'boat'} picked in the build menu to send an expedition from here`);
@@ -5660,7 +5864,8 @@ function cardBuilding(b, ui) {
       const pp = pipeOf(b.i), rate = pp && c.fuelFlow ? def.fuel * c.sat : 0;
       row('Makes', `+${rate.toFixed(2)} fuel / sec`, rate > 0 ? 'g' : 'r');
       if (!pp) note(`Waiting: no launch pad in ${c.short} to pipe it to`, 'r');
-      else if (!c.fuelFlow) note(`Waiting: ${c.short}'s fuel tanks are full`, 'r');
+      else if (!c.fuelFlow) note('Waiting: no rocket being fuelled right now (still being built, ready, or paused)', 'r');
+      else note(`Pumping into the rocket on the pad, with ${c.pw.drills - 1 ? `${c.pw.drills - 1} other drill${c.pw.drills > 2 ? 's' : ''}` : 'no other drills'}`, 'g');
       row('Uses', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'u');
       if (pp) row('Pipe to pad', `${Math.round(pp.len)} tile${Math.round(pp.len) === 1 ? '' : 's'}`);
       if (c.sat < 0.999) note(`Short of power: running at ${Math.round(c.sat * 100)}%`, 'r');
@@ -5668,19 +5873,26 @@ function cardBuilding(b, ui) {
     }
     case 'pad': {
       const R = CFG.rocket, st = rocketState(b), k = b.rocket, drills = c.pw.drills, perDrill = CFG.buildings.drill.fuel;
-      row('Rocket', b.paused ? 'Paused' : { none: 'Starting', building: 'Building', fuelling: 'Fuelling', ready: 'Ready to launch' }[st], st === 'ready' ? 'g' : b.paused ? 'r' : '');
-      row('Uses', st === 'building' && !b.paused ? `${(b.useIron || 0).toFixed(2)} iron / sec` : st === 'fuelling' && !b.paused ? `${(b.useFuel || 0).toFixed(2)} fuel / sec` : 'Nothing right now', 'u');
+      const fuel = k ? k.fuel : 0, iron = k ? k.iron : 0, on = !b.paused;
+      row('Rocket', !on ? 'Paused' : { none: 'Starting', building: 'Being built', fuelling: 'Fuelling', ready: 'Fuelled: ready to launch' }[st], st === 'ready' ? 'g' : !on ? 'r' : '');
+      // the main thing: how full the rocket is, and how fast the drills are filling it
+      row('Fuelled', `${Math.floor(fuel / R.tank * 100)}% · ${Math.floor(fuel)} / ${R.tank}`, st === 'ready' ? 'g' : 'p');
+      bar(fuel / R.tank, st === 'ready' ? '' : 'power');
+      if (st === 'fuelling' && on) {
+        row('Fuelling at', `+${(b.useFuel || 0).toFixed(2)} fuel / sec`, b.useFuel > 0 ? 'g' : 'r');
+        if (b.useFuel > 0) note(`${drills} ice drill${drills > 1 ? 's' : ''} pumping it full · full in ${secs((R.tank - fuel) / b.useFuel)}`, 'g');
+        else note(drills ? `${c.short}'s ice drills have no power` : `No ice drills in ${c.short}: build some on polar ice to fuel it`, 'r');
+      } else if (st === 'building' || st === 'none') note('Fuelling starts once the rocket is built');
+      else if (st === 'ready') note(`${say('Click', 'Tap')} the pad to launch`, 'g');
+      row('Ice drills', `${drills} · up to ${(drills * perDrill).toFixed(1)} fuel / sec`, drills ? '' : 'r');
+      note(`Each drill adds ${perDrill} fuel / sec on full power: more drills, faster fuelling`);
       sep();
-      row('Step 1 · build it', `${Math.floor(k ? k.iron : 0)} / ${R.iron} iron`); bar(k ? k.iron / R.iron : 0, 'gold');
-      if (st === 'building' && !b.paused) note(c.res.iron <= R.ironReserve + 0.5 ? `Waiting for iron: ${c.short} keeps ${R.ironReserve} back` : `Takes up to ${R.ironRate} iron / sec as ${c.short} has it`, c.res.iron <= R.ironReserve + 0.5 ? 'r' : 'd');
-      row('Step 2 · fuel it', `${Math.floor(k ? k.fuel : 0)} / ${R.tank} fuel`); bar(k ? k.fuel / R.tank : 0, 'power');
-      note(drills ? `Fuels at ${perDrill} / sec for each ice drill in ${c.short}: ${drills} drill${drills > 1 ? 's' : ''}, ${fmtNum(drills * perDrill)} / sec${st === 'fuelling' && b.useFuel > 0 ? ` · full in ${secs((R.tank - k.fuel) / b.useFuel)}` : ''}`
-        : `No ice drills in ${c.short}: build some on polar ice to fuel it`, drills ? 'd' : 'r');
-      if (st === 'fuelling' && drills && (c.res.fuel || 0) < 0.5 && (b.useFuel || 0) < 0.01) note('Waiting for the drills to pump fuel in', 'r');
-      sep();
-      row(`${c.short} fuel tanks`, `${fmtNum(c.res.fuel || 0)} / ${fmtNum(c.store.fuel || 0)}`, 'p');
-      note('The drills pump into these; the rocket fills from them');
-      note(st === 'ready' ? `${say('Click', 'Tap')} the pad to launch` : `${say('Click', 'Tap')} the pad to ${b.paused ? 'resume' : 'pause'}`);
+      row('Built', `${Math.floor(iron)} / ${R.iron} iron`); bar(iron / R.iron, 'gold');
+      if (st === 'building' && on) {
+        row('Uses', `${(b.useIron || 0).toFixed(2)} iron / sec`, 'u');
+        if (c.res.iron <= R.ironReserve + 0.5) note(`Waiting for iron: ${c.short} keeps ${R.ironReserve} back`, 'r');
+      }
+      if (st !== 'ready') note(`${say('Click', 'Tap')} the pad to ${b.paused ? 'resume' : 'pause'} it`);
       break;
     }
     default: if (def.desc) note(def.desc.split('. ')[0] + '.');
@@ -5706,7 +5918,22 @@ function cardExpedition(e, { row, bar, note, sep }) {
   note(mine ? say('Space settles here · Esc lets go of the wheel', 'Tap Settle to found a colony here') : say('Press X to take the wheel', 'Tap Drive to take the wheel'));
   return [e.kind === 'boat' ? 'Boat' : 'Truck', e.kind === 'boat' ? 'boat' : 'truck', home ? `From ${home.short}` : 'Expedition'];
 }
-function cardLink(L, { row, note, sep }) {
+function cardFreighter(F, { row, note, sep }) {
+  const home = countryAt(F.home), there = countryAt(F.dest), end = F.dir > 0 ? F.path.length - 1 : 0;
+  row('Heading to', F.dir > 0 ? (there ? there.short : '?') : `${home ? home.short : '?'} (home)`);
+  row('Arrives in', secs(Math.abs(end - F.t) / CFG.shipSpeed));
+  row('Carrying', F.cargo ? listRes(F.cargo, CARGO_RES) || 'nothing' : 'nothing', F.cargo ? 'g' : 'd');
+  const T = F.dir > 0 ? there : home;
+  if (T) { const asks = CARGO_RES.filter(r => pressing(T, r)); if (asks.length) row(`${T.short} needs`, asks.join(', '), 'r'); }
+  sep();
+  row('Route', `${F.path.length} tiles`);
+  row('Each trip', `up to ${CFG.freight.cargo} goods`);
+  note('Sails from its port to whichever of your countries needs goods most, then brings home what home is short of');
+  return ['Freighter', 'ship', `${home ? home.short : '?'} → ${there ? there.short : '?'}`];
+}
+function cardLink(L, ui) {
+  if (L.freight) return cardFreighter(L, ui);
+  const { row, note, sep } = ui;
   const A = countryAt(L.a), B = countryAt(L.b), to = L.dir > 0 ? B : A, end = L.dir > 0 ? L.path.length - 1 : 0;
   const speed = L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed, V = CFG.vehicles[L.kind];
   row('Heading to', to ? to.short : '?');
@@ -5733,7 +5960,7 @@ function cardBridge(br, { row, note }) {
 
 // pointing at a settlement (with nothing else selected) shows the land it reaches
 function drawReachHover(z) {
-  if (game.tool || game.aiming || blueprint || !mouse.in) return;
+  if (game.tool || game.aiming || blueprint || !mouse.in || pointingAtBody()) return;
   const t = hoverTile();
   if (t && building[t.i] === BLD_CODE.settlement) reachRing(t.i, '#f2c14e', z);
   else if (t && building[t.i] && HARVESTS[buildingAt(t.i).type]) reachRing(t.i, '#f2c14e', z, [5, 5], CFG.collectorReach);
@@ -5764,7 +5991,7 @@ function drawVehicle(e, z) {
   const size = clamp(z * 2.6, 26, 60), spr = e.kind === 'boat' ? SPR.boat : SPR.truck, left = Math.cos(e.a) < 0;
   ctx.save();
   ctx.translate(sx, sy);
-  if (mine) { ctx.beginPath(); ctx.arc(0, 0, size * 0.62, 0, Math.PI * 2); ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.stroke(); }
+  if (mine) dashRing(0, 0, size * 0.62, '#f2c14e', { width: 2.4, march: 6 });
   // a small arrow for the heading, then the vehicle (a truck turns with it; a boat just faces left or right)
   ctx.save(); ctx.rotate(e.a);
   ctx.beginPath(); ctx.moveTo(size * 0.82, 0); ctx.lineTo(size * 0.62, -size * 0.13); ctx.lineTo(size * 0.62, size * 0.13); ctx.closePath();
@@ -5785,14 +6012,10 @@ function drawVehicle(e, z) {
 }
 
 function drawSelection(z) {
-  // selected buildings: gold outline
+  // buildings picked for copying: the same dashed ring round each
   if (game.selection.length) {
-    const s = Math.max(z, 3);
-    ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2;
-    for (const i of game.selection) {
-      const [sx, sy] = toScreen(i % W, (i / W) | 0);
-      ctx.strokeRect(sx - 1, sy - 1, s + 2, s + 2);
-    }
+    const r = Math.max(z * 0.72, 5);
+    for (const i of game.selection) { const [sx, sy] = toScreen(...tileCenter(i)); dashRing(sx, sy, r, '#f2c14e', { width: z < 8 ? 1.5 : 2, march: 6 }); }
   }
   // paste preview following the cursor
   if (blueprint && mouse.in && !mouse.dragged && !game.tool) {
@@ -5942,6 +6165,8 @@ function clickAt(btn, x, y) {
   if (btn === 0 && game.aiming) { const t = hoverTile(); if (t) fireMissile(t.x, t.y); return; }
   if (btn === 2 && game.aiming) { setAiming(false); return; }
   if (btn === 0 && !game.tool) {
+    const fl = pickAt(x, y);
+    if (kindOf(fl) === 'flight') { if (game.flying !== fl) { takeRocket(fl); toast(`Flying rocket ${fl.n}. Space: engine on / off · E / Q: throttle · A / D: turn`); } return; }
     const [wx, wy] = toWorld(x, y);
     const body = bodyUnder(wx, wy);
     if (body && cam.follow !== body.id) { followBody(body.id); return; }
@@ -6011,9 +6236,9 @@ window.addEventListener('keydown', e => {
   if (k === ' ' && game.driving) { e.preventDefault(); if (!e.repeat) settleExpedition(game.driving); }
   if (k === 'x' && !e.repeat) nextVehicle();
   if (k.startsWith('arrow') && (game.driving || game.flying)) e.preventDefault();
-  if (k === ' ' && game.flying) { e.preventDefault(); game.flying.throttle = 0; }
+  if (k === ' ' && game.flying) { e.preventDefault(); if (!e.repeat) toggleEngine(game.flying); }
   if (k === 'f' && !e.repeat) setAiming(!game.aiming);
-  if (k === 'e' && !e.repeat) toggleBuildMenu();
+  if (k === 'e' && !e.repeat && !game.flying) toggleBuildMenu();   // flying, E is throttle up
   if (k === 'c' && !e.repeat) {
     const t = mouse.in ? hoverTile() : null;
     if (t) pasteAt(t.x, t.y);
@@ -6039,7 +6264,7 @@ window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 // Esc: let go of whatever you're doing
 function cancelAll() {
   if (game.flying && !game.tool && !menuOpen && !game.aiming) {
-    game.flying.throttle = 0; game.flying = null;
+    game.flying.engine = false; game.flying = null;
     toast('Let go of the rocket: engine off, it keeps flying. Press X to take it again.');
   }
   if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast(say('Parked. Press X to take the wheel again.', 'Parked. Tap Drive to take the wheel again.')); }
@@ -6146,7 +6371,7 @@ function bindTouchButtons() {
     b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); keys.add(k); b.classList.add('on'); });
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
   }
-  $('dp-settle').addEventListener('click', () => { if (game.flying) game.flying.throttle = 0; else if (game.driving) settleExpedition(game.driving); });
+  $('dp-settle').addEventListener('click', () => { if (game.flying) toggleEngine(game.flying); else if (game.driving) settleExpedition(game.driving); });
   $('dp-park').addEventListener('click', () => cancelAll());
   $('bm-new').addEventListener('click', () => { if (confirm('Start a new map? This deletes your saved game.')) newGame(); });
 }
@@ -6168,7 +6393,7 @@ function updateTouchButtons() {
   document.querySelector('#tbar [data-act="fire"]').classList.toggle('on', !!game.aiming);
   document.querySelector('#tbar [data-act="build"]').classList.toggle('on', menuOpen);
   $('dpad').classList.toggle('show', !!(game.driving || game.flying) && !menuOpen);
-  const fly = !!game.flying, mid = fly ? ['Cut engine', 'Let go'] : ['Settle', 'Park'];   // same pad, rocket words
+  const fly = !!game.flying, mid = fly ? [game.flying.engine ? 'Engine off' : 'Engine on', 'Let go'] : ['Settle', 'Park'];   // same pad, rocket words
   if ($('dp-settle').textContent !== mid[0]) { $('dp-settle').textContent = mid[0]; $('dp-park').textContent = mid[1]; }
   if (!game.driving && !game.flying) for (const k of ['arrowup', 'arrowdown', 'arrowleft', 'arrowright']) keys.delete(k);
 }
@@ -6443,7 +6668,8 @@ function updateHud() {
   const inc = incomingTo(C);
   const fromTxt = [...inc.bySrc].map(([s, n]) => `${s.short} (${fmtNum(n)})`).join(', ');
   for (const r of ['wood', 'stone', 'iron']) {
-    $('val-' + r).innerHTML = fmtNum(C.res[r]) + (inc[r] >= 1 ? `<span class="incoming" title="On its way by ship or train${fromTxt ? ' from ' + fromTxt : ''}">+${fmtNum(inc[r])}</span>` : '');
+    $('val-' + r).innerHTML = fmtNum(C.res[r]) + (inc[r] >= 1 ? `<span class="incoming" title="On its way by ship or train${fromTxt ? ' from ' + fromTxt : ''}">+${fmtNum(inc[r])}</span>`
+      : askOf(C, r) >= 1 ? `<span class="incoming" style="color:var(--bad)" title="${C.short} asked your empire for ${Math.ceil(askOf(C, r))} ${r}: ships and trains bring it as soon as a country can spare it">asked</span>` : '');
     {                                               // every store has a ceiling: show it, and how full it is
       $('val-' + r).style.whiteSpace = 'nowrap';
       const cap = C.store ? C.store[r] : CFG.storage[r].base, f = clamp(C.res[r] / cap, 0, 1);
@@ -6464,12 +6690,12 @@ function updateHud() {
       const f = cap ? clamp(C.res.fuel / cap, 0, 1) : 0;
       $('val-fuel').style.whiteSpace = 'nowrap';
       $('val-fuel').innerHTML = `${fmtNum(C.res.fuel)}<span style="font-size:12px;font-weight:600;opacity:0.65"> / ${fmtNum(cap)}</span>
-        <div title="Fuel tanks: each launch pad holds ${CFG.buildings.pad.tank}" style="height:4px;width:100%;min-width:70px;background:rgba(255,255,255,0.14);border-radius:2px;margin-top:3px">
+        <div title="Fuel in the rockets on your launch pads (each holds ${CFG.rocket.tank})" style="height:4px;width:100%;min-width:70px;background:rgba(255,255,255,0.14);border-radius:2px;margin-top:3px">
         <div style="height:100%;width:${(f * 100).toFixed(0)}%;background:${f >= 0.999 ? '#f2c14e' : '#5fc4f0'};border-radius:2px"></div></div>`;
       const el = $('rate-fuel'), rate = C.rates.fuel || 0;
       el.textContent = !C.pw.pads && C.pw.drills ? 'NO PAD' : `${rate < 0 ? '' : '+'}${rate.toFixed(2)}/s`;
       el.classList.toggle('zero', rate === 0 && !!C.pw.pads);
-      el.classList.toggle('neg', (!C.pw.pads && !!C.pw.drills) || rate < 0);
+      el.classList.toggle('neg', !C.pw.pads && !!C.pw.drills);
     }
   }
   flightHud();
@@ -6563,14 +6789,13 @@ function updateHover() {
       const hc = owner[t.i] ? countryAt(t.i) : null;
       if (hb.type === 'drill' && hc) {
         const pp = pipeOf(t.i);
-        info += pp ? ` · ${(CFG.buildings.drill.fuel * hc.sat).toFixed(2)} fuel/s${hc.sat < 0.999 ? ` (${Math.round(hc.sat * 100)}% powered)` : ''} · piped ${Math.round(pp.len)} tiles to a launch pad${hc.fuelFlow ? '' : ' · tanks full'}`
+        info += pp ? (hc.fuelFlow ? ` · pumping ${(CFG.buildings.drill.fuel * hc.sat).toFixed(2)} fuel/s into the rocket${hc.sat < 0.999 ? ` (${Math.round(hc.sat * 100)}% powered)` : ''}` : ' · waiting for a rocket to fuel') + ` · piped ${Math.round(pp.len)} tiles to a launch pad`
           : ' · no launch pad in this country: build one and the pipe lays itself';
       }
       if (hb.type === 'pad' && hc) {
         const R = CFG.rocket, st = rocketState(hb), k = hb.rocket;
-        info += ` · ${fmtNum(hc.res.fuel)} / ${fmtNum(hc.store ? hc.store.fuel : 0)} fuel in the tanks of ${hc.short}`;
         info += st === 'building' ? ` · building a rocket: ${Math.floor(k.iron)} / ${R.iron} iron${hc.res.iron <= R.ironReserve + 0.5 ? ` (waiting for iron: it keeps ${R.ironReserve} back)` : ''}`
-          : st === 'fuelling' ? ` · rocket built, fuelling: ${Math.floor(k.fuel)} / ${R.tank}${hc.res.fuel < 1 ? ' (waiting for fuel)' : ''}`
+          : st === 'fuelling' ? ` · fuelling: ${Math.floor(k.fuel / R.tank * 100)}% (${Math.floor(k.fuel)} / ${R.tank}) at ${(hb.useFuel || 0).toFixed(2)} fuel/s from ${hc.pw.drills} ice drill${hc.pw.drills === 1 ? '' : 's'}`
           : st === 'ready' ? ` · rocket ready: ${say('click', 'tap')} the pad to launch` : '';
         if (st !== 'ready') info += hb.paused ? ` · paused: ${say('click', 'tap')} to resume` : ` · ${say('click', 'tap')} to pause`;
       }
@@ -6581,10 +6806,18 @@ function updateHover() {
   }
   $('hover-info').textContent = info;
 
-  const placeTip = (html, bad) => {
+  // `ring` [x, y, r] (screen): sit the card beside that ring, not on top of it (the other side if there's no room)
+  const placeTip = (html, bad, ring) => {
     tip.innerHTML = html;
     tip.classList.toggle('bad', bad);
     tip.style.display = 'block';
+    if (ring) {
+      const [rx, ry, rr] = ring, w = tip.offsetWidth, h = tip.offsetHeight;
+      const left = rx + rr + 12 + w <= cw - 8 ? rx + rr + 12 : rx - rr - 12 - w;
+      tip.style.left = clamp(left, 8, cw - w - 8) + 'px';
+      tip.style.top = clamp(ry - h / 2, 8, ch - h - 8) + 'px';
+      return;
+    }
     tip.style.left = Math.min(mouse.x + 18, cw - 290) + 'px';
     tip.style.top = Math.min(mouse.y + 18, ch - 120) + 'px';
   };
@@ -6613,7 +6846,11 @@ function updateHover() {
 
   if (!game.tool) {                                // pointing at a building: a card saying what it's up to
     const hb = building[t.i] && building[t.i] !== BLD_CODE.settlement && !mouse.dragged ? buildingAt(t.i) : null;
-    if (hb && hb !== inspected && CFG.buildings[hb.type]) { const [html, bad] = buildingCard(hb); placeTip(html, bad); return; }
+    if (hb && hb !== inspected && CFG.buildings[hb.type] && !pointingAtBody()) {
+      const [html, bad] = buildingCard(hb), [gx, gy, gr] = ringGeom(hb, cam.zoom), [sx, sy] = toScreen(gx, gy);
+      placeTip(html, bad, [sx, sy, gr + 3]);
+      return;
+    }
     tip.style.display = 'none'; return;
   }
   if (game.tool === 'bridge') { const [html, bad] = bridgeTip(t); placeTip(html, bad); return; }
@@ -6977,5 +7214,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { TOUCH, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt };
+window.__game = { TOUCH, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive };
 init();
