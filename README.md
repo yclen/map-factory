@@ -36,6 +36,8 @@ Add `?seed=123` to the address to play a specific map (this starts that map, and
 | In the E menu: hover + 1 – 0 | Put that building on that key (right-click a building to add / remove it) |
 | F, then click | Fire a missile from a silo in range (mortars and turrets fire by themselves) |
 | Settlement tool, then hover | Shows the land a new settlement would add (green) and land already served (grey) |
+| Point at a building | A ring glides onto it and a small card says what it's doing |
+| Click one of your buildings | Open its card on the left with live stats (a settlement: level, people, housing from land and from power, MW used, growth) · Esc or × closes it |
 | Click inside one of your countries | View that country in the top bar (zoomed out: fly the camera to it) |
 | Tab · Shift+Tab | Fly to your next / previous country |
 | Drag a box · C | Select solar panels or burners · paste a copy at the cursor |

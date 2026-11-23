@@ -156,6 +156,38 @@ canvas#game.building { cursor: copy; }
 #tooltip .r { color: var(--bad); font-weight: 600; }
 #tooltip .d { color: var(--dim); }
 
+/* the card of the building you clicked */
+#inspect {
+  position: fixed; top: 72px; left: 16px; width: 280px; z-index: 4; padding: 14px 16px 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); border-color: rgba(242, 193, 78, 0.35);
+  opacity: 0; transform: translateX(-16px) scale(0.98); pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+#inspect.open { opacity: 1; transform: none; pointer-events: auto; }
+#inspect .ix { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--dim); font-size: 18px; line-height: 1; cursor: pointer; }
+#inspect .ix:hover { background: #2a3348; color: var(--text); }
+#inspect .ih { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding-right: 22px; }
+#inspect .iicon { width: 40px; height: 40px; flex: none; border-radius: 9px; background: var(--land); display: grid; place-items: center; overflow: hidden; }
+#inspect .iicon svg { width: 34px; height: 34px; image-rendering: pixelated; }
+#inspect .it { font-size: 16px; font-weight: 700; }
+#inspect .isub { font-size: 11px; color: var(--dim); }
+#inspect .ibody { font-size: 12px; line-height: 1.45; }
+#inspect .ir { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; }
+#inspect .ir span { color: var(--dim); }
+#inspect .ir b { font-weight: 700; text-align: right; }
+#inspect .in { font-size: 11px; margin-top: 2px; }
+#inspect .g { color: var(--good); }
+#inspect .r { color: var(--bad); }
+#inspect .p { color: #8fd3ff; }
+#inspect .d { color: var(--dim); }
+#inspect .icard > div { margin-top: 3px; }
+#inspect .isep { height: 1px; background: var(--line); margin: 10px 0 4px; }
+#inspect .ibar { height: 6px; border-radius: 3px; background: #2b3446; margin-top: 4px; overflow: hidden; }
+#inspect .ibar i { display: block; height: 100%; border-radius: 3px; background: var(--good); transition: width 0.3s ease; }
+#inspect .ibar.gold i { background: var(--accent); }
+#inspect .ibar.power i { background: #8fd3ff; }
+
 #toast {
   position: fixed; left: 50%; top: 74px; transform: translateX(-50%); z-index: 6;
   background: rgba(20, 26, 37, 0.95); border: 1px solid var(--accent); color: var(--text);
@@ -250,4 +282,5 @@ canvas#game.building { cursor: copy; }
   .bm-catgrid { grid-template-columns: 1fr; gap: 8px; }
   .bm-card { padding: 10px; }
   #tooltip { max-width: 70vw; }
+  #inspect { top: calc(var(--top-h, 118px) + 48px); left: 6px; right: 6px; width: auto; padding: 10px 12px; }
 }

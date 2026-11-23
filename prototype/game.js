@@ -4841,7 +4841,7 @@ function render() {
       const x = b.i % W, y = (b.i / W) | 0;
       if (b.type === 'settlement' || x < x0 || x > x1 || y < y0 || y > y1) continue;
       if (DEFENCE_TOPS[b.type]) { drawDefence(b, z); continue; }
-      drawSprite(b.type, x + 0.5, y + 0.5, z * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : 1.25));
+      drawSprite(b.type, x + 0.5, y + 0.5 + (DRILL_ANIM[b.type] ? drillJolt(b, z) : 0), z * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : 1.25));
     }
     for (const b of game.buildings) {               // workers out on the tiles, then smoke on top of everything
       const x = b.i % W, y = (b.i / W) | 0;
@@ -4850,7 +4850,9 @@ function render() {
     }
     for (const b of game.buildings) {
       const x = b.i % W, y = (b.i / W) | 0;
-      if (b.type === 'burner' && x >= x0 && x <= x1 && y >= y0 - 2 && y <= y1) drawBurnerSmoke(b, z * 1.25);
+      if (x < x0 || x > x1 || y < y0 - 2 || y > y1) continue;
+      if (b.type === 'burner') drawBurnerSmoke(b, z * 1.25);
+      else if (DRILL_ANIM[b.type]) drawDrill(b, z);
     }
     drawRockets(z, x0, y0, x1, y1);
   } else if (z >= CFG.cityZoom) {
@@ -4878,6 +4880,7 @@ function render() {
   drawFlights(z);
   drawBuildPreview(z);
   drawReachHover(z);
+  drawRings(z);
   drawSettlementHover(z);
   drawMissiles(z);
   drawSelection(z);
@@ -5047,6 +5050,93 @@ function drawBurnerSmoke(b, size) {
     ctx.beginPath(); ctx.ellipse(cx + size * 0.45, cy - size * 1.05, size * 0.75, size * 0.28, 0, 0, Math.PI * 2); ctx.fill();
   }
 }
+// Mining rigs and ice drills at work, drawn over their sprite in its own 32x32 pixels: a steel hammer block hauled
+// up the derrick and dropped onto the drill string. Each blow jolts the machine, throws sparks and a ring of dust
+// off the base and kicks chunks out onto the pile, while a diesel stack on the side puffs sooty exhaust and
+// coughs a fat cloud on every stroke. The lamp up top blinks while it runs, and glows red when it has no power.
+const DRILL_ANIM = {
+  rig:   { top: 6, bot: 18, base: 24, lamp: [14, 2, 4, 3], on: '#ffe066', off: '#9a7414', stack: [4, 15, 9], period: 0.85 },
+  drill: { top: 5, bot: 15, base: 19, lamp: [14, 1, 4, 3], on: '#8fe0ff', off: '#2a6f96', stack: [25, 9, 10], period: 1.0 },
+};
+const CHIP = { forest: ['#a0683e', '#d9a066'], stone: ['#9aa1a8', '#d6dade'], iron: ['#b4613d', '#ef9a6a'], ice: ['#d8eef8', '#ffffff'] };
+function drillEffort(b) {
+  if (b.type === 'rig') return effortOf(b);
+  const c = owner[b.i] ? game.countries[countryOf[b.i]] : null;   // an ice drill runs while fuel flows to a pad
+  return !c ? 1 : c.fuelFlow ? (c.sat ?? 1) : 0;
+}
+// where the hammer is in its stroke: 0..1 up the derrick, and how far past the blow we are (-1: not just after one)
+function drillStroke(b) {
+  const A = DRILL_ANIM[b.type], e = drillEffort(b);
+  if (e <= 0) return { e, lift: 0, after: -1 };
+  const q = (game.time / (A.period / Math.max(0.35, e)) + hash2(b.i % 9973, 5, 81)) % 1;
+  const lift = q < 0.72 ? Math.sin(q / 0.72 * Math.PI / 2) : q < 0.8 ? 1 - (q - 0.72) / 0.08 : 0;   // haul up slow, drop fast
+  return { e, lift, after: q >= 0.8 ? (q - 0.8) / 0.2 : -1 };
+}
+// the jolt when the hammer lands, in tiles (the sprite is drawn this far lower)
+const drillJolt = b => { const s = DRILL_ANIM[b.type] && drillStroke(b); return s && s.after >= 0 && s.after < 0.12 ? 0.035 : 0; };   // about one sprite pixel
+function drawDrill(b, z) {
+  const A = DRILL_ANIM[b.type], x = b.i % W, y = (b.i / W) | 0, size = z * 1.25, p = size / 32, v = hash2(x, y, 82);
+  const { e, lift, after } = drillStroke(b), [sx, sy] = toScreen(x + 0.5, y + 0.5);
+  const kind = b.type === 'drill' ? 'ice' : b.work ? ['iron', 'stone', 'forest'].reduce((m, k) => b.work[k] > (b.work[m] || 0) ? k : m, 'iron') : 'stone';
+  const [chipD, chipL] = CHIP[kind];
+  ctx.save();
+  ctx.translate(sx - size / 2, sy - size / 2 + drillJolt(b, z) * z); ctx.scale(p, p);   // now in sprite pixels
+  const R = (x2, y2, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x2, y2, w, h); };
+  // exhaust stack
+  const [kx, ky, kh] = A.stack;
+  R(kx - 0.5, ky - 0.5, 3, kh + 1, '#1c2028'); R(kx, ky, 2, kh, '#4a515c'); R(kx, ky, 1, kh, '#6b7480'); R(kx - 0.5, ky - 1, 3, 1.2, '#2b3038');
+  // hammer block, riding the drill string
+  const hy = A.bot - (A.bot - A.top) * lift;
+  R(13, hy - 0.5, 6, 4, '#1c2028'); R(13.5, hy, 5, 3, '#8d96a0'); R(13.5, hy, 5, 1, '#c9ced6'); R(17.5, hy, 1, 3, '#5f6b7d');
+  // lamp: blinking amber/blue while it works, red when it's stopped for want of power
+  const [lx, ly, lw, lh] = A.lamp, c = owner[b.i] ? game.countries[countryOf[b.i]] : null;
+  const noPower = c && (c.sat ?? 1) < 0.05, blink = Math.floor(game.time * 2.2 + v * 4) % 2 === 0;
+  const lamp = noPower ? (blink ? '#ff5a4a' : '#7a1f18') : e > 0 && blink ? A.on : A.off;
+  if (e > 0 && blink || noPower && blink) {
+    ctx.fillStyle = noPower ? 'rgba(255,90,74,0.28)' : A.on + '44';
+    ctx.beginPath(); ctx.arc(lx + lw / 2, ly + lh / 2, 4.5, 0, Math.PI * 2); ctx.fill();
+  }
+  R(lx, ly, lw, lh, lamp);
+  if (after >= 0) {
+    const cx = 16, cy = A.base, k = after;
+    if (k < 0.3) {                                               // sparks off the blow
+      ctx.globalAlpha = 1 - k / 0.3;
+      for (let j = 0; j < 6; j++) {
+        const a = -Math.PI * (0.1 + 0.8 * hash2(j, Math.floor(game.time * 3), 83)), r = 2 + k * 14;
+        R(cx + Math.cos(a) * r - 0.5, cy - 1 + Math.sin(a) * r * 0.7 - 0.5, 1, 1, j % 2 ? '#ffd166' : '#fff4c2');
+      }
+    }
+    ctx.globalAlpha = 1;
+    for (let j = 0; j < 8; j++) {                                // a ring of dust rolling out along the ground
+      const side = j % 2 ? 1 : -1, r = 3 + k * (10 + (j >> 1) * 2.5), s = 2 + k * 4;
+      ctx.fillStyle = `rgba(150,128,100,${0.6 * (1 - k)})`;
+      ctx.fillRect(cx + side * r - s / 2, cy + 1 - k * 3 - (j >> 1) * 0.8 - s / 2, s, s);
+    }
+    for (let j = 0; j < 3; j++) {                                // chunks hopping out onto the pile
+      const tx = b.type === 'rig' ? 25.5 : j % 2 ? 29.5 : 2, ty = b.type === 'rig' ? 20.5 : A.base + 6;
+      const sx2 = cx + (tx - cx) * k, sy2 = cy - 1 + (ty - cy + 1) * k - Math.sin(k * Math.PI) * (6 + j * 2);
+      R(sx2 - 0.75 + j * 0.6, sy2 - 0.75, 1.5, 1.5, j === 1 ? chipL : chipD);
+    }
+  }
+  ctx.restore();
+  // exhaust: sooty diesel puffs, thicker with load, and a fat cough right after each blow
+  if (e <= 0) return;
+  const ox = sx - size / 2 + (kx + 1) * p, oy = sy - size / 2 + (ky - 1) * p, u = Math.max(1.5, p * 1.6), n = 4 + Math.round(e * 4);
+  for (let k = 0; k < n; k++) {
+    const f = (game.time * 0.5 + v * 3 + k / n) % 1, s = u * (1 + f * 3.4);
+    const r = Math.round(30 + f * 85), g = Math.round(28 + f * 78), bl = Math.round(26 + f * 70);
+    const a = (0.65 + 0.3 * e) * Math.pow(1 - f, 0.6) * Math.min(1, f * 8);
+    const px2 = ox + Math.sin(f * 6 + v * 9 + k) * u + f * f * size * 0.5, py2 = oy - f * size * 0.9;
+    ctx.fillStyle = `rgba(${r},${g},${bl},${a})`; ctx.fillRect(px2 - s / 2, py2 - s / 2, s, s);
+    ctx.fillStyle = `rgba(${r},${g},${bl},${a * 0.65})`; ctx.fillRect(px2 - s * 0.9, py2 - s * 0.1, s * 0.55, s * 0.55);
+  }
+  if (after >= 0 && after < 0.7) {                               // the cough
+    const k = after / 0.7, s = u * (2.2 + k * 4);
+    ctx.fillStyle = `rgba(24,22,20,${0.75 * (1 - k)})`;
+    ctx.fillRect(ox - s / 2 + k * u * 2, oy - k * size * 0.3 - s / 2, s, s);
+    ctx.fillRect(ox - s * 0.9 + k * u * 2, oy - k * size * 0.3 - s * 0.1, s * 0.6, s * 0.6);
+  }
+}
 // Zoomed out, a settlement is drawn as what it is: a cluster of little coloured blocks, one per house, in the same
 // spots as its houses up close. Red roofs for houses, blue for apartments, pale grey for city blocks, and a bright
 // block at the centre. A hamlet is a few specks; a city is a patch you can't miss. No icons to cover the map.
@@ -5133,18 +5223,136 @@ function drawSettlementHover(z) {
   const r = z >= CFG.detailZoom ? z * (1.5 + lvl * 0.18) : 11 + lvl * 3;
   pill(best.sx, best.sy + r + 14, `${CFG.settlement.levels[lvl].name} · ${fmtNum(living)} people · holds ${Math.round(cap)}${underFire(b) ? ` · under fire, not growing (${fireLeft(b)}s)` : ''}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
 }
+// ---------- pointing and picking: a ring glides to whatever building you point at; clicking one of yours opens its card ----------
+// the building at a screen point: the one on the tile (zoomed in, or a station/port/pad icon from far out), else the
+// nearest settlement within reach of the pointer, so the big ones are easy to hit
+function buildingNear(x, y) {
+  const z = cam.zoom, [wx, wy] = toWorld(x, y), tx = Math.floor(wx), ty = Math.floor(wy);
+  if (inb(tx, ty) && building[idx(tx, ty)] && building[idx(tx, ty)] !== BLD_CODE.settlement) {
+    const b = buildingAt(idx(tx, ty));
+    if (b && (z >= CFG.cityZoom || b.type === 'station' || b.type === 'port' || b.type === 'pad')) return b;
+  }
+  let best = null, bd = Math.max(18, z * 1.6);
+  for (const b of game.buildings) {
+    if (b.type !== 'settlement') continue;
+    const [sx, sy] = toScreen(...tileCenter(b.i)), d = Math.hypot(sx - x, sy - y);
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+// what the mouse is pointing at right now (nothing while you build, aim, paste, drag or drive)
+const pointedBuilding = () => !mouse.in || mouse.dragged || mouse.down >= 0 || game.tool || game.aiming || blueprint || game.driving
+  ? null : buildingNear(mouse.x, mouse.y);
+let inspected = null;                              // the building whose card is open
+const ringFx = { hover: { x: 0, y: 0, r: 0, a: 0, b: null }, sel: { x: 0, y: 0, r: 0, a: 0, b: null }, t: performance.now() };
+// where a building's ring sits (world) and how big it is (pixels)
+function ringGeom(b, z) {
+  const [cx, cy] = tileCenter(b.i);
+  if (b.type !== 'settlement') return [cx, cy, Math.max(0.8 * z, 12)];
+  const lvl = settlementLevel(b);
+  return [cx, cy - 0.15, z >= CFG.cityZoom ? Math.max((1.3 + lvl * 0.22) * z, 16) : 15 + lvl * 3];
+}
+// ease a ring toward its building: it slides from one building to the next and fades in and out
+function stepRing(R, b, dt, z) {
+  const k = 1 - Math.exp(-dt * 18);
+  if (b) {
+    const [x, y, r] = ringGeom(b, z), [ax, ay] = toScreen(R.x, R.y), [bx, by] = toScreen(x, y);
+    if (!R.b || R.a < 0.05 || Math.hypot(ax - bx, ay - by) > 260) { R.x = x; R.y = y; R.r = r * 0.7; }   // far away: just appear there
+    else { R.x += (x - R.x) * k; R.y += (y - R.y) * k; }
+    R.r += (r - R.r) * k; R.a += (1 - R.a) * k; R.b = b;
+  } else { R.a -= R.a * k; R.r *= 1 + 0.4 * dt; if (R.a < 0.01) { R.a = 0; R.b = null; } }
+}
+function drawRing(R, col, spin, sel) {
+  if (R.a < 0.01) return;
+  const [sx, sy] = toScreen(R.x, R.y), t = performance.now() / 1000, r = R.r * (sel ? 1 + 0.035 * Math.sin(t * 3.2) : 1);
+  const c = a => `rgba(${col[0]},${col[1]},${col[2]},${a})`;
+  ctx.save();
+  ctx.globalAlpha = R.a;
+  const g = ctx.createRadialGradient(sx, sy, r * 0.35, sx, sy, r * 1.25);   // a soft glow on the ground
+  g.addColorStop(0, c(0)); g.addColorStop(0.7, c(sel ? 0.16 : 0.1)); g.addColorStop(1, c(0));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, r * 1.25, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = sel ? 2.4 : 1.8; ctx.strokeStyle = c(sel ? 0.95 : 0.8);
+  ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineCap = 'round'; ctx.lineWidth = sel ? 3.4 : 2.8; ctx.strokeStyle = c(1);   // four ticks, slowly turning
+  for (let k = 0; k < 4; k++) {
+    const a = t * spin + k * Math.PI / 2;
+    ctx.beginPath(); ctx.arc(sx, sy, r + 4, a - 0.2, a + 0.2); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawRings(z) {
+  const now = performance.now(), dt = Math.min(0.1, (now - ringFx.t) / 1000);
+  ringFx.t = now;
+  const hb = pointedBuilding();
+  stepRing(ringFx.sel, inspected, dt, z);
+  stepRing(ringFx.hover, hb && hb !== inspected ? hb : null, dt, z);
+  drawRing(ringFx.sel, [242, 193, 78], 0.7, true);
+  const foe = ringFx.hover.b && !owner[ringFx.hover.b.i];
+  drawRing(ringFx.hover, foe ? [255, 122, 107] : [238, 242, 248], -0.9, false);
+}
+// open (or close, with null) a building's card
+function inspect(b) {
+  inspected = b;
+  updateInspect();
+}
+// the card: a settlement's level, people, housing and power; any other building's card from buildingCard
+function updateInspect() {
+  const el = $('inspect');
+  if (!el) return;
+  const b = inspected, alive = b && building[b.i] && buildingAt(b.i) === b && owner[b.i];
+  if (!alive) { inspected = null; el.classList.remove('open'); return; }
+  const c = countryAt(b.i), def = CFG.buildings[b.type], S = CFG.settlement;
+  const rows = [], row = (k, v, cls = '') => rows.push(`<div class="ir"><span>${k}</span><b class="${cls}">${v}</b></div>`);
+  const bar = (f, cls = '') => rows.push(`<div class="ibar ${cls}"><i style="width:${(clamp(f, 0, 1) * 100).toFixed(1)}%"></i></div>`);
+  const note = (s, cls = 'd') => rows.push(`<div class="in ${cls}">${s}</div>`);
+  let title, icon;
+  if (b.type === 'settlement') {
+    const L = S.levels, lvl = settlementLevel(b), cap = settlementCap(b), next = L[lvl + 1];
+    const share = c.capBase > 0 ? b.base / c.capBase : 0, living = c.cap > 0 ? c.people * cap / c.cap : 0;
+    const powered = Math.max(0, cap - b.base), maxPow = b.base * S.boost, draw = ((c.mw && c.mw.city) || 0) * share;
+    title = L[lvl].name; icon = 'settle' + (Math.min(lvl, 3) + 1);
+    row('People', `${fmtNum(living)} / ${Math.round(cap)}`);
+    bar(cap > 0 ? living / cap : 0);
+    if (next) { row('Next level', `${next.name} at ${next.cap}`); bar((cap - L[lvl].cap) / (next.cap - L[lvl].cap), 'gold'); }
+    else row('Level', 'Top level');
+    rows.push('<div class="isep"></div>');
+    row('Housing from land', `${Math.round(b.base)}`);
+    note(`${b.tiles} tiles within ${S.reach} of it`);
+    row('Housing from power', `+${Math.round(powered)} of ${Math.round(maxPow)}`, powered > 0.5 ? 'g' : '');
+    bar(maxPow > 0 ? powered / maxPow : 0, 'power');
+    row('Power used', `${draw.toFixed(1)} MW`, draw > 0.05 ? 'p' : '');
+    if (maxPow - powered > 0.5) {
+      const mw = Math.max(0, (c.pw.capPow - (c.powCap || 0)) / S.perMW);
+      note(`${fmtNum(Math.ceil(mw))} MW more spare power in ${c.short} would add ${Math.round(maxPow - powered)} more homes here`);
+    } else note('Fully powered: claim more land around it to grow', 'g');
+    rows.push('<div class="isep"></div>');
+    if (underFire(b)) row('Growth', `Under fire (${fireLeft(b)}s)`, 'r');
+    else row('Growth', c.growth > 0.005 ? `+${(c.growth * share).toFixed(2)} / sec` : c.growth < -0.005 ? `${(c.growth * share).toFixed(2)} / sec` : 'Full',
+      c.growth < -0.005 ? 'r' : c.growth > 0.005 ? 'g' : '');
+  } else {
+    title = def.name; icon = b.type;
+    const [html] = buildingCard(b);
+    rows.push(`<div class="icard">${html.replace(/^<div class="t">.*?<\/div>/, '')}</div>`);
+    if (def.use) row('Power use', `${def.use} MW`, c.sat < 0.999 ? 'r' : 'p');
+    if (def.gen) row('Power made', `up to ${def.gen} MW`, 'p');
+    if (def.workers) row('Workers', `${def.workers}`, c.staff < 0.999 ? 'r' : '');
+  }
+  const key = `${b.i}:${icon}`;
+  if (el.dataset.key !== key) {                    // a new building (or a settlement that levelled up): redo the header
+    el.dataset.key = key;
+    el.querySelector('.iicon').innerHTML = SVG[icon] || '';
+  }
+  el.querySelector('.it').textContent = title;
+  el.querySelector('.isub').textContent = c.full;
+  const body = rows.join(''), ib = el.querySelector('.ibody');
+  if (ib.dataset.html !== body) { ib.innerHTML = body; ib.dataset.html = body; }   // only touch the page when something changed
+  el.classList.add('open');
+}
+
 // pointing at a settlement (with nothing else selected) shows the land it reaches
 function drawReachHover(z) {
   if (game.tool || game.aiming || blueprint || !mouse.in) return;
   const t = hoverTile();
-  if (t && building[t.i] && building[t.i] !== BLD_CODE.settlement && z >= CFG.cityZoom) {   // gold corners: this is the one the card is about
-    const [sx, sy] = toScreen(t.x, t.y), s = z, k = Math.max(4, z * 0.28);
-    ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.beginPath();
-    for (const [cx, cy, dx, dy] of [[sx, sy, 1, 1], [sx + s, sy, -1, 1], [sx, sy + s, 1, -1], [sx + s, sy + s, -1, -1]]) {
-      ctx.moveTo(cx + dx * k, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + dy * k);
-    }
-    ctx.stroke();
-  }
   if (t && building[t.i] === BLD_CODE.settlement) reachRing(t.i, '#f2c14e', z);
   else if (t && building[t.i] && HARVESTS[buildingAt(t.i).type]) reachRing(t.i, '#f2c14e', z, [5, 5], CFG.collectorReach);
   else if (t && building[t.i] === BLD_CODE.mortar) reachRing(t.i, aiOf[t.i] ? 'rgba(255,122,107,0.9)' : '#f2c14e', z, [4, 5], CFG.weapons.shell.range);
@@ -5351,14 +5559,22 @@ function clickAt(btn, x, y) {
     if (!body && worldLockable() && overWorld(wx, wy)) { lockWorld(); return; }
   }
   const t = hoverTile();
+  let pb = null;
   if (!t) return;
   if (game.over) return toast(`Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`);
   if (btn === 0) {
     if (game.tool === 'bridge') bridgeClick(t.i);
     else if (game.tool) tryBuild(t.i, game.tool);
     else if (blueprint) clearSelection();          // with a selection, a click just deselects
-    else if (owner[t.i] && building[t.i] === BLD_CODE.pad && cam.zoom >= CFG.cityZoom) padClick(buildingAt(t.i));
+    else if ((pb = buildingNear(x, y)) && owner[pb.i]) {   // one of your buildings: open its card (and view its country)
+      inspect(pb);
+      const c = countryAt(pb.i);
+      if (pb.type === 'pad' && cam.zoom >= CFG.cityZoom) padClick(pb);
+      if (c && cam.zoom < CFG.cityZoom) flyToCountry(c);
+      else if (c) game.active = c.id;
+    }
     else if (owner[t.i]) {                         // clicking inside one of your countries selects it
+      inspect(null);
       const c = countryAt(t.i);
       if (c && cam.zoom < CFG.cityZoom) flyToCountry(c);
       else if (c && c.id !== game.active) { game.active = c.id; toast(`Viewing ${c.full}`); }
@@ -5437,6 +5653,7 @@ function cancelAll() {
   }
   if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast(say('Parked. Press X to take the wheel again.', 'Parked. Tap Drive to take the wheel again.')); }
   setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false);
+  inspect(null);
 }
 function goHome() { game.driving = null; stopFollow(); cam.anim = null; cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
 function nextCountry(dir) {
@@ -5737,6 +5954,7 @@ function addToBar(type) {                           // a new unlock takes the fi
 function buildMenu() {
   renderBuildBar();
   document.querySelector('#topbar .res.country').addEventListener('click', () => flyToCountry(activeCountry()));
+  document.querySelector('#inspect .ix').addEventListener('click', () => inspect(null));
   const pw = $('pct-buttons');
   for (const p of [10, 25, 50, 100]) {
     const el = document.createElement('div');
@@ -6004,7 +6222,7 @@ function updateHover() {
 
   if (!game.tool) {                                // pointing at a building: a card saying what it's up to
     const hb = building[t.i] && building[t.i] !== BLD_CODE.settlement && !mouse.dragged ? buildingAt(t.i) : null;
-    if (hb && CFG.buildings[hb.type]) { const [html, bad] = buildingCard(hb); placeTip(html, bad); return; }
+    if (hb && hb !== inspected && CFG.buildings[hb.type]) { const [html, bad] = buildingCard(hb); placeTip(html, bad); return; }
     tip.style.display = 'none'; return;
   }
   if (game.tool === 'bridge') { const [html, bad] = bridgeTip(t); placeTip(html, bad); return; }
@@ -6361,7 +6579,7 @@ function start() {
     } finally { game.time = simTime; lead = 0; }
     hudT += dt;
     // touch buttons first: they read the layout, which is only clean before the HUD writes into the page
-    if (hudT > 0.1) { if (TOUCH) updateTouchButtons(); updateHud(); hudT = 0; }
+    if (hudT > 0.1) { if (TOUCH) updateTouchButtons(); updateHud(); updateInspect(); hudT = 0; }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
