@@ -3900,16 +3900,14 @@ function drawRingFx(z) {
   }
   ctx.globalAlpha = 1;
 }
-// "Lv 3" over each upgraded city of yours, coloured by how much of its powered housing has power
+// "Lv 3" over the city whose card is open (hovering a city shows its level in the label under it instead),
+// coloured by how much of its powered housing has power
 function drawCityLevels(z) {
-  if (z < CFG.cityZoom) return;
-  for (const b of game.buildings) {
-    if (b.type !== 'settlement' || !b.up || b.up < 2 || !owner[b.i]) continue;
-    const [sx, sy] = toScreen(b.i % W + 0.5, ((b.i / W) | 0) + 0.5);
-    if (sx < -60 || sy < -60 || sx > cw + 60 || sy > ch + 60) continue;
-    const f = poweredShare(countryAt(b.i)), col = f >= 0.995 ? '#8fd3ff' : f > 0.02 ? '#f2c14e' : '#8a93a3';
-    pill(sx, sy - Math.max(18, z * 2.6), `Lv ${b.up}`, { fg: col, border: col, size: 11, bold: 800 });
-  }
+  const b = inspected;
+  if (!b || b.type !== 'settlement' || !b.up || b.up < 2 || !owner[b.i] || z < CFG.cityZoom * 0.5) return;
+  const [sx, sy] = toScreen(b.i % W + 0.5, ((b.i / W) | 0) + 0.5);
+  const f = poweredShare(countryAt(b.i)), col = f >= 0.995 ? '#8fd3ff' : f > 0.02 ? '#f2c14e' : '#8a93a3';
+  pill(sx, sy - Math.max(18, z * 2.6), `Lv ${b.up}`, { fg: col, border: col, size: 11, bold: 800 });
 }
 // you built something: it pops up out of a puff of dust with a gold ring
 function popIn(i) {
@@ -6241,7 +6239,9 @@ function drawSettlementHover(z) {
   const b = best.b, foe = nationAt(b.i), who = foe || countryAt(b.i), cap = settlementCap(b), lvl = settlementLevel(b);
   const living = who && who.cap > 0 ? who.people * cap / who.cap : 0;
   const r = ringGeom(b, z)[2] + 2;                 // just below the ring the pointer puts round it
-  pill(best.sx, best.sy + r + 16, `${CFG.settlement.levels[lvl].name} · ${fmtNum(living)} people · holds ${Math.round(cap)}${underFire(b) ? ` · under fire, not growing (${fireLeft(b)}s)` : ''}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
+  const up = !foe && owner[b.i] ? cityLevel(b) : 1;   // your upgraded cities: their level and how powered they are
+  const lv = up > 1 ? ` · level ${up} (${Math.round(poweredShare(who) * 100)}% powered)` : '';
+  pill(best.sx, best.sy + r + 16, `${CFG.settlement.levels[lvl].name}${lv} · ${fmtNum(living)} people · holds ${Math.round(cap)}${underFire(b) ? ` · under fire, not growing (${fireLeft(b)}s)` : ''}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
 }
 // ---------- pointing and picking: a ring glides to whatever you point at; clicking one of yours opens its card ----------
 // Anything can be picked: a building, a truck or boat you drove out, a train or cargo ship on its route, a bridge.
