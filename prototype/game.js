@@ -188,6 +188,9 @@ const CFG = {
 // small helpers
 // ======================================================================
 const $ = id => document.getElementById(id);
+// a phone or tablet: fingers and on-screen buttons instead of a mouse and keys
+const TOUCH = window.matchMedia('(pointer: coarse)').matches;
+const say = (desk, touch) => TOUCH ? touch : desk;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 const mix = (c1, c2, t) => [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
@@ -1226,7 +1229,7 @@ function recomputeNetwork() {
   if (game.started && !game.over && !game.countries.some(c => c.alive)) {
     game.over = true; game.driving = null; game.aiming = false;
     $('toast').classList.add('show'); clearTimeout(toastTimer);
-    $('toast').textContent = 'Your last country has fallen. Press N to start a new map.';
+    $('toast').textContent = `Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`;
   }
   recomputeBuildings();
 }
@@ -1528,7 +1531,7 @@ function checkUnlocks(quiet = false) {
     if (game.unlocked.has(type) || !isUnlocked(type)) continue;
     game.unlocked.add(type);
     addToBar(type);                                // new unlocks (and, on load, anything newly unlocked by an update) take a free slot
-    if (!quiet) toast(`Unlocked: ${b.name}! Your empire reached ${b.unlock} people. Press E to see it.`);
+    if (!quiet) toast(`Unlocked: ${b.name}! Your empire reached ${b.unlock} people. ${say('Press E', 'Tap Build')} to see it.`);
   }
   refreshBuildBar();
   if (menuOpen) renderBuildMenu();
@@ -1735,7 +1738,7 @@ const sendFrom = C => Math.floor((C ? freePeople(C) : 0) * game.sendPct / 100);
 
 function startPush(tx, ty) {
   const b = biome[idx(tx, ty)];
-  if (b === OCEAN) return toast("Can't expand into water. Right-click to send a boat expedition.");
+  if (b === OCEAN) return toast(`Can't expand into water. ${say('Right-click', 'Long-press')} to send a boat expedition.`);
   if (b === ICE || b === VOID) return toast('Nothing to claim there: that is the edge of the world.');
   if (!frontier.size) return toast('Nowhere left to expand');
   const { country: src } = nearestCountryTo(tx, ty);
@@ -1811,10 +1814,10 @@ function borderTileOf(C, tx, ty) {
 // You drive it yourself (see driveStep); `auto` is the old straight-line trip, kept for the playtest bot.
 function launchExpedition(tx, ty, { auto = false } = {}) {
   const t = idx(tx, ty);
-  if (owner[t]) return toast('That land is already yours. Right-click outside your border to send an expedition that way.');
+  if (owner[t]) return toast(`That land is already yours. ${say('Right-click', 'Long-press')} outside your border to send an expedition that way.`);
   if (auto) {
     if (!isLand(t)) return toast('Pick a land tile for the expedition');
-    if (aiOf[t]) return toast(`That's ${nationAt(t).full}. Take it by pushing in from your border (left-click), or shell it first.`);
+    if (aiOf[t]) return toast(`That's ${nationAt(t).full}. Take it by pushing in from your border (${say('left-click', 'tap')}), or shell it first.`);
   }
   const src = activeCountry() || nearestCountryTo(tx, ty).country;
   const tile = borderTileOf(src, tx, ty);
@@ -1855,7 +1858,7 @@ function launchExpedition(tx, ty, { auto = false } = {}) {
   if (!auto) {
     Object.assign(e, { kind, vx: 0, vy: 0, a: Math.atan2(ty + 0.5 - sy, tx + 0.5 - sx), supplies: CFG.drive.supplies, trail: [[sx, sy]] });
     takeWheel(e);
-    if (kind === 'boat' || !bySea) toast(`${kind === 'boat' ? 'Boat' : 'Truck'} ready with ${n} people. Arrow keys or WASD to drive, Space to settle, Esc to let go.`);
+    if (kind === 'boat' || !bySea) toast(`${kind === 'boat' ? 'Boat' : 'Truck'} ready with ${n} people. ${say('Arrow keys or WASD to drive, Space to settle, Esc to let go', 'Steer with the arrows, and tap Settle when you like the spot')}.`);
   }
   game.expeditions.push(e);
 }
@@ -1867,7 +1870,7 @@ function takeWheel(e) {
 // X: hop into the next expedition that's waiting for a driver
 function nextVehicle() {
   const list = game.expeditions.filter(e => !e.auto && !e.done);
-  if (!list.length) return toast('No expedition is out. Right-click outside your border to send one.');
+  if (!list.length) return toast(`No expedition is out. ${say('Right-click', 'Long-press')} outside your border to send one.`);
   takeWheel(list[(list.indexOf(game.driving) + 1) % list.length]);
 }
 const canDriveOn = (e, x, y) => inb(Math.floor(x), Math.floor(y)) &&
@@ -2246,7 +2249,7 @@ const tileDist = (i, x, y) => Math.hypot(i % W - x, ((i / W) | 0) - y);
 function setAiming(on) {
   if (on && !silosOf().length) return toast(isUnlocked('silo') ? 'Build a missile silo first: silos are the weapon you aim (mortars and turrets fire by themselves)' : `You aim missile silos, which unlock at ${CFG.buildings.silo.unlock} people. Mortars and turrets fire by themselves.`);
   game.aiming = on;
-  if (on) { setTool(null); clearSelection(); toast('Aiming: click a target in range · F or Esc to stop'); }
+  if (on) { setTool(null); clearSelection(); toast(say('Aiming: click a target in range · F or Esc to stop', 'Aiming: tap a target in range, then tap it again to fire')); }
 }
 // which of your weapons would fire at a spot: the lightest one in range that's loaded
 function pickWeapon(tx, ty) {
@@ -2467,7 +2470,7 @@ function setCamRot(r) { cam.rot = r; cam.cos = Math.cos(r); cam.sin = Math.sin(r
 let savedView = null;
 
 function resize() {
-  dpr = window.devicePixelRatio || 1;
+  dpr = Math.min(2, window.devicePixelRatio || 1);   // phones report 3: not worth 2.25x the pixels
   cw = window.innerWidth; ch = window.innerHeight;
   canvas.width = cw * dpr; canvas.height = ch * dpr;
 }
@@ -4066,7 +4069,7 @@ function drawVehicle(e, z) {
   const load = Object.entries(e.kit).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(' · ');
   pill(sx, by + 20, e.supplies > 0 ? `${Math.floor(e.n)} people${load ? ' · ' + load : ''} · supplies ${Math.ceil(e.supplies)}s`
     : `${Math.floor(e.n)} people · out of supplies!`, { dot: e.supplies > 0 ? '#f2c14e' : '#ff7a6b', fg: e.supplies > 0 ? '#eef2f8' : '#ff7a6b', size: 11 });
-  if (mine) pill(sx, by + 42, 'Arrows / WASD drive · Space settle here · Esc let go', { size: 11, fg: '#aab4c4' });
+  if (mine) pill(sx, by + 42, say('Arrows / WASD drive · Space settle here · Esc let go', 'Steer with the pad · Settle here · Park'), { size: 11, fg: '#aab4c4' });
   else pill(sx, by + 42, 'Parked · X to drive', { size: 11, fg: '#aab4c4' });
 }
 
@@ -4169,6 +4172,7 @@ function hoverTile() {
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('mousedown', e => {
+  if (performance.now() - lastTouch < 800) return;   // the browser's copy of a tap: the touch code has it
   mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true;
   mouse.down = e.button; mouse.sx = e.clientX; mouse.sy = e.clientY; cam.anim = null;
   mouse.dragged = false; mouse.selecting = false; mouse.camX = cam.x; mouse.camY = cam.y;
@@ -4196,18 +4200,23 @@ window.addEventListener('mouseup', e => {
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (wasSel) { finishSelection(mouse.sx, mouse.sy, e.clientX, e.clientY); return; }
   if (wasDrag || e.target !== canvas) return;
+  clickAt(btn, e.clientX, e.clientY);
+});
+// a click (or a tap: btn 0; a long press: btn 2) at a screen point
+function clickAt(btn, x, y) {
+  mouse.x = x; mouse.y = y;
   // a plain click on any body (or your world from far out) locks onto it
   if (btn === 0 && game.aiming) { const t = hoverTile(); if (t) fireMissile(t.x, t.y); return; }
   if (btn === 2 && game.aiming) { setAiming(false); return; }
   if (btn === 0 && !game.tool) {
-    const [wx, wy] = toWorld(e.clientX, e.clientY);
+    const [wx, wy] = toWorld(x, y);
     const body = bodyUnder(wx, wy);
     if (body && cam.follow !== body.id) { followBody(body.id); return; }
     if (!body && worldLockable() && overWorld(wx, wy)) { lockWorld(); return; }
   }
   const t = hoverTile();
   if (!t) return;
-  if (game.over) return toast('Your last country has fallen. Press N to start a new map.');
+  if (game.over) return toast(`Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`);
   if (btn === 0) {
     if (game.tool) tryBuild(t.i, game.tool);
     else if (blueprint) clearSelection();          // with a selection, a click just deselects
@@ -4221,7 +4230,7 @@ window.addEventListener('mouseup', e => {
     else if (blueprint) clearSelection();
     else launchExpedition(t.x, t.y);
   }
-});
+}
 canvas.addEventListener('mouseenter', () => { mouse.in = true; });
 canvas.addEventListener('mouseleave', () => { mouse.in = false; });
 canvas.addEventListener('wheel', e => {
@@ -4235,6 +4244,7 @@ canvas.addEventListener('wheel', e => {
 
 // double-click a body to lock onto it; double-click empty space to let go
 canvas.addEventListener('dblclick', e => {
+  if (performance.now() - lastTouch < 800) return;
   const [wx, wy] = toWorld(e.clientX, e.clientY);
   const body = bodyUnder(wx, wy);
   if (body) followBody(body.id);
@@ -4251,10 +4261,7 @@ window.addEventListener('keydown', e => {
     if (menuOpen && menuHover) pinToBar(menuHover, slot);          // in the E menu: put the hovered building on that key
     else if (game.hotbar[slot]) setTool(game.tool === game.hotbar[slot] ? null : game.hotbar[slot]);
   }
-  if (k === 'escape') {
-    if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast('Parked. Press X to take the wheel again.'); }
-    setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false);
-  }
+  if (k === 'escape') cancelAll();
   if (k === ' ' && game.driving) { e.preventDefault(); if (!e.repeat) settleExpedition(game.driving); }
   if (k === 'x' && !e.repeat) nextVehicle();
   if (k.startsWith('arrow') && game.driving) e.preventDefault();
@@ -4275,17 +4282,137 @@ window.addEventListener('keydown', e => {
     if (en.key !== k) continue;
     if (cam.follow === en.id) { stopFollow(); toast(`Let go of ${en.name}`); } else followBody(en.id);
   }
-  if (k === 'h') { game.driving = null; stopFollow(); cam.anim = null; cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
-  if (k === 'tab') {
-    e.preventDefault();
-    const alive = game.countries.filter(c => c.alive && c.tiles);
-    const j = alive.indexOf(activeCountry());
-    flyToCountry(alive[(j + (e.shiftKey ? alive.length - 1 : 1)) % alive.length]);
-  }
+  if (k === 'h') goHome();
+  if (k === 'tab') { e.preventDefault(); nextCountry(e.shiftKey ? -1 : 1); }
   if ('wasd'.includes(k) || k.startsWith('arrow')) cam.anim = null;
   if (k === 'n') { newGame(); }
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+
+// Esc: let go of whatever you're doing
+function cancelAll() {
+  if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast(say('Parked. Press X to take the wheel again.', 'Parked. Tap Drive to take the wheel again.')); }
+  setTool(null); clearSelection(); stopFollow(); setAiming(false); if (menuOpen) toggleBuildMenu(false);
+}
+function goHome() { game.driving = null; stopFollow(); cam.anim = null; cam.x = spawn.x + 0.5; cam.y = spawn.y + 0.5; }
+function nextCountry(dir) {
+  const alive = game.countries.filter(c => c.alive && c.tiles);
+  if (!alive.length) return;
+  const j = alive.indexOf(activeCountry());
+  flyToCountry(alive[(j + (dir < 0 ? alive.length - 1 : 1)) % alive.length]);
+}
+
+// ---------- touch: one finger pans, two pinch-zoom, a tap is a click, a long press a right-click ----------
+// Building and firing take two taps: the first shows the preview (reach, cost, range), a second tap on
+// the same spot builds or fires. Box select and copy-paste stay mouse-only.
+let lastTouch = -1e9;
+const fingers = new Map();                         // finger id -> its last position
+const tch = { drag: false, long: false, sx: 0, sy: 0, timer: 0, pending: null, hints: 0 };
+function fingerMid() { const [a, b] = [...fingers.values()]; return [(a.x + b.x) / 2, (a.y + b.y) / 2, Math.hypot(a.x - b.x, a.y - b.y)]; }
+canvas.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') return;
+  e.preventDefault(); lastTouch = performance.now();
+  canvas.setPointerCapture(e.pointerId);
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  cam.anim = null;
+  clearTimeout(tch.timer);
+  if (fingers.size === 1) {
+    tch.drag = false; tch.long = false; tch.sx = e.clientX; tch.sy = e.clientY;
+    tch.timer = setTimeout(() => {               // held still: a right-click (an expedition, or put the tool down)
+      if (fingers.size !== 1 || tch.drag) return;
+      tch.long = true; tch.pending = null;
+      if (navigator.vibrate) navigator.vibrate(12);
+      clickAt(2, tch.sx, tch.sy);
+    }, 500);
+  } else tch.drag = true;                          // a second finger: a pinch, never a tap
+});
+canvas.addEventListener('pointermove', e => {
+  const f = e.pointerType !== 'mouse' && fingers.get(e.pointerId);
+  if (!f) return;
+  lastTouch = performance.now();
+  if (fingers.size >= 2) {
+    const [mx0, my0, d0] = fingerMid();
+    f.x = e.clientX; f.y = e.clientY;
+    const [mx1, my1, d1] = fingerMid();
+    const [bx, by] = toWorld(mx1, my1);
+    if (d0 > 0) cam.zoom = clamp(cam.zoom * d1 / d0, CFG.zoomMin, CFG.zoomMax);
+    const [ax, ay] = toWorld(mx1, my1);
+    nudgeCam(bx - ax, by - ay);
+    nudgeScreen(-(mx1 - mx0) / cam.zoom, -(my1 - my0) / cam.zoom);
+    return;
+  }
+  if (!tch.drag && Math.hypot(e.clientX - tch.sx, e.clientY - tch.sy) > 10) { tch.drag = true; clearTimeout(tch.timer); }
+  if (tch.drag && !tch.long) nudgeScreen(-(e.clientX - f.x) / cam.zoom, -(e.clientY - f.y) / cam.zoom);
+  f.x = e.clientX; f.y = e.clientY;
+});
+function liftFinger(e, cancelled) {
+  if (e.pointerType === 'mouse' || !fingers.delete(e.pointerId)) return;
+  lastTouch = performance.now();
+  clearTimeout(tch.timer);
+  if (fingers.size || cancelled || tch.drag || tch.long) return;
+  touchTap(e.clientX, e.clientY);
+}
+canvas.addEventListener('pointerup', e => liftFinger(e, false));
+canvas.addEventListener('pointercancel', e => liftFinger(e, true));
+function touchTap(x, y) {
+  const [wx, wy] = toWorld(x, y), tx = Math.floor(wx), ty = Math.floor(wy);
+  if ((game.tool || game.aiming) && inb(tx, ty)) {
+    const p = tch.pending;
+    if (!p || p.tool !== (game.tool || 'aim') || Math.hypot(tx - p.x, ty - p.y) > Math.max(1, 28 / cam.zoom)) {
+      tch.pending = { x: tx, y: ty, tool: game.tool || 'aim' };
+      mouse.x = x; mouse.y = y; mouse.in = true;    // the preview sits where you tapped
+      if (tch.hints++ < 3) toast(game.aiming ? 'Tap again to fire here' : 'Tap again to build here · long-press to put it down');
+      return;
+    }
+    [x, y] = toScreen(p.x + 0.5, p.y + 0.5);       // the second tap acts on the spot you previewed
+    tch.pending = null;
+    clickAt(0, x, y);
+    mouse.in = !!(game.tool || game.aiming);
+    return;
+  }
+  tch.pending = null;
+  clickAt(0, x, y);
+  mouse.in = !!(game.tool || game.aiming);
+}
+
+// on-screen buttons for touch screens: the keys, and a steering pad while you drive
+function bindTouchButtons() {
+  $('tbar').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'build') toggleBuildMenu();
+    else if (act === 'fire') setAiming(!game.aiming);
+    else if (act === 'next') nextCountry(1);
+    else if (act === 'map') toggleMapView();
+    else if (act === 'home') goHome();
+    else if (act === 'drive') nextVehicle();
+    else if (act === 'cancel') cancelAll();
+  });
+  for (const b of document.querySelectorAll('#dpad [data-key]')) {
+    const k = b.dataset.key, up = () => { keys.delete(k); b.classList.remove('on'); };
+    b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); keys.add(k); b.classList.add('on'); });
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
+  }
+  $('dp-settle').addEventListener('click', () => { if (game.driving) settleExpedition(game.driving); });
+  $('dp-park').addEventListener('click', () => cancelAll());
+  $('bm-new').addEventListener('click', () => { if (confirm('Start a new map? This deletes your saved game.')) newGame(); });
+}
+// which buttons make sense right now
+function updateTouchButtons() {
+  const show = (id, on) => { const el = document.querySelector(`#tbar [data-act="${id}"]`); if (el) el.hidden = !on; };
+  const anyOut = game.expeditions.some(e => !e.auto && !e.done);
+  show('fire', game.aiming || silosOf().length > 0);
+  show('drive', anyOut && !game.driving);
+  show('cancel', !!(game.tool || game.aiming || blueprint || cam.follow || menuOpen));
+  show('next', game.countries.filter(c => c.alive && c.tiles).length > 1);
+  document.querySelector('#tbar [data-act="fire"]').classList.toggle('on', !!game.aiming);
+  document.querySelector('#tbar [data-act="build"]').classList.toggle('on', menuOpen);
+  $('dpad').classList.toggle('show', !!game.driving && !menuOpen);
+  if (!game.driving) for (const k of ['arrowup', 'arrowdown', 'arrowleft', 'arrowright']) keys.delete(k);
+  document.body.style.setProperty('--bottom-h', $('bottom').offsetHeight + 'px');
+  document.body.style.setProperty('--top-h', $('topbar').offsetHeight + 'px');
+}
 
 function clampCam() {
   // you can pan out as far as the edge of the solar system
@@ -4344,7 +4471,7 @@ function followBody(id, { zoom, quiet, keepView } = {}) {
   cam.offX = 0; cam.offY = 30 / cam.zoom;              // nudge it up a little, clear of the bottom panels
   if (!keepView) { savedView = null; mapStage = 0; }
   applyFollow();
-  if (!quiet) toast(`Locked onto ${e.name}. Press ${e.key ? e.key.toUpperCase() + ' or ' : ''}Esc to let go.`);
+  if (!quiet) toast(TOUCH ? `Locked onto ${e.name}. Tap Cancel to let go.` : `Locked onto ${e.name}. Press ${e.key ? e.key.toUpperCase() + ' or ' : ''}Esc to let go.`);
 }
 const followMoon = () => followBody('moon');
 const followVulcan = () => followBody('vulcan');
@@ -4467,6 +4594,7 @@ function setTool(t) {
   if (t && !isUnlocked(t)) return toast(`${CFG.buildings[t].name} unlocks when your empire reaches ${CFG.buildings[t].unlock} people`);
   game.tool = t;
   if (t) game.aiming = false;
+  tch.pending = null;
   document.querySelectorAll('.bbtn').forEach(el => el.classList.toggle('sel', el.dataset.type === t));
   canvas.classList.toggle('building', !!t);
 }
@@ -4503,19 +4631,25 @@ function renderBuildMenu() {
       `<span class="${C && C.res[r] < n ? 'no' : ''}">${SVG[RES_ICON[r]]}${n}</span>`).join('');
     el.innerHTML = `<div class="tile">${SVG[type]}</div>
       <div class="bm-body"><div class="bm-name">${b.name}${slot >= 0 ? ` <span class="bm-key" title="on your bar">${SLOT_KEYS[slot]}</span>` : ''}</div>
-      <div class="bm-desc">${b.desc || ''}</div>
+      <div class="bm-desc">${TOUCH ? (b.desc || '').replace('Press F, then click', 'Tap Fire, then tap') : b.desc || ''}</div>
       <div class="bm-foot"><div class="cost">${cost}</div>
       <div class="bm-status">${open ? (type === 'settlement' ? `capacity from land · ${b.people} people` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : `🔒 unlocks at ${b.unlock} people`}</div></div></div>`;
     if (open) el.addEventListener('click', () => { setTool(type); toggleBuildMenu(false); });
     el.addEventListener('mouseenter', () => { menuHover = type; });
     el.addEventListener('mouseleave', () => { if (menuHover === type) menuHover = null; });
-    el.addEventListener('contextmenu', e => {         // right-click: on / off the bar
-      e.preventDefault();
+    const toggleBar = () => {
       if (slot >= 0) { game.hotbar[slot] = null; renderBuildBar(); renderBuildMenu(); }
       else if (!open) toast(`${b.name} isn't unlocked yet`);
       else if (game.hotbar.includes(null)) { addToBar(type); renderBuildBar(); renderBuildMenu(); }
-      else toast('Your bar is full: hover a building and press 1–0 to replace a slot');
-    });
+      else toast(say('Your bar is full: hover a building and press 1–0 to replace a slot', 'Your bar is full: take something off it first'));
+    };
+    el.addEventListener('contextmenu', e => { e.preventDefault(); toggleBar(); });   // right-click: on / off the bar
+    if (TOUCH && open) {
+      const pin = document.createElement('button');
+      pin.className = 'bm-pin'; pin.textContent = slot >= 0 ? 'On your bar ✓' : 'Add to bar';
+      pin.addEventListener('click', e => { e.stopPropagation(); toggleBar(); });
+      el.querySelector('.bm-body').appendChild(pin);
+    }
     sub.appendChild(el);
   }
   }
@@ -4699,7 +4833,7 @@ function updateHover() {
   } else if (bdef.weapon) {
     const Wp = CFG.weapons[bdef.weapon];
     html += `<div class="g">Reaches ${Wp.range} tiles · reloads in ${Wp.reload}s · blast radius ${Wp.radius}</div>`;
-    html += `<div class="d">Each shot costs ${Object.entries(Wp.cost).map(([r, n]) => `${n} ${r}`).join(' and ')}${bdef.use ? ` · uses ${bdef.use} MW` : ''}. ${bdef.weapon === 'missile' ? 'Press F to aim.' : 'Fires by itself at nations you are at war with.'}</div>`;
+    html += `<div class="d">Each shot costs ${Object.entries(Wp.cost).map(([r, n]) => `${n} ${r}`).join(' and ')}${bdef.use ? ` · uses ${bdef.use} MW` : ''}. ${bdef.weapon === 'missile' ? say('Press F to aim.', 'Tap Fire to aim.') : 'Fires by itself at nations you are at war with.'}</div>`;
   } else if (type === 'port') html += `<div class="d">Must be on the coast. Links to your other ports by sea.</div>`;
   else html += `<div class="d">Links to your nearest station by rail.</div>`;
   html += `<div class="d">Cost: ${costTxt}${bdef.people ? ` · ${bdef.people} people` : ''}${plan && plan.extra ? ' (incl. track)' : ''}${TC ? ', paid by ' + TC.short : ''}</div>`;
@@ -4902,6 +5036,7 @@ function start() {
     }
   }
   buildMenu();
+  bindTouchButtons();
   checkUnlocks(true);
   setInterval(saveGame, 10000);
   if (params.has('bot')) {                         // ?bot: a simple AI plays your side (prototype/bot.js), for playtesting
@@ -4914,8 +5049,8 @@ function start() {
   window.__game.genMs = Math.round(performance.now() - t0);
   const ld = $('loading');
   if (ld) ld.remove();
-  if (RESUME && !noSave) toast(`Welcome back: game loaded (seed ${SEED}, ${fmtTime(game.time)} played). It autosaves every 10 s; N starts a new map.`);
-  else toast(`Map seed ${SEED} · this seed's far planet: ${SEED_PLANET.name}, a ${SEED_PLANET.kind === 'gas' ? 'gas giant' : 'rocky world'} (press G to visit)`);
+  if (RESUME && !noSave) toast(`Welcome back: game loaded (seed ${SEED}, ${fmtTime(game.time)} played). It autosaves every 10 s; ${say('N starts a new map', 'New map is in the Build menu')}.`);
+  else toast(`Map seed ${SEED} · this seed's far planet: ${SEED_PLANET.name}, a ${SEED_PLANET.kind === 'gas' ? 'gas giant' : 'rocky world'}${say(' (press G to visit)', '')}`);
 
   const step = 1 / CFG.tickHz;
   let last = performance.now(), acc = 0, hudT = 0;
@@ -4929,12 +5064,12 @@ function start() {
     applyFollow();
     render();
     hudT += dt;
-    if (hudT > 0.1) { updateHud(); hudT = 0; }
+    if (hudT > 0.1) { updateHud(); if (TOUCH) updateTouchButtons(); hudT = 0; }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, isRuin, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; } };
+window.__game = { TOUCH, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, isRuin, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; } };
 init();

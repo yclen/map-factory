@@ -1,7 +1,9 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #04050b; color: #eef2f8;
-  font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; user-select: none; }
-canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: crosshair; }
+  font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; user-select: none;
+  -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+button, input { touch-action: manipulation; }
+canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
 
 .panel, #topbar .res { background: rgba(12, 16, 28, 0.88); border: 1px solid #263048; border-radius: 8px; }
 .lbl { font-size: 10px; letter-spacing: 0.08em; color: #8e9ab3; font-weight: 600; }
@@ -71,3 +73,54 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #loading { position: fixed; inset: 0; background: #04050b; display: grid; place-content: center; justify-items: center; gap: 14px; color: #b9c2d6; }
 .spin { width: 34px; height: 34px; border: 3px solid #263048; border-top-color: #f2c14e; border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- touch screens: a button row stands in for the keyboard ---------- */
+#mbar { display: none; }
+#mbar button { background: rgba(12, 16, 28, 0.9); border: 1px solid #263048; border-radius: 8px; color: #eef2f8;
+  font: inherit; font-weight: 600; padding: 7px 12px; cursor: pointer; }
+#mbar button.on { border-color: #f2c14e; background: rgba(60, 48, 16, 0.9); }
+@media (pointer: coarse) {
+  #mbar { display: flex; gap: 6px; position: fixed; top: 74px; left: 50%; transform: translateX(-50%); }
+  #mbar [data-panel] { display: none; }   /* wide screens show both panels anyway */
+  .bbtn .key { display: none; }           /* no number keys to press */
+  #banner { top: 120px; }
+}
+
+/* ---------- phones ---------- */
+@media (max-width: 760px) {
+  #topbar { top: calc(6px + env(safe-area-inset-top)); left: 6px; right: 6px; gap: 4px; }
+  #topbar .res { padding: 4px 7px; min-width: 0; flex: 1 1 0; gap: 6px; overflow: hidden; white-space: nowrap; }
+  #topbar .res.wide { min-width: 0; flex: 2.2 1 0; }
+  #topbar .res:first-child, #topbar .spacer, #topbar .res:nth-last-child(2) { display: none; }   /* nation name, view */
+  #topbar .long { display: none; }
+  .lbl { font-size: 9px; letter-spacing: 0.04em; }
+  .val { font-size: 14px; }
+
+  #mbar { display: flex; gap: 4px; position: fixed; top: calc(62px + env(safe-area-inset-top)); left: 6px; right: 6px; transform: none; }
+  #mbar button { flex: 1 1 0; padding: 7px 2px; font-size: 12px; min-width: 0; }
+  #mbar [data-panel] { display: block; }
+
+  #worlds, #leaders { top: calc(104px + env(safe-area-inset-top)); width: min(250px, 78vw); max-height: 55vh; overflow-y: auto; display: none; }
+  #worlds { left: 6px; }
+  #leaders { right: 6px; }
+  body[data-panel="worlds"] #worlds, body[data-panel="nations"] #leaders { display: block; }
+  #world-list .row { padding: 7px 4px; }
+  #orders { left: 6px; width: min(230px, 64vw); }
+
+  #banner { top: calc(108px + env(safe-area-inset-top)); width: max-content; max-width: calc(100vw - 24px); text-align: center; font-size: 13px; }
+
+  #bottom { left: 6px; right: 6px; bottom: calc(6px + env(safe-area-inset-bottom)); flex-direction: column; align-items: stretch; gap: 6px; }
+  #send { width: auto; padding: 5px 10px; }
+  #send input { height: 22px; }
+  #build { overflow-x: auto; scrollbar-width: none; padding-bottom: 1px; }
+  #build::-webkit-scrollbar { display: none; }
+  .bbtn { flex: none; min-width: 66px; padding: 4px 6px; }
+  .bbtn .ic { height: 30px; }
+  .bbtn .ic img { width: 30px; height: 30px; }
+  .bbtn .nm { font-size: 11px; white-space: nowrap; }
+  .bbtn .cs { font-size: 10px; white-space: nowrap; }
+  #help { display: none; }
+
+  #toast { bottom: calc(150px + env(safe-area-inset-bottom)); max-width: calc(100vw - 24px); width: max-content; text-align: center; }
+  #overlay .box { padding: 20px; max-width: calc(100vw - 32px); }
+}

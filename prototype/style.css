@@ -14,8 +14,10 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #04050b; color: var(--text); user-select: none; }
-canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: crosshair; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #04050b; color: var(--text); user-select: none;
+  -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+button { touch-action: manipulation; font-family: inherit; }
+canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
 canvas#game.dragging { cursor: grabbing; }
 canvas#game.building { cursor: copy; }
 
@@ -170,3 +172,82 @@ canvas#game.building { cursor: copy; }
 
 /* resource values carry "/ cap" now: keep them on one line */
 #topbar .val { white-space: nowrap; }
+
+/* ---------- touch screens: buttons for the keys, and a steering pad ---------- */
+#tbar, #dpad, #bm-new, .bm-pin { display: none; }
+#tbar button, #dpad button, #bm-new, .bm-pin {
+  background: rgba(20, 26, 37, 0.94); border: 1px solid #3a4560; border-radius: 9px; color: var(--text);
+  font-size: 13px; font-weight: 700; padding: 8px 12px; cursor: pointer;
+}
+#tbar button.on, #dpad button.on { background: var(--panel-hi); border-color: var(--accent); }
+#tbar button[hidden] { display: none; }
+@media (pointer: coarse) {
+  #tbar { display: flex; gap: 6px; position: fixed; top: 66px; left: 50%; transform: translateX(-50%); z-index: 9; }   /* above the build menu, so Build and Cancel still close it */
+  #buildmenu { top: 116px; transform: translateX(-50%); max-height: calc(100% - 140px); }
+  #toast { top: 116px; }
+  #bm-new { display: block; margin-top: 6px; margin-left: auto; font-size: 12px; padding: 5px 10px; }
+  .bm-close, .bm-key { display: none; }
+  .bm-head > div:first-child { flex: 1; }
+  .bm-pin { display: inline-block; margin-top: 8px; font-size: 11.5px; padding: 5px 10px; }
+  .bm-card .bm-pin { pointer-events: auto; }
+  #dpad.show {
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; position: fixed; z-index: 4;
+    left: 12px; right: 12px; bottom: calc(var(--bottom-h, 200px) + 24px); pointer-events: none;
+  }
+  #dpad .dp-side, #dpad .dp-mid { display: flex; gap: 10px; pointer-events: auto; }
+  #dpad .dp-col { flex-direction: column; }
+  #dpad .dp-mid { flex-direction: column; align-self: center; }
+  #dpad .dp-side button { width: 66px; height: 66px; font-size: 24px; border-radius: 16px; touch-action: none; background: rgba(20, 26, 37, 0.8); }
+  #dpad .dp-mid button { min-width: 84px; }
+  #dp-settle { background: var(--accent) !important; color: #2a1f05 !important; border-color: #5a4310 !important; }
+}
+
+/* ---------- phones ---------- */
+@media (max-width: 760px) {
+  #topbar {
+    height: auto; flex-wrap: wrap; gap: 3px; padding: calc(4px + env(safe-area-inset-top)) 5px 4px;
+  }
+  #topbar .res { flex: 1 1 30%; min-width: 0; padding: 2px 4px; gap: 5px; border-right: none; overflow: hidden; }
+  #topbar .res.country { flex: 1 1 100%; min-width: 0; }
+  #topbar .spacer, #topbar .res:nth-last-child(2) { display: none; }   /* the view name */
+  #topbar .res .lbl { gap: 4px; }
+  #topbar .ic { width: 18px; height: 18px; }
+  #val-country { max-width: none; }
+  .lbl { font-size: 8.5px; letter-spacing: 0.6px; }
+  .rate { font-size: 9.5px; }
+  .val { font-size: 13px; }
+  .val.small { font-size: 12px; }
+  #topbar .val span[style] { font-size: 10px !important; }
+  #topbar .val div[style] { min-width: 0 !important; }
+
+  #tbar { top: calc(var(--top-h, 118px) + 6px); left: 6px; right: 6px; transform: none; flex-wrap: wrap; gap: 4px; }
+  #tbar button { flex: 1 1 0; min-width: 0; padding: 7px 2px; font-size: 12px; white-space: nowrap; }
+  #toast { top: calc(var(--top-h, 118px) + 52px); max-width: calc(100vw - 24px); width: max-content; text-align: center; font-size: 12.5px; }
+
+  #bottom { left: 6px; right: 6px; bottom: calc(6px + env(safe-area-inset-bottom)); flex-direction: column-reverse; align-items: stretch; gap: 6px; }
+  #people { flex: none; min-width: 0; height: auto; padding: 8px 10px; gap: 6px; }
+  .people-top { gap: 6px; }
+  .ic.big { width: 26px; height: 26px; }
+  .val.big { font-size: 15px; }
+  .bar-wrap { margin-left: 4px; }
+  .bar-note { display: none; }
+  #people-rate { min-width: 0; font-size: 10.5px; }
+  .people-send { gap: 8px; }
+  .people-send > .lbl { display: none; }
+  #pct-buttons { gap: 4px; }
+  .pbtn { width: 46px; height: 28px; }
+  .send-n { font-size: 11px; }
+  #build { overflow-x: auto; scrollbar-width: none; }
+  #build::-webkit-scrollbar { display: none; }
+  .bbtn { flex: none; width: 70px; height: 80px; padding-top: 6px; }
+  .bbtn .tile { width: 38px; height: 36px; }
+  .bbtn .tile svg { width: 32px; height: 32px; }
+  .bbtn .name { font-size: 10.5px; margin-top: 4px; }
+  .bbtn .cost { font-size: 10px; }
+  .bbtn .key { display: none; }
+
+  #buildmenu { width: calc(100vw - 16px); padding: 14px; top: calc(var(--top-h, 118px) + 50px); max-height: calc(100% - var(--top-h, 118px) - 60px); }
+  .bm-catgrid { grid-template-columns: 1fr; gap: 8px; }
+  .bm-card { padding: 10px; }
+  #tooltip { max-width: 70vw; }
+}

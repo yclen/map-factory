@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#04050b">
   <title>Map Conquest</title>
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -16,10 +17,15 @@
       <div><div class="lbl">TROOPS <span class="rate" id="rate-troops"></span></div><div class="val" id="val-troops">0</div>
         <div class="bar"><div class="fill" id="troop-fill"></div></div></div></div>
     <div class="res"><div><div class="lbl">GOLD <span class="rate" id="rate-gold"></span></div><div class="val" id="val-gold">0</div></div></div>
-    <div class="res"><div><div class="lbl">LAND · WIN AT <span id="val-goal"></span></div><div class="val" id="val-land">0%</div></div></div>
+    <div class="res"><div><div class="lbl">LAND<span class="long"> · WIN AT <span id="val-goal"></span></span></div><div class="val" id="val-land">0%</div></div></div>
     <div class="spacer"></div>
     <div class="res"><div><div class="lbl">VIEW</div><div class="val small" id="val-view">-</div></div></div>
     <div class="res"><div><div class="lbl">TIME</div><div class="val" id="val-time">00:00</div></div></div>
+  </div>
+
+  <div id="mbar">
+    <button data-panel="worlds">Worlds</button><button data-panel="nations">Nations</button>
+    <button data-act="home">Home</button><button data-act="out">Zoom out</button><button data-act="pause" id="pause-btn">Pause</button>
   </div>
 
   <div id="worlds" class="panel"><div class="lbl">WORLDS</div><div id="world-list"></div></div>
@@ -44,6 +50,6 @@
   <div id="overlay"><div class="box"><h1 id="ov-title"></h1><p id="ov-sub"></p><button id="ov-btn">New map</button></div></div>
   <div id="loading"><div class="spin"></div>Generating the solar system…</div>
 
-  <script src="game.js?v=10"></script>
+  <script src="game.js?v=11"></script>
 </body>
 </html>

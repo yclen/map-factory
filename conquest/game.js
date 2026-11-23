@@ -1109,10 +1109,11 @@ let cw = 0, ch = 0, dpr = 1, ox = 0, oy = 0;
 const cam = { body: null, x: 0, y: 0, zoom: 1 };   // x, y: offset from the body you are locked onto
 const mouse = { x: 0, y: 0, down: false, drag: false, sx: 0, sy: 0 };
 const keys = new Set();
+const TOUCH = window.matchMedia('(pointer: coarse)').matches;   // a phone or tablet: fingers, no keyboard
 const stars = Array.from({ length: 320 }, () => [Math.random(), Math.random(), Math.random()]);
 
 function resize() {
-  dpr = window.devicePixelRatio || 1;
+  dpr = Math.min(2, window.devicePixelRatio || 1);   // phones report 3: not worth 2.25x the pixels
   cw = window.innerWidth; ch = window.innerHeight;
   canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
 }
@@ -1135,7 +1136,7 @@ function pickAt(px, py) {
   const wx = (px - cw / 2) / cam.zoom + ox, wy = (py - ch / 2) / cam.zoom + oy;
   for (const b of bodies) {
     const rr = b.r * cam.zoom;
-    if (rr < 40 && Math.hypot(SX(b.x) - px, SY(b.y) - py) < Math.max(rr, 14)) return { body: b };
+    if (rr < 40 && Math.hypot(SX(b.x) - px, SY(b.y) - py) < Math.max(rr, TOUCH ? 26 : 14)) return { body: b };
   }
   for (const w of worlds) {
     const lx = Math.floor(wx - w.body.x + w.S / 2), ly = Math.floor(wy - w.body.y + w.S / 2);
@@ -1489,7 +1490,7 @@ function toast(msg) {
 const TOOLS = Object.assign({}, CFG.buildings, CFG.nukes);
 function buildBar() {
   $('build').innerHTML = Object.entries(TOOLS).map(([type, b]) =>
-    `<button class="bbtn${CFG.nukes[type] ? ' weapon' : ''}" data-type="${type}" title="${b.desc}"><div class="ic">${CFG.nukes[type] ? svgIcon(type, 26) : `<img src="${sprite(type, players[ME].color).toDataURL()}" width="38" height="38" alt="">`}</div><div class="nm">${b.key} ${b.name}</div><div class="cs"></div></button>`).join('');
+    `<button class="bbtn${CFG.nukes[type] ? ' weapon' : ''}" data-type="${type}" title="${b.desc}"><div class="ic">${CFG.nukes[type] ? svgIcon(type, 26) : `<img src="${sprite(type, players[ME].color).toDataURL()}" width="38" height="38" alt="">`}</div><div class="nm"><span class="key">${b.key} </span>${b.name}</div><div class="cs"></div></button>`).join('');
   for (const el of document.querySelectorAll('.bbtn')) el.onclick = () => setTool(game.tool === el.dataset.type ? null : el.dataset.type);
 }
 // where each attack's number sits: the front tile nearest the spot you clicked (or the middle of the front)
@@ -1549,10 +1550,12 @@ function updateHud() {
   for (const a of game.attacks) if (a.pid === ME) rows.push(`${svgIcon('sword', 13)} ${a.target ? players[a.target].name : 'Free land'} · ${fmt(a.troops)}`);
   for (const b of game.boats) if (b.pid === ME) rows.push(`${svgIcon('boat', 13)} ${fmt(b.troops)} at sea`);
   for (const r of game.rockets) if (r.pid === ME) rows.push(`${svgIcon('rocket', 13)} ${fmt(r.troops)} → ${r.w.name.replace(/^the /, '')} · ${Math.ceil(r.t1 - game.time)}s`);
-  $('orders').style.display = rows.length ? 'block' : 'none';
-  $('orders').style.top = ($('worlds').offsetTop + $('worlds').offsetHeight + 8) + 'px';
   for (const n of game.nukes) if (n.pid === ME) rows.push(`${svgIcon(n.type, 13)} ${CFG.nukes[n.type].name} · ${Math.max(0, Math.ceil(n.t1 - game.time))}s`);
   $('orders').style.display = rows.length ? 'block' : 'none';
+  // under the worlds panel, or under the phone button row while that panel is closed
+  const above = $('worlds').offsetHeight ? $('worlds') : $('mbar');
+  $('orders').style.top = (above.getBoundingClientRect().bottom + 8) + 'px';
+  $('pause-btn').textContent = game.paused ? 'Resume' : 'Pause';
   $('order-list').innerHTML = rows.map(r => `<div class="row"><span class="n">${r}</span></div>`).join('');
 }
 function updateHover() {
@@ -1597,26 +1600,79 @@ function click(px, py) {
   if (err) toast(err);
   else game.pings.push({ w, i, text: '+' + fmt(before - players[ME].troops), t0: performance.now() });
 }
+// zoom to z1 keeping the screen point (px, py) still
+function zoomAt(px, py, z1) {
+  const z0 = cam.zoom; z1 = clamp(z1, CFG.zoomMin, CFG.zoomMax);
+  const dx = px - cw / 2, dy = py - ch / 2;
+  cam.x += dx / z0 - dx / z1; cam.y += dy / z0 - dy / z1; cam.zoom = z1;
+}
+function togglePause() {
+  if (game.phase === 'play' && !game.over) game.paused = !game.paused;
+  $('pause-btn').textContent = game.paused ? 'Resume' : 'Pause';
+}
+// phones: one panel open at a time (worlds or nations), opened from the button row
+function showPanel(name) {
+  const open = document.body.dataset.panel === name ? '' : name;
+  document.body.dataset.panel = open;
+  for (const el of document.querySelectorAll('#mbar [data-panel]')) el.classList.toggle('on', el.dataset.panel === open);
+}
 function bindInput() {
-  canvas.addEventListener('mousedown', e => { mouse.down = true; mouse.drag = false; mouse.t0 = performance.now(); mouse.sx = e.clientX; mouse.sy = e.clientY; mouse.btn = e.button; });
-  window.addEventListener('mousemove', e => {
-    if (mouse.down) {
-      if (!mouse.drag && Math.hypot(e.clientX - mouse.sx, e.clientY - mouse.sy) > (performance.now() - mouse.t0 < 250 ? 14 : 6)) mouse.drag = true;
-      if (mouse.drag) { cam.x -= (e.clientX - mouse.x) / cam.zoom; cam.y -= (e.clientY - mouse.y) / cam.zoom; }
-    }
+  // pointer events cover the mouse, a pen and fingers: one pointer drags the map, two pinch-zoom it,
+  // and a press that barely moves is a click (a tap on a phone)
+  const ptrs = new Map();   // active pointers by id: their last position
+  let pressTimer = 0;       // a finger held still: put the tool down (iPhones send no contextmenu for a long press)
+  const midDist = () => { const [a, b] = [...ptrs.values()]; return [(a.x + b.x) / 2, (a.y + b.y) / 2, Math.hypot(a.x - b.x, a.y - b.y)]; };
+  canvas.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2) return;
+    canvas.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    clearTimeout(pressTimer);
+    if (ptrs.size === 1) {
+      mouse.down = true; mouse.drag = false; mouse.t0 = performance.now(); mouse.sx = e.clientX; mouse.sy = e.clientY; mouse.btn = e.button;
+      if (e.pointerType !== 'mouse') pressTimer = setTimeout(() => { if (mouse.down && !mouse.drag && ptrs.size === 1) { mouse.drag = true; if (game.tool) { setTool(null); toast('Put down'); } } }, 550);
+    } else mouse.drag = true;   // a second finger: a pinch, never a tap
     mouse.x = e.clientX; mouse.y = e.clientY;
   });
-  window.addEventListener('mouseup', e => {
-    if (mouse.down && !mouse.drag && mouse.btn === 0 && e.target === canvas) click(e.clientX, e.clientY);
-    mouse.down = false;
+  window.addEventListener('pointermove', e => {
+    const p = ptrs.get(e.pointerId);
+    if (p && ptrs.size >= 2) {
+      const [mx0, my0, d0] = midDist();
+      p.x = e.clientX; p.y = e.clientY;
+      const [mx1, my1, d1] = midDist();
+      if (d0 > 0) zoomAt(mx1, my1, cam.zoom * d1 / d0);
+      cam.x -= (mx1 - mx0) / cam.zoom; cam.y -= (my1 - my0) / cam.zoom;
+    } else if (p) {
+      if (!mouse.drag && Math.hypot(e.clientX - mouse.sx, e.clientY - mouse.sy) > (performance.now() - mouse.t0 < 250 ? 14 : 6)) mouse.drag = true;
+      if (mouse.drag) { cam.x -= (e.clientX - p.x) / cam.zoom; cam.y -= (e.clientY - p.y) / cam.zoom; }
+      p.x = e.clientX; p.y = e.clientY;
+    }
+    if (e.pointerType === 'mouse' || p) { mouse.x = e.clientX; mouse.y = e.clientY; }
   });
-  canvas.addEventListener('contextmenu', e => { e.preventDefault(); setTool(null); });
+  const release = (e, cancelled) => {
+    if (!ptrs.delete(e.pointerId)) return;
+    clearTimeout(pressTimer);
+    if (!ptrs.size) {
+      if (!cancelled && !mouse.drag && mouse.btn === 0) click(e.clientX, e.clientY);
+      mouse.down = false;
+    }
+  };
+  window.addEventListener('pointerup', e => release(e, false));
+  window.addEventListener('pointercancel', e => release(e, true));
+  // right-click, or a long press on a phone: put the tool down (and don't let the press count as a tap)
+  canvas.addEventListener('contextmenu', e => { e.preventDefault(); mouse.drag = true; setTool(null); });
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
-    const f = Math.pow(1.0018, -e.deltaY), z0 = cam.zoom, z1 = clamp(z0 * f, CFG.zoomMin, CFG.zoomMax);
-    const dx = e.clientX - cw / 2, dy = e.clientY - ch / 2;
-    cam.x += dx / z0 - dx / z1; cam.y += dy / z0 - dy / z1; cam.zoom = z1;
+    zoomAt(e.clientX, e.clientY, cam.zoom * Math.pow(1.0018, -e.deltaY));
   }, { passive: false });
+  // the phone button row stands in for the keys
+  $('mbar').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.panel) showPanel(b.dataset.panel);
+    else if (b.dataset.act === 'home') lockOn(HOME);
+    else if (b.dataset.act === 'out') zoomOutLevel();
+    else if (b.dataset.act === 'pause') togglePause();
+  });
   window.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' && e.key !== 'Escape') return;
     const k = e.key.toLowerCase();
@@ -1626,16 +1682,17 @@ function bindInput() {
     else if (k === 'escape') setTool(null);
     else if (k === 'h') lockOn(HOME);
     else if (k === 'm') zoomOutLevel();
-    else if (k === ' ') { game.paused = !game.paused; e.preventDefault(); }
+    else if (k === ' ') { togglePause(); e.preventDefault(); }
     else if (k === '[' || k === ']') { const s = $('send-pct'); s.value = clamp(+s.value + (k === ']' ? 10 : -10), 5, 100); }
   });
   window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
   window.addEventListener('resize', resize);
-  $('world-list').addEventListener('mousedown', e => {   // mousedown: the list is redrawn too often for click to land
+  $('world-list').addEventListener('pointerdown', e => {   // pointerdown: the list is redrawn too often for click to land
     const row = e.target.closest('.row');
     if (!row) return;
     if (row.dataset.ix === '-1') lockOn(SUN, fitZoom(CFG.space.au * CFG.space.seedWorld.orbit * 1.08)); else lockOn(bodies[+row.dataset.ix]);
+    if (document.body.dataset.panel) showPanel(document.body.dataset.panel);   // phones: close the panel to see where you went
   });
   $('send-pct').addEventListener('change', e => e.target.blur());
   $('ov-btn').onclick = () => { location.href = location.pathname; };
@@ -1662,7 +1719,8 @@ function init() {
   $('my-swatch').style.background = css(players[ME].color);
   $('val-name').textContent = players[ME].name;
   $('val-goal').textContent = Math.round(CFG.winShare * 100) + '%';
-  $('banner').textContent = 'Click any free land on the disk to found your nation';
+  $('banner').textContent = `${TOUCH ? 'Tap' : 'Click'} any free land on the disk to found your nation`;
+  if (TOUCH) $('help').innerHTML = `<div class="help-row"><b>Tap</b> land to attack it: over your border, by boat, or by rocket (needs a launch pad) · <b>Drag</b> to pan · <b>Pinch</b> to zoom · tap a building or bomb, then tap where it goes · <b>Long-press</b> to put it down</div><div class="hover" id="hover-info">&nbsp;</div>`;
   $('banner').style.display = 'block';
   $('loading').style.display = 'none';
 

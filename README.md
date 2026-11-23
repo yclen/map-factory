@@ -45,6 +45,8 @@ Add `?seed=123` to the address to play a specific map (this starts that map, and
 | Click a body, or L V R Z P G U | Lock onto the Moon, Vulcan, Aries, Zeus, Poseidon, the seed world, the Sun |
 | H · N | Jump home · new random map (deletes your save) |
 
+**On a phone or tablet:** tap to expand, drag to pan, pinch to zoom, and long-press outside your border to send an expedition (a long press also puts a picked building down). Building and firing take two taps: the first shows the preview, the second on the same spot builds or fires. A button row stands in for the keys (Build, Fire, Drive, Next country, Map, Home, Cancel), a steering pad with **Settle** and **Park** appears while you drive, and **New map** is in the Build menu. Box select and copy-paste are mouse-only.
+
 ## Map Conquest (a second game on the same world)
 
 [`conquest/`](conquest/) is a separate, faster game on the same seeded disk and solar system: a territory-conquest game against 22 AI nations. Open `conquest/index.html`, or once pushed, https://yclen.github.io/map-factory/conquest/ (`?seed=42` works here too).
@@ -59,6 +61,7 @@ Add `?seed=123` to the address to play a specific map (this starts that map, and
 - **Launch pads** send rocket expeditions to other worlds. Range grows with distance from the Sun, so the next orbit out is always in reach and each world is a stepping stone, and flight time depends on where the planets are when you launch.
 - **Every landable body is its own map:** the Moon, Vulcan, Aries, the moons of Zeus and Poseidon, and the seed world. The AI nations build pads and race you there.
 - **Win** by holding 70% of all land in the system. Not in yet: saving, trade ships, diplomacy, retreating an attack.
+- **On a phone:** tap land to attack, drag to pan, pinch to zoom; the button row has Worlds, Nations, Home, Zoom out and Pause. Pick a building or bomb, tap where it goes, and long-press to put it down.
 
 All tuning numbers are in the `CFG` block at the top of [`conquest/game.js`](conquest/game.js).
 

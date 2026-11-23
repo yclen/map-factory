@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#04050b">
   <title>Map Factory Prototype</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -26,6 +27,19 @@
     <div class="spacer"></div>
     <div class="res"><div><div class="lbl">VIEW</div><div class="val small" id="val-view">Detail</div></div></div>
     <div class="res"><div><div class="lbl">TIME <span class="rate" id="save-note"></span></div><div class="val" id="val-time">00:00</div></div></div>
+  </div>
+
+  <!-- touch screens: buttons for the keys (shown or hidden as they make sense) -->
+  <div id="tbar">
+    <button data-act="build">Build</button><button data-act="fire">Fire</button><button data-act="drive" hidden>Drive</button>
+    <button data-act="next" hidden>Next country</button><button data-act="map">Map</button><button data-act="home">Home</button>
+    <button data-act="cancel" hidden>Cancel</button>
+  </div>
+  <!-- touch screens: steering while you drive an expedition -->
+  <div id="dpad">
+    <div class="dp-side"><button data-key="arrowleft" aria-label="Steer left">◀</button><button data-key="arrowright" aria-label="Steer right">▶</button></div>
+    <div class="dp-mid"><button id="dp-settle">Settle</button><button id="dp-park">Park</button></div>
+    <div class="dp-side dp-col"><button data-key="arrowup" aria-label="Forward">▲</button><button data-key="arrowdown" aria-label="Reverse">▼</button></div>
   </div>
 
   <!-- bottom row -->
@@ -69,6 +83,7 @@
     <div class="bm-head">
       <div><div class="bm-title">Build</div><div class="bm-sub" id="bm-sub"></div></div>
       <div class="bm-close">E or Esc to close<br>Hover + 1–0: put on your bar · right-click: on/off</div>
+      <button id="bm-new">New map</button>
     </div>
     <div id="bm-grid"></div>
   </div>
@@ -77,6 +92,6 @@
   <div id="tooltip"></div>
   <div id="toast"></div>
 
-  <script src="game.js"></script>
+  <script src="game.js?v=23"></script>
 </body>
 </html>
