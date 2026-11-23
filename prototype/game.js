@@ -66,7 +66,8 @@ const CFG = {
   // Smart shipments: each country wants `base` of each resource in stock (or `keep` x its storage, if that's more);
   // an ice colony (polar ice, drills or a launch pad) wants `ice` on top. Trains and ships carry goods from countries
   // with more than they want to the ones down the line that are short (see loadAt).
-  supply: { base: { wood: 100, stone: 100, iron: 30 }, keep: 0.3, ice: { wood: 0, stone: 200, iron: 250 },
+  supply: { base: { wood: 100, stone: 100, iron: 30, uranium: 0 }, keep: 0.3, ice: { wood: 0, stone: 200, iron: 250, uranium: 0 },
+           nuke: 40,   // uranium a country with a nuclear plant keeps in stock (on top of the rest), so ships bring it in
   // People too: every country wants a crew of `crew` free people (on top of its workers) to claim land and build
   // with, an ice colony `iceCrew` (ice is costly to claim and holds almost nobody). Trains and ships bring people
   // from countries with more than their crew to the ones short of theirs, hop by hop like goods. A crew never
@@ -101,10 +102,10 @@ const CFG = {
   // Every resource can only be stockpiled so far: a country stores `base` plus `perCap` for each person its settlements
   // can house. Collectors set how fast a store fills; settlements set how much it holds. Wood and stone are generous
   // (enough for a long building spree); iron is tighter, because it is what war runs on.
-  storage: { wood: { base: 200, perCap: 5 }, stone: { base: 200, perCap: 5 }, iron: { base: 50, perCap: 1 } },
+  storage: { wood: { base: 200, perCap: 5 }, stone: { base: 200, perCap: 5 }, iron: { base: 50, perCap: 1 }, uranium: { base: 40, perCap: 0.1 } },
   // AI nations keep iron under the same rule: they mine the iron in their land, plus a small trickle so none is ever unarmed.
   iron: { aiStart: 30, aiTrickle: 0.15 },
-  prodPerTile: { forest: 0.1, stone: 0.12, iron: 0.1 },   // stone a bit richer: it's in almost everything   // per owned, connected deposit tile, per second
+  prodPerTile: { forest: 0.1, stone: 0.12, iron: 0.1, uranium: 0.02 },   // stone a bit richer: it's in almost everything   // per owned, connected deposit tile, per second
 
   // unlock = how many people your whole empire must reach (at its peak) before you can build it
   buildings: {
@@ -133,11 +134,14 @@ const CFG = {
                desc: 'Click a logger\'s cabin or miner\'s camp to upgrade it: 3x the output and frees its workers, but runs on 4 MW. No power, no output.' },
     solar:   { cat: 'Energy', name: 'Solar panel', cap: 0, unlock: 700, cost: { stone: 10, iron: 5 }, gen: 1.5,
                desc: '1.5 MW, free, forever. Each panel takes a tile you can\'t use for anything else. Cover land with them.' },
+    // a nuclear plant: huge power from a little uranium, but it needs the sea to cool it
+    nuclear: { cat: 'Energy', name: 'Nuclear plant', cap: 0, unlock: 1500, cost: { stone: 400, iron: 250 }, gen: 150, coast: true,
+               desc: 'Makes 150 MW from uranium, up to 0.05 uranium/s, only as much as your country needs. Must be on the coast: sea water cools it. Mine uranium with a miner\'s camp or rig on its rare dark deposits, and ships and trains bring it to the plant.' },
     // collectors: a deposit only produces once something works it. Early on that's people.
     cabin:   { cat: 'Resources', name: "Logger's cabin", cap: 0, unlock: 0, cost: { wood: 5, stone: 10 }, workers: 5, on: ['forest'],
                desc: 'Cuts the forest within 4 tiles of it. Employs 5 of the country\'s people, who can\'t be sent anywhere. Two close together share the same trees.' },
-    camp:    { cat: 'Resources', name: "Miner's camp",   cap: 0, unlock: 0, cost: { wood: 15, stone: 5 }, workers: 5, on: ['stone', 'iron'],
-               desc: 'Mines the stone and iron within 4 tiles of it. Employs 5 of the country\'s people, who can\'t be sent anywhere. Two close together share the same rock.' },
+    camp:    { cat: 'Resources', name: "Miner's camp",   cap: 0, unlock: 0, cost: { wood: 15, stone: 5 }, workers: 5, on: ['stone', 'iron', 'uranium'],
+               desc: 'Mines the stone, iron and uranium within 4 tiles of it. Employs 5 of the country\'s people, who can\'t be sent anywhere. Two close together share the same rock.' },
     // weapons
     mortar:  { cat: 'Military', name: 'Mortar', cap: 0, unlock: 300, cost: { wood: 20, stone: 20 }, weapon: 'shell',
                desc: 'Fires by itself at the weapons and defenses of any nation you are at war with, up to 22 tiles away (never its settlements: aim a missile for those). Shells cost 5 iron and reload in under 3 seconds. Holds fire when the country is down to 20 iron.' },
@@ -169,7 +173,7 @@ const CFG = {
     // the engine pushes with `thrust` and throws fuel out at `ve` (so a full tank is worth ve x ln(4) = 125 tiles/s of speed; a good gravity turn reaches orbit with about 13% to spare).
     // Space turns the engine on and off; E/Q (or W/S) set the throttle at `throttleRate` per second; A/D turn at `turn` radians a second.
     flight: { mu: 1.08e6, atm: 120, scaleH: 35, drag: 0.008, dry: 1, wet: 3, ve: 90, thrust: 24, turn: 1.8, throttleRate: 0.8, lost: 40 } },
-  power: { burnerWood: 0.25, rigMult: 3 },
+  power: { burnerWood: 0.25, rigMult: 3, nukeUranium: 0.05 },   // uranium a nuclear plant burns a second at full output
   // AI nations (v1: static). Taking a tile of theirs costs extra people: defenseBase + defensePerDensity x (their people per tile)
   ai: { count: 7, minDist: 75, radius: [8, 14], tilesPerSettlement: 300, fill: [0.6, 0.9], growth: 0.5,
         defenseBase: 0.5, defensePerDensity: 2.5, killShare: 0.6,
@@ -521,6 +525,17 @@ const SHAPES = {
     <path d="M2.6 -6 V9" stroke="#c4ccd3" stroke-width="1.4"/>
     <circle cx="0" cy="-2" r="2" fill="#5fc4f0" stroke="#1d5a7a" stroke-width="0.8"/>
     <path d="M-3 10 L-2.2 13 L2.2 13 L3 10 Z" fill="#59616b" stroke="#2b3038" stroke-width="0.6"/>`,
+  uranium: `<ellipse cx="1" cy="4" rx="8" ry="3.5" fill="#000" opacity="0.2"/>
+    <path d="M-8 2 L-5 -5 L1 -7 L6 -4 L8 2 L4 6 L-4 5 Z" fill="#3f4a38" stroke="#20281c" stroke-width="1"/>
+    <path d="M-5 -5 L1 -7 L6 -4 L2 0 L-4 -1 Z" fill="#5b6b4c"/>
+    <circle cx="-3" cy="2" r="1.4" fill="#9dff7a"/><circle cx="3" cy="-2.5" r="1.1" fill="#9dff7a"/><circle cx="4.5" cy="2.5" r="0.8" fill="#c8ffb0"/>`,
+  nuclear: `<rect x="-12" y="-4" width="26" height="17" fill="#000" opacity="0.2"/>
+    <path d="M2 11 C3.5 4 3.5 -2 1.5 -9 L10.5 -9 C8.5 -2 8.5 4 10 11 Z" fill="#d9dee3" stroke="#59636d" stroke-width="1"/>
+    <path d="M1.8 -6 L10.2 -6" stroke="#aab3bc" stroke-width="1"/>
+    <circle cx="4" cy="-12" r="2.6" fill="#f2f4f6" opacity="0.85"/><circle cx="8" cy="-13.5" r="2.1" fill="#f2f4f6" opacity="0.7"/>
+    <rect x="-12" y="3" width="14" height="8" fill="#b8c0c8" stroke="#59636d" stroke-width="1"/>
+    <path d="M-11 3 A6 6 0 0 1 1 3 Z" fill="#e7ebef" stroke="#59636d" stroke-width="1"/>
+    <circle cx="-5" cy="7" r="1.6" fill="#9dff7a" stroke="#2f5a22" stroke-width="0.6"/>`,
   fuel: `<path d="M0 -11 C4 -5 8 -1 8 4 A8 8 0 0 1 -8 4 C-8 -1 -4 -5 0 -11 Z" fill="#5fc4f0" stroke="#1d5a7a" stroke-width="1.2"/>
     <path d="M-4.5 3 A4.5 4.5 0 0 0 0 7.5" stroke="#d8f3ff" stroke-width="1.6" fill="none" stroke-linecap="round"/>`,
   tree: `<ellipse cx="1.5" cy="3" rx="7" ry="4" fill="#000" opacity="0.18"/><circle r="7" fill="#3d6b32"/>
@@ -622,11 +637,12 @@ function drawFx(fx, f, sx, sy, size, cy = 0.5, rot = 0, alpha = 1) {
   ctx.imageSmoothingEnabled = smooth;
 }
 const DEP_SPRITE = { forest: 'tree', stone: 'rock', iron: 'ore' };
-const DEP_RES = { forest: 'wood', stone: 'stone', iron: 'iron' };
-const DEP_COLOR = { forest: '#3f7a35', stone: '#a7adb3', iron: '#a8654a' };
-const BLD_CODE = { settlement: 1, station: 3, port: 4, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10, silo: 11, mortar: 12, airdef: 13, turret: 14, drill: 15, pad: 16 };
+const DEP_RES = { forest: 'wood', stone: 'stone', iron: 'iron', uranium: 'uranium' };
+const DEP_TYPES = ['forest', 'stone', 'iron', 'uranium'];
+const DEP_COLOR = { forest: '#3f7a35', stone: '#a7adb3', iron: '#a8654a', uranium: '#56664a' };
+const BLD_CODE = { settlement: 1, station: 3, port: 4, burner: 6, rig: 7, solar: 8, cabin: 9, camp: 10, silo: 11, mortar: 12, airdef: 13, turret: 14, drill: 15, pad: 16, nuclear: 17 };
 const BLD_COLOR = { settlement: '#de6d4c', station: '#8f979f', port: '#a67c52',
-  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b', silo: '#6c7480', mortar: '#8f7a52', airdef: '#4f7f8c', turret: '#6f7a4a', drill: '#7fb8d8', pad: '#c9ced3' };
+  burner: '#8a5a44', rig: '#e0a93a', solar: '#1d3e78', cabin: '#a0683e', camp: '#c9a66b', silo: '#6c7480', mortar: '#8f7a52', airdef: '#4f7f8c', turret: '#6f7a4a', drill: '#7fb8d8', pad: '#c9ced3', nuclear: '#cfd6dc' };
 const buildingAt = i => (building[i] ? game.buildings.find(b => b.i === i) : null);
 // the steps from `have` (or clear land) up to `type`, or null if `have` isn't below `type` on its ladder
 function ladderSteps(type, have) {
@@ -640,7 +656,7 @@ function ladderSteps(type, have) {
   }
   return have ? null : steps;
 }
-const RES_ICON = { wood: 'tree', stone: 'rock', iron: 'ore', fuel: 'fuel' };
+const RES_ICON = { wood: 'tree', stone: 'rock', iron: 'ore', fuel: 'fuel', uranium: 'uranium' };
 
 // ======================================================================
 // world state
@@ -689,7 +705,7 @@ const game = {
   active: 0,              // the country the HUD is showing
   population: 0, peakPop: 0, unlocked: new Set(),
   time: 0, landTiles: 0, ownedCount: 0,
-  ownedDep: { forest: 0, stone: 0, iron: 0 },
+  ownedDep: { forest: 0, stone: 0, iron: 0, uranium: 0 },
   buildings: [], stations: [], ports: [], links: [],
   freight: [],                     // freighters out from a port: { freight, kind: 'sea', home, dest, path, t, dir, cargo, to }
   pushes: [], expeditions: [], floats: [],
@@ -911,6 +927,19 @@ function generateWorld() {
     const mid = t => (t % W - d.cx) ** 2 + (((t / W) | 0) - d.cy) ** 2;   // the middle of the deposit, so its reach covers it
     const t = d.tiles.reduce((a, b) => (mid(a) <= mid(b) ? a : b));
     if (owner[t]) placeBuilding(t, d.type === 'forest' ? 'cabin' : 'camp');
+  }
+  // Uranium: a few small, dark deposits in mountains and desert, far from the start. Placed after everything else,
+  // so adding it changed nothing else about a map (saves from before still fit).
+  {
+    const ok = b => b === MOUNTAIN || b === DESERT, count = Math.max(4, Math.round(game.landTiles / 60000));
+    let made = 0, tries = 0;
+    while (made < count && tries++ < count * 60) {
+      const i = (rng() * N) | 0;
+      if (!ok(biome[i]) || depositOf[i] >= 0 || building[i] || d2(i) < 70 ** 2) continue;
+      const before = deposits.length;
+      addDeposit('uranium', growBlob(i % W, (i / W) | 0, 5 + ((rng() * 5) | 0), j => ok(biome[j]) && depositOf[j] < 0 && !building[j]));
+      if (deposits.length > before) made++;
+    }
   }
   recomputeNetwork();
   home.people = Math.min(CFG.startPeople, home.cap);
@@ -1367,16 +1396,16 @@ const defenseAt = i => {
   return n ? CFG.ai.defenseBase + CFG.ai.defensePerDensity * n.people / Math.max(1, n.tiles) : 0;
 };
 
-const newPower = () => ({ burners: 0, solar: 0, need: 0, capPow: 0, workers: 0, drills: 0, pads: 0, padList: [],
-  rigDep: { forest: 0, stone: 0, iron: 0 }, colDep: { forest: 0, stone: 0, iron: 0 } });
+const newPower = () => ({ burners: 0, solar: 0, nukes: 0, need: 0, capPow: 0, workers: 0, drills: 0, pads: 0, padList: [],
+  rigDep: { forest: 0, stone: 0, iron: 0, uranium: 0 }, colDep: { forest: 0, stone: 0, iron: 0, uranium: 0 } });
 // people not working a collector: only they can be sent on pushes and expeditions
 const freePeople = c => Math.max(0, c.people - c.pw.workers);
 function newCountry({ people = 0, res = {} } = {}) {
   const id = game.countries.length;
   const c = { id, ...countryName(id), people, cap: 0, growth: 0, tier: 0, geo: { coast: 0, mtn: 0, desert: 0, port: 0, ice: 0 }, sx: 0, sy: 0,
     box: [Infinity, Infinity, -Infinity, -Infinity],
-    res: { wood: 0, stone: 0, iron: 0, fuel: 0, ...res }, rates: { wood: 0, stone: 0, iron: 0, fuel: 0 },
-    ownedDep: { forest: 0, stone: 0, iron: 0 }, tiles: 0, lx: 0, ly: 0, alive: true, mergedInto: -1,
+    res: { wood: 0, stone: 0, iron: 0, fuel: 0, uranium: 0, ...res }, rates: { wood: 0, stone: 0, iron: 0, fuel: 0, uranium: 0 },
+    ownedDep: { forest: 0, stone: 0, iron: 0, uranium: 0 }, tiles: 0, lx: 0, ly: 0, alive: true, mergedInto: -1,
     capBase: 0, capPow: 0, sat: 1, pw: newPower(), mw: { gen: 0, max: 0, need: 0, burn: 0 } };
   game.countries.push(c);
   return c;
@@ -2191,7 +2220,7 @@ function recomputeLand() {
 }
 // the deposit tiles a country owns, by kind (counted when asked: a walk over every deposit tile on the map)
 function ownedDepOf(c) {
-  const out = { forest: 0, stone: 0, iron: 0 };
+  const out = { forest: 0, stone: 0, iron: 0, uranium: 0 };
   for (const d of deposits) for (const t of d.tiles) if (owner[t] && countryOf[t] === c.id) out[d.type]++;
   return out;
 }
@@ -2295,7 +2324,7 @@ function settlementGain(i) {
 }
 
 // ---------- collectors: each works the deposit tiles within its reach ----------
-const HARVESTS = { cabin: ['forest'], camp: ['stone', 'iron'], rig: ['forest', 'stone', 'iron'] };
+const HARVESTS = { cabin: ['forest'], camp: ['stone', 'iron', 'uranium'], rig: ['forest', 'stone', 'iron', 'uranium'] };
 const harvStamp = new Int32Array(N), harvD = new Uint16Array(N), harvBy = new Int32Array(N);
 let harvN = 0;
 const isHarvested = i => harvStamp[i] === harvN;
@@ -2310,7 +2339,7 @@ function recomputeHarvest() {
   for (const q of game.nations) q.ironTiles = 0;
   for (let k = 0; k < list.length; k++) {
     const b = list[k], side = sideOf(b.i), kinds = HARVESTS[b.type], cx = b.i % W, cy = (b.i / W) | 0;
-    b.work = { forest: 0, stone: 0, iron: 0 };
+    b.work = { forest: 0, stone: 0, iron: 0, uranium: 0 };
     for (let j = 0; j < n; j++) {
       const x = cx + dx[j], y = cy + dy[j];
       if (x < 0 || y < 0 || x >= W || y >= H) continue;
@@ -2340,7 +2369,7 @@ function recomputeHarvest() {
 }
 // what a new collector of this type on tile i would work: tiles nobody works yet, by kind, and tiles already taken
 function harvestGain(i, type) {
-  const side = sideOf(i), kinds = HARVESTS[type], fresh = { forest: 0, stone: 0, iron: 0 };
+  const side = sideOf(i), kinds = HARVESTS[type], fresh = { forest: 0, stone: 0, iron: 0, uranium: 0 };
   let shared = 0;
   if (side) eachInReach(i, t => {
     if (!harvestable(t, side, kinds)) return;
@@ -2351,7 +2380,7 @@ function harvestGain(i, type) {
 
 function recomputeBuildings() {
   recomputeLand();
-  for (const c of game.countries) { c.capBase = 0; c.ownedDep = { forest: 0, stone: 0, iron: 0 }; c.pw = newPower(); c.geo.port = 0; }
+  for (const c of game.countries) { c.capBase = 0; c.ownedDep = { forest: 0, stone: 0, iron: 0, uranium: 0 }; c.pw = newPower(); c.geo.port = 0; }
   for (const b of game.buildings) {
     if (!owner[b.i]) continue;                    // an AI nation's building
     const def = CFG.buildings[b.type], c = game.countries[countryOf[b.i]];
@@ -2368,6 +2397,7 @@ function recomputeBuildings() {
     if (def.use) c.pw.need += def.use;
     if (b.type === 'burner') c.pw.burners++;
     if (b.type === 'solar') c.pw.solar++;
+    if (b.type === 'nuclear') c.pw.nukes++;
     if (b.type === 'drill') c.pw.drills++;
     if (b.type === 'pad') { c.pw.pads++; c.pw.padList.push(b); }
     if (def.workers) c.pw.workers += def.workers;
@@ -2387,10 +2417,11 @@ function recomputeBuildings() {
 // has above its own wish list. So goods flow from the best-supplied countries to the neediest, hop by hop, and a
 // colony two links away gets fed through the one in between. Ice colonies (rocket country) wish for a lot of stone
 // and iron, so the rest of the empire keeps them supplied. People move too: toward the country with more room.
-const CARGO_RES = ['wood', 'stone', 'iron'];
+const CARGO_RES = ['wood', 'stone', 'iron', 'uranium'];
+const cargoSum = o => CARGO_RES.reduce((a, r) => a + (o[r] || 0), 0);   // goods in a load (not people)
 function unloadAt(L, C) {
   if (L.cargo && C) {
-    for (const r of CARGO_RES) C.res[r] += L.cargo[r];
+    for (const r of CARGO_RES) C.res[r] = (C.res[r] || 0) + (L.cargo[r] || 0);
     C.people += L.cargo.people;
     const from = liveCountry(L.cargo.from ?? -1);
     if (isRocketCountry(C) && from && from !== C && !C.fed && L.cargo.wood + L.cargo.stone + L.cargo.iron > 0) {
@@ -2411,13 +2442,13 @@ function supplyWish(C) {
   const S = CFG.supply, w = { people: crewOf(C) };
   for (const r of CARGO_RES) {
     const store = storeOf(C, r);
-    w[r] = Math.min(store, Math.max(S.base[r], store * S.keep) + (isRocketCountry(C) ? S.ice[r] : 0) + demandOf(C, r));
+    w[r] = Math.min(store, Math.max(S.base[r], store * S.keep) + (isRocketCountry(C) ? S.ice[r] : 0) + (r === 'uranium' && C.pw.nukes ? S.nuke : 0) + demandOf(C, r));
   }
   return w;
 }
 const storeOf = (C, r) => C.store ? C.store[r] : CFG.storage[r].base;
-const askOf = (C, r) => (C.ask ? C.ask[r] : 0);
-const usedOf = (C, r) => (C.used ? C.used[r] : 0);
+const askOf = (C, r) => (C.ask ? C.ask[r] || 0 : 0);
+const usedOf = (C, r) => (C.used ? C.used[r] || 0 : 0);
 function padIronNeed(C) {
   let n = 0;
   for (const b of C.pw.padList || []) if (!b.paused) n += Math.max(0, CFG.rocket.iron - (b.rocket ? b.rocket.iron : 0));
@@ -2432,9 +2463,9 @@ const floorOf = (C, r) => Math.min(storeOf(C, r), CFG.supply.base[r] + demandOf(
 const spareOf = (C, r, press) => Math.max(0, C.res[r] - (press ? floorOf(C, r) : supplyWish(C)[r]));
 // spending on buildings: it wants that much back in stock, and it no longer needs what it had asked for
 function noteSpend(C, cost) {
-  if (!C.used) C.used = { wood: 0, stone: 0, iron: 0 };
-  if (!C.ask) C.ask = { wood: 0, stone: 0, iron: 0 };
-  for (const r of CARGO_RES) if (cost[r] > 0) { C.used[r] = Math.min(storeOf(C, r), C.used[r] + cost[r]); C.ask[r] = Math.max(0, C.ask[r] - cost[r]); }
+  if (!C.used) C.used = { wood: 0, stone: 0, iron: 0, uranium: 0 };
+  if (!C.ask) C.ask = { wood: 0, stone: 0, iron: 0, uranium: 0 };
+  for (const r of CARGO_RES) if (cost[r] > 0) { C.used[r] = Math.min(storeOf(C, r), (C.used[r] || 0) + cost[r]); C.ask[r] = Math.max(0, (C.ask[r] || 0) - cost[r]); }
 }
 // asks and busy spending fade away when nothing renews them
 function stepDemand(dt) {
@@ -2442,8 +2473,8 @@ function stepDemand(dt) {
   for (const C of game.countries) {
     if (!C.alive) continue;
     for (const r of CARGO_RES) {
-      if (C.ask) C.ask[r] = C.ask[r] * ka < 0.5 ? 0 : C.ask[r] * ka;
-      if (C.used) C.used[r] = C.used[r] * ku < 0.5 ? 0 : C.used[r] * ku;
+      if (C.ask) C.ask[r] = (C.ask[r] || 0) * ka < 0.5 ? 0 : C.ask[r] * ka;
+      if (C.used) C.used[r] = (C.used[r] || 0) * ku < 0.5 ? 0 : C.used[r] * ku;
     }
   }
 }
@@ -2455,10 +2486,10 @@ function needBeyond(src, dst) {
     const A = countryAt(L.a), B = countryAt(L.b);
     if (A && B && A !== B) { link(A, B); link(B, A); }
   }
-  const seen = new Set([src, dst]), q = [dst], need = { wood: 0, stone: 0, iron: 0, people: 0 }, press = {};
+  const seen = new Set([src, dst]), q = [dst], need = { wood: 0, stone: 0, iron: 0, uranium: 0, people: 0 }, press = {};
   for (let h = 0; h < q.length; h++) {
     const C = q[h], w = supplyWish(C), inc = incomingTo(C);
-    for (const r of CARGO_RES) { need[r] += w[r] - C.res[r] - inc[r]; if (pressing(C, r)) press[r] = true; }
+    for (const r of CARGO_RES) { need[r] += w[r] - (C.res[r] || 0) - inc[r]; if (pressing(C, r)) press[r] = true; }
     need.people += w.people - C.people - inc.people;   // a country with more than its crew passes the rest on
     for (const n of adj.get(C) || []) if (!seen.has(n)) { seen.add(n); q.push(n); }
   }
@@ -2469,7 +2500,7 @@ function needBeyond(src, dst) {
 function loadAt(L, src, dst) {
   L.cargo = null; L.to = -1;
   if (!src || !dst || src === dst) return;
-  const V = CFG.vehicles[L.kind], cargo = { wood: 0, stone: 0, iron: 0, people: 0, from: src.id };
+  const V = CFG.vehicles[L.kind], cargo = { wood: 0, stone: 0, iron: 0, uranium: 0, people: 0, from: src.id };
   const wish = supplyWish(src), need = needBeyond(src, dst), want = {};
   let total = 0;
   for (const r of CARGO_RES) { want[r] = Math.min(need[r], spareOf(src, r, need.press[r])); total += want[r]; }
@@ -2483,15 +2514,15 @@ function loadAt(L, src, dst) {
   if (full(src) > full(dst) + 0.05) ppl = Math.max(ppl, Math.min(V.people, Math.max(0, dst.cap - dst.people), spare * 0.5));
   cargo.people = Math.floor(ppl);
   src.people -= cargo.people;
-  if (cargo.wood + cargo.stone + cargo.iron + cargo.people > 0) { L.cargo = cargo; L.to = dst.id; }
+  if (cargoSum(cargo) + cargo.people > 0) { L.cargo = cargo; L.to = dst.id; }
 }
 // goods (and people) on their way to a country right now, and from where (bySrc: country -> amount of goods)
 function incomingTo(C) {
-  const inc = { wood: 0, stone: 0, iron: 0, people: 0, bySrc: new Map() };
+  const inc = { wood: 0, stone: 0, iron: 0, uranium: 0, people: 0, bySrc: new Map() };
   for (const list of [game.links, game.freight]) for (const L of list) {
     if (!L.cargo || liveCountry(L.to) !== C) continue;
-    for (const r of ['wood', 'stone', 'iron', 'people']) inc[r] += L.cargo[r];
-    const from = liveCountry(L.cargo.from ?? -1), goods = L.cargo.wood + L.cargo.stone + L.cargo.iron;
+    for (const r of ['wood', 'stone', 'iron', 'uranium', 'people']) inc[r] += L.cargo[r] || 0;
+    const from = liveCountry(L.cargo.from ?? -1), goods = cargoSum(L.cargo);
     if (from && goods) inc.bySrc.set(from, (inc.bySrc.get(from) || 0) + goods);
   }
   return inc;
@@ -2517,7 +2548,7 @@ function shortOf(T) {
 // load a freighter at S for T: the goods T is pressing for first (sharing the hold between them), then the rest of
 // T's shortfall in whatever room is left
 function freightLoad(S, T, short) {
-  const cargo = { wood: 0, stone: 0, iron: 0, people: 0, from: S.id };
+  const cargo = { wood: 0, stone: 0, iron: 0, uranium: 0, people: 0, from: S.id };
   let room = CFG.freight.cargo;
   for (const press of [true, false]) {
     const rs = CARGO_RES.filter(r => pressing(T, r) === press), want = {};
@@ -2527,7 +2558,7 @@ function freightLoad(S, T, short) {
     for (const r of rs) { cargo[r] = Math.floor(want[r] * k); room -= cargo[r]; }
   }
   for (const r of CARGO_RES) S.res[r] -= cargo[r];
-  return cargo.wood + cargo.stone + cargo.iron > 0 ? cargo : null;
+  return cargoSum(cargo) > 0 ? cargo : null;
 }
 // how much an idle port in S could do for T, or 0 when it isn't worth a trip
 function freightScore(S, T, short) {
@@ -2597,7 +2628,7 @@ function askFor(C, cost) {
   const short = Object.entries(cost).filter(([r, n]) => C.res[r] < n);
   const goods = short.filter(([r]) => CARGO_RES.includes(r));
   if (!goods.length) return toast(`${C.short} doesn't have enough ${short.length ? short[0][0] : 'resources'}`);
-  if (!C.ask) C.ask = { wood: 0, stone: 0, iron: 0 };
+  if (!C.ask) C.ask = { wood: 0, stone: 0, iron: 0, uranium: 0 };
   for (const [r, n] of goods) C.ask[r] = Math.min(storeOf(C, r), C.ask[r] + n);
   dispatchFreight();
   const what = goods.map(([r, n]) => `${Math.ceil(n - C.res[r])} ${r}`).join(' and ');
@@ -2858,6 +2889,7 @@ function canBuild(i, type) {
     if (!ladderSteps(type, have)) return 'Something is already built here';
   }
   if (type === 'port' && !isCoastal(i)) return 'Ports must be on the coast';
+  if (def.coast && !isCoastal(i)) return `${def.name}s must be on the coast: sea water cools them`;
   return null;
 }
 function planFor(i, type) {
@@ -3079,11 +3111,12 @@ function borderTileOf(C, tx, ty) {
   }
   return best >= 0 ? best : idx(Math.floor(C.lx), Math.floor(C.ly));
 }
+const KIT_RES = ['wood', 'stone', 'iron'];      // what an expedition takes along (never uranium)
 // Supplies to get a colony started: the send-% of each stockpile, but at least the basic kit if home has it.
 // `paying` is what the launch itself costs: the kit is worked out from what's left once that's paid.
 function kitFor(C, paying = {}) {
   const kit = {};
-  for (const r of CARGO_RES) {
+  for (const r of KIT_RES) {
     const have = Math.max(0, C.res[r] - (paying[r] || 0));
     kit[r] = Math.floor(Math.min(have, Math.max(CFG.expeditionKit[r] || 0, have * game.sendPct / 100)));
   }
@@ -3091,7 +3124,7 @@ function kitFor(C, paying = {}) {
 }
 function packKit(C) {
   const kit = kitFor(C);
-  for (const r of CARGO_RES) C.res[r] -= kit[r];
+  for (const r of KIT_RES) C.res[r] -= kit[r];
   return kit;
 }
 // A vehicle's crew: the send-% of the country's free people, but at least CFG.drive.minCrew when it has them,
@@ -3383,27 +3416,34 @@ function tick(dt) {
     const P = c.pw, B = CFG.buildings, S = CFG.settlement, solar = P.solar * B.solar.gen, burnMax = P.burners * B.burner.gen;
     // with no wood in stock, the burners can only burn what the loggers bring in
     const burnCan = c.res.wood > 1 ? burnMax : Math.min(burnMax, (c.prod?.wood || 0) / CFG.power.burnerWood * B.burner.gen);
-    const spare = Math.max(0, solar + burnCan - P.need);
+    // nuclear plants come next (a little uranium goes a long way); with none in stock, only what the mines bring in
+    const nukeMax = (P.nukes || 0) * B.nuclear.gen, U = CFG.power.nukeUranium;
+    const nukeCan = (c.res.uranium || 0) > 0.05 ? nukeMax : Math.min(nukeMax, (c.prod?.uranium || 0) / U * B.nuclear.gen);
+    const spare = Math.max(0, solar + nukeCan + burnCan - P.need);
     c.powCap = Math.min(P.capPow, spare * S.perMW);
     const cityMW = clamp(c.people - c.capBase, 0, c.powCap) / S.perMW;   // power the cities use right now
-    let fromBurn = Math.min(Math.max(0, P.need + cityMW - solar), burnMax);
+    let fromNuke = Math.min(Math.max(0, P.need + cityMW - solar), nukeCan);
+    let burnU = nukeMax ? fromNuke / B.nuclear.gen * U : 0;   // uranium per second
+    if (burnU * dt > (c.res.uranium || 0)) { const k = burnU ? (c.res.uranium || 0) / (burnU * dt) : 0; burnU *= k; fromNuke *= k; }
+    c.res.uranium = Math.max(0, (c.res.uranium || 0) - burnU * dt);
+    let fromBurn = Math.min(Math.max(0, P.need + cityMW - solar - fromNuke), burnMax);
     let burn = burnMax ? fromBurn / B.burner.gen * CFG.power.burnerWood : 0;   // wood per second
     if (burn * dt > c.res.wood) { const k = burn ? c.res.wood / (burn * dt) : 0; burn *= k; fromBurn *= k; }
     c.res.wood -= burn * dt;
-    const made = solar + fromBurn;
+    const made = solar + fromNuke + fromBurn;
     c.sat = P.need > 0 ? Math.min(1, made / P.need) : 1;
-    c.mw = { gen: Math.min(P.need + cityMW, made), max: solar + burnMax, need: P.need + cityMW, burn,
+    c.mw = { gen: Math.min(P.need + cityMW, made), max: solar + burnMax + nukeMax, need: P.need + cityMW, burn, burnU, nuke: fromNuke,
              machines: P.need, city: Math.max(0, Math.min(cityMW, made - P.need)) };
     c.cap = c.capBase + c.powCap;
     if (c.tier + 1 < TITLE_TIERS.length && c.cap >= TITLE_TIERS[c.tier + 1].cap) retitle(c);
     c.store = {};                                  // how much of each resource this country can hold
     for (const r in CFG.storage) c.store[r] = CFG.storage[r].base + CFG.storage[r].perCap * c.cap;
     c.staff = P.workers > 0 ? Math.min(1, c.people / P.workers) : 1;   // too few people: collectors slow down
-    for (const t of ['forest', 'stone', 'iron']) {
+    for (const t of DEP_TYPES) {
       const r = DEP_RES[t];
       const prod = (P.colDep[t] * c.staff + P.rigDep[t] * CFG.power.rigMult * c.sat) * CFG.prodPerTile[t];
-      c.res[r] += Math.max(0, Math.min(prod * dt, c.store[r] - c.res[r]));   // it only piles up as far as the country can store it
-      c.rates[r] = prod - (r === 'wood' ? burn : 0);
+      c.res[r] = (c.res[r] || 0) + Math.max(0, Math.min(prod * dt, c.store[r] - (c.res[r] || 0)));   // it only piles up as far as the country can store it
+      c.rates[r] = prod - (r === 'wood' ? burn : r === 'uranium' ? burnU : 0);
       (c.prod || (c.prod = {}))[r] = prod;
     }
     // fuel: ice drills make it as fast as their power allows and pipe it to the launch pads' tanks. No pad, nowhere to put it.
@@ -3523,15 +3563,15 @@ function saveGame() {
     }
     runs.push(prev, count);
     // people and supplies still out on a push or expedition go back home in the save
-    const back = game.countries.map(() => ({ people: 0, wood: 0, stone: 0, iron: 0 }));
+    const back = game.countries.map(() => ({ people: 0, wood: 0, stone: 0, iron: 0, uranium: 0 }));
     for (const q of game.pushes) { const c = liveCountry(q.country); if (c) back[c.id].people += q.budget; }
     for (const e of game.expeditions) { const c = liveCountry(e.from); if (c) { back[c.id].people += e.n; for (const r in e.kit) back[c.id][r] += e.kit[r]; } }
-    for (const F of game.freight) { const c = F.cargo && liveCountry(F.to); if (c) for (const r of CARGO_RES) back[c.id][r] += F.cargo[r]; }   // freighters aren't saved: their goods land
+    for (const F of game.freight) { const c = F.cargo && liveCountry(F.to); if (c) for (const r of CARGO_RES) back[c.id][r] += F.cargo[r] || 0; }   // freighters aren't saved: their goods land
     const data = {
       v: SAVE_V, lv: 1, seed: SEED, savedAt: Date.now(), time: game.time, active: game.active, peakPop: game.peakPop,
       sendPct: game.sendPct, unlocked: [...game.unlocked], hotbar: game.hotbar,
       countries: game.countries.map(c => ({ short: c.short, full: c.full, tier: c.tier, alive: c.alive, mergedInto: c.mergedInto,
-        people: c.people + back[c.id].people, res: { wood: c.res.wood + back[c.id].wood, stone: c.res.stone + back[c.id].stone, iron: c.res.iron + back[c.id].iron, fuel: c.res.fuel || 0 } })),
+        people: c.people + back[c.id].people, res: { wood: c.res.wood + back[c.id].wood, stone: c.res.stone + back[c.id].stone, iron: c.res.iron + back[c.id].iron, fuel: c.res.fuel || 0, uranium: (c.res.uranium || 0) + back[c.id].uranium } })),
       nations: game.nations.map(n => ({ people: n.people, alive: n.alive, hostile: !!n.hostile, iron: n.iron ?? CFG.iron.aiStart })),
       buildings: game.buildings.map(b => { const x = keptState(b); return x ? [b.i, b.type, b.ready || 0, x] : [b.i, b.type, b.ready || 0]; }),
       links: game.links.map(L => ({ kind: L.kind, a: L.a, b: L.b, path: L.path, t: L.t, dir: L.dir, cargo: L.cargo || null, to: L.to ?? -1, out: L.out || null })),
@@ -3907,7 +3947,7 @@ function outputOf(b) {
   if (!HARVESTS[b.type] || !b.work) return null;
   const c = owner[b.i] ? game.countries[countryOf[b.i]] : null, out = {};
   const k = !c ? 1 : b.type === 'rig' ? CFG.power.rigMult * (c.sat ?? 1) : (c.staff ?? 1);
-  for (const t of ['forest', 'stone', 'iron']) if (b.work[t]) out[DEP_RES[t]] = b.work[t] * CFG.prodPerTile[t] * k;
+  for (const t of DEP_TYPES) if (b.work[t]) out[DEP_RES[t]] = b.work[t] * CFG.prodPerTile[t] * k;
   return out;
 }
 const isFull = (c, r) => !!(c && c.store && !(c.res[r] < c.store[r] - 0.01));   // no room left for any more of it
@@ -3926,7 +3966,7 @@ function buildingCard(b) {
   let bad = false;
   const verb = { cabin: 'Chopping', camp: 'Mining', rig: 'Drilling' }[b.type];
   if (verb) {
-    const tiles = ['forest', 'stone', 'iron'].filter(k => b.work && b.work[k]).map(k => `${b.work[k]} ${k}`).join(', ');
+    const tiles = DEP_TYPES.filter(k => b.work && b.work[k]).map(k => `${b.work[k]} ${k}`).join(', ');
     if (!tiles) { line('r', 'Nothing in reach to work'); bad = true; }
     else {
       line('d', `${verb} ${tiles} tile${tiles === '1 forest' || tiles === '1 stone' || tiles === '1 iron' ? '' : 's'}`);
@@ -4100,6 +4140,7 @@ function paintTerrain() {
       const t = deposits[dep].type;
       if (t === 'forest') c = hash2(x, y, SEED + 1) > 0.5 ? FOREST_A : FOREST_B;
       else if (t === 'stone') c = mix(STONE, [120, 124, 128], hash2(x, y, SEED + 2) * 0.5);
+      else if (t === 'uranium') c = mix([78, 90, 66], [62, 84, 58], hash2(x, y, SEED + 4));   // dark and quiet: easy to miss
       else c = mix(IRON, [110, 66, 50], hash2(x, y, SEED + 3) * 0.5);
     }
     const j = (hash2(x, y, SEED + 9) - 0.5) * (b === OCEAN ? 4 : 10);
@@ -5604,7 +5645,7 @@ function render() {
       if (b.type === 'settlement' || x < x0 || x > x1 || y < y0 || y > y1) continue;
       const k = popScale(b);
       if (DEFENCE_TOPS[b.type]) { drawDefence(b, z * k); continue; }
-      drawSprite(b.type, x + 0.5, y + 0.5 + (DRILL_ANIM[b.type] ? drillJolt(b, z) : 0), z * k * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : 1.25));
+      drawSprite(b.type, x + 0.5, y + 0.5 + (DRILL_ANIM[b.type] ? drillJolt(b, z) : 0), z * k * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : b.type === 'nuclear' ? 1.7 : 1.25));
     }
     for (const b of game.buildings) {               // workers out on the tiles, then smoke on top of everything
       const x = b.i % W, y = (b.i / W) | 0;
@@ -5692,12 +5733,12 @@ function render() {
 // Forests and deposits up close. Each tile gets a patch of ground (forest floor, gravel, rust-stained earth)
 // and one to three pieces picked by the tile's own hash: mixed trees with stands of conifers, boulders and
 // rubble, ore chunks with bright flecks. Thick in the middle of a deposit, thinner and smaller at its edge.
-const GROUND = { forest: 'rgba(32,62,30,0.36)', stone: 'rgba(118,122,126,0.38)', iron: 'rgba(120,66,44,0.42)' };
-const ROCKS = { stone: ['rockA', 'rockB', 'rockC'], iron: ['oreA', 'oreB', 'oreC'] };
+const GROUND = { forest: 'rgba(32,62,30,0.36)', stone: 'rgba(118,122,126,0.38)', iron: 'rgba(120,66,44,0.42)', uranium: 'rgba(44,58,38,0.5)' };
+const ROCKS = { stone: ['rockA', 'rockB', 'rockC'], iron: ['oreA', 'oreB', 'oreC'], uranium: ['rockA', 'rockB', 'rockC'] };
 // Paint the deposits of tiles x0..x1, y0..y1 into context g: `s` = g pixels per tile, `devK` = device pixels per
 // g pixel, map(wx, wy) = where a world point lands in g. Used straight onto the screen, and for the chunk cache.
 function paintDeposits(g, x0, y0, x1, y1, s, devK, map) {
-  const ground = { forest: new Path2D(), stone: new Path2D(), iron: new Path2D() };
+  const ground = { forest: new Path2D(), stone: new Path2D(), iron: new Path2D(), uranium: new Path2D() };
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const dep = depositOf[idx(x, y)];
     if (dep < 0) continue;
@@ -5731,6 +5772,11 @@ function paintDeposits(g, x0, y0, x1, y1, s, devK, map) {
       } else {
         const big = inner && k === 0, name = ROCKS[t][big ? (h3 < 0.6 ? 0 : 1) : h3 < 0.3 ? 0 : h3 < 0.65 ? 1 : 2];
         sprite(name, wx, wy, s * (big ? 2.1 + h1 * 0.6 : 1.35 + h1 * 0.7));
+        if (t === 'uranium') {                     // a few faint green flecks in the rock: the only hint it's there
+          const [fx, fy] = map(wx + (h2 - 0.5) * 0.4, wy - 0.1), r = Math.max(0.8, s * 0.07);
+          g.fillStyle = 'rgba(157,255,122,0.75)'; g.fillRect(fx - r, fy - r, r * 2, r * 2);
+          if (h3 > 0.5) { const [ax, ay] = map(wx - 0.25, wy + 0.12); g.fillRect(ax - r * 0.7, ay - r * 0.7, r * 1.4, r * 1.4); }
+        }
       }
     }
   }
@@ -6383,7 +6429,7 @@ function cardBuilding(b, ui) {
   const M = c.mw || { gen: 0, max: 0, need: 0 }, ST = c.store || {};   // (no store yet before the first tick after a load)
   switch (b.type) {
     case 'cabin': case 'camp': case 'rig': {
-      const tiles = ['forest', 'stone', 'iron'].filter(k => b.work && b.work[k]);
+      const tiles = DEP_TYPES.filter(k => b.work && b.work[k]);
       if (!tiles.length) note('Nothing in reach to work: build it next to a deposit', 'r');
       for (const k of tiles) row(`${k[0].toUpperCase() + k.slice(1)} tiles worked`, `${b.work[k]}`);
       const out = outputOf(b);
@@ -6416,6 +6462,19 @@ function cardBuilding(b, ui) {
       if (M.machines) row('· machines', `${fmtNum(M.machines)} MW`);
       if (M.city >= 0.05) row('· cities', `${fmtNum(M.city)} MW`);
       row(`${c.short} wood`, `${fmtNum(c.res.wood)} (${((c.rates || {}).wood || 0) >= 0 ? '+' : ''}${(c.rates.wood || 0).toFixed(2)} / sec)`, (c.rates.wood || 0) < 0 ? 'r' : '');
+      break;
+    }
+    case 'nuclear': {
+      const per = c.pw.nukes ? (M.burnU || 0) / c.pw.nukes : 0, load = per / CFG.power.nukeUranium;
+      row('Makes', `${(load * def.gen).toFixed(1)} of ${def.gen} MW`, 'p');
+      bar(load, 'power');
+      row('Uses', `${per.toFixed(3)} uranium / sec`, per > 0.0001 ? 'u' : 'd');
+      if (per <= 0.0001) note((c.res.uranium || 0) < 0.05 ? 'Out of uranium: mine some, or ship it in from a country that has it' : 'Idle: nothing needs its power right now', (c.res.uranium || 0) < 0.05 ? 'r' : 'd');
+      sep();
+      row(`${c.short} power`, `${fmtNum(M.need)} / ${fmtNum(M.max)} MW`);
+      if (M.machines) row('· machines', `${fmtNum(M.machines)} MW`);
+      if (M.city >= 0.05) row('· cities', `${fmtNum(M.city)} MW`);
+      row(`${c.short} uranium`, `${fmtNum(c.res.uranium || 0)} (${((c.rates || {}).uranium || 0) >= 0 ? '+' : ''}${((c.rates || {}).uranium || 0).toFixed(3)} / sec)`, ((c.rates || {}).uranium || 0) < 0 ? 'r' : '');
       break;
     }
     case 'solar': {
@@ -7529,6 +7588,21 @@ function updateHud() {
       el.classList.toggle('neg', !C.pw.pads && !!C.pw.drills);
     }
   }
+  {                                                 // uranium shows up once this country has some, mines it, or runs a plant
+    const u = C.res.uranium || 0, rate = (C.rates || {}).uranium || 0, show = u >= 0.05 || (C.prod && C.prod.uranium > 0) || C.pw.nukes > 0;
+    $('res-uranium').style.display = show ? '' : 'none';
+    if (show) {
+      const cap = storeOf(C, 'uranium'), f = cap ? clamp(u / cap, 0, 1) : 0;
+      $('val-uranium').style.whiteSpace = 'nowrap';
+      $('val-uranium').innerHTML = `${u < 10 ? u.toFixed(1) : fmtNum(u)}<span style="font-size:12px;font-weight:600;opacity:0.65"> / ${fmtNum(cap)}</span>
+        <div title="Uranium: mined from rare dark deposits, burned by nuclear plants" style="height:4px;width:100%;min-width:70px;background:rgba(255,255,255,0.14);border-radius:2px;margin-top:3px">
+        <div style="height:100%;width:${(f * 100).toFixed(0)}%;background:${f >= 0.999 ? '#f2c14e' : '#9dff7a'};border-radius:2px"></div></div>`;
+      const el = $('rate-uranium');
+      el.textContent = `${rate < 0 ? '' : '+'}${rate.toFixed(2)}/s`;
+      el.classList.toggle('zero', Math.abs(rate) < 0.005);
+      el.classList.toggle('neg', rate < -0.005);
+    }
+  }
   flightHud();
   const M = C.mw, short = M.machines > 0 && C.sat < 0.999;
   const cityShort = C.pw.capPow > 0.5 && poweredShare(C) < 0.995;
@@ -7618,7 +7692,7 @@ function updateHover() {
     } else if (building[t.i]) {
       const hb = buildingAt(t.i);
       info += ` · ${CFG.buildings[hb.type].name}`;
-      if (HARVESTS[hb.type] && hb.work) info += ` · works ${['forest', 'stone', 'iron'].filter(k => hb.work[k]).map(k => `${hb.work[k]} ${k} tiles`).join(', ') || 'nothing in reach'}`;
+      if (HARVESTS[hb.type] && hb.work) info += ` · works ${DEP_TYPES.filter(k => hb.work[k]).map(k => `${hb.work[k]} ${k} tiles`).join(', ') || 'nothing in reach'}`;
       const hc = owner[t.i] ? countryAt(t.i) : null;
       if (hb.type === 'drill' && hc) {
         const pp = pipeOf(t.i);
@@ -7721,14 +7795,15 @@ function updateHover() {
   } else if (bdef.gen) {
     html += `<div class="g">+${bdef.gen} MW power${TC ? ' for ' + TC.short : ''}</div>`;
     if (type === 'burner') html += `<div class="d">Burns up to ${CFG.power.burnerWood} wood/s, only as much as is needed</div>`;
+    if (type === 'nuclear') html += `<div class="d">Burns up to ${CFG.power.nukeUranium} uranium/s, only as much as is needed${TC ? ` · ${TC.short} has ${fmtNum(TC.res.uranium || 0)} uranium` : ''}. Must be on the coast.</div>`;
   } else if (type === 'rig' || bdef.on) {
-    const R = CFG.collectorReach, rate = w => ['forest', 'stone', 'iron'].filter(k => w[k]).map(k => `${(w[k] * CFG.prodPerTile[k] * (type === 'rig' ? CFG.power.rigMult : 1)).toFixed(1)} ${DEP_RES[k]}/s`).join(' · ');
+    const R = CFG.collectorReach, rate = w => DEP_TYPES.filter(k => w[k]).map(k => `${(w[k] * CFG.prodPerTile[k] * (type === 'rig' ? CFG.power.rigMult : 1)).toFixed(1)} ${DEP_RES[k]}/s`).join(' · ');
     if (type === 'rig') {
       const old = building[t.i] ? buildingAt(t.i) : null;
       if (old && old.work) html += `<div class="g">${rate(old.work) || 'nothing in reach'} from the ${old.work.forest + old.work.stone + old.work.iron} tiles it works</div>`;
       html += `<div class="d">Uses ${bdef.use} MW and frees the workers; no power, no output</div>`;
     } else {
-      const g = owner[t.i] ? harvestGain(t.i, type) : { fresh: { forest: 0, stone: 0, iron: 0 }, shared: 0 }, n = g.fresh.forest + g.fresh.stone + g.fresh.iron;
+      const g = owner[t.i] ? harvestGain(t.i, type) : { fresh: { forest: 0, stone: 0, iron: 0, uranium: 0 }, shared: 0 }, n = g.fresh.forest + g.fresh.stone + g.fresh.iron;
       html += `<div class="${n ? 'g' : 'r'}">${n ? `+${rate(g.fresh)} from ${n} tiles in reach` : `No ${bdef.on.join(' or ')} to work within ${R} tiles`}</div>`;
       if (g.shared) html += `<div class="d">${g.shared} more tiles here are already worked by another collector</div>`;
       html += `<div class="d">Works ${bdef.on.join(' and ')} within ${R} tiles · employs ${bdef.workers} people</div>`;
@@ -8056,7 +8131,7 @@ function start() {
   setInterval(() => (window.requestIdleCallback ? requestIdleCallback(saveGame, { timeout: 2000 }) : saveGame()), 10000);
   if (params.has('bot')) {                         // ?bot: a simple AI plays your side (prototype/bot.js), for playtesting
     const sc = document.createElement('script');
-    sc.src = 'bot.js?v=2';
+    sc.src = 'bot.js?v=3';
     document.body.appendChild(sc);
   }
   window.addEventListener('beforeunload', saveGame);

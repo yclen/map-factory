@@ -45,6 +45,18 @@
     }
     return out;
   }
+  // the free coastal tile of this country nearest its centre (for a nuclear plant)
+  function coastSpot(C) {
+    const x0 = Math.round(C.lx), y0 = Math.round(C.ly);
+    for (let r = 0; r < 160; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = x0 + dx, y = y0 + dy;
+      if (x < 0 || y < 0 || x >= W || y >= 1000) continue;
+      const i = y * W + x;
+      if (mine(C, i) && isLand(i) && !G.building[i] && G.depositOf[i] < 0 && G.isCoastal(i)) return i;
+    }
+    return undefined;
+  }
   const owned = (C, type) => g.buildings.filter(b => b.type === type && mine(C, b.i));
   const tryB = (i, type) => { const n = g.buildings.length, t0 = owned(G.countryAt(i), type).length; G.tryBuild(i, type); return g.buildings.length > n || owned(G.countryAt(i), type).length > t0; };
 
@@ -71,6 +83,12 @@
     }
     if (G.isUnlocked('solar') && mw.need > mw.max * 0.6 && afford(C, B.solar.cost, 20)) {
       for (const s of freeSpots(C, 3)) if (afford(C, B.solar.cost, 20)) { if (tryB(s, 'solar')) mark('first solar panel'); }
+    }
+    // 2a) nuclear: once the empire has uranium and the cities want power, a plant on this country's coast
+    const empireU = alive().reduce((n, c) => n + (c.res.uranium || 0) + ((c.prod || {}).uranium || 0) * 60, 0);
+    if (G.isUnlocked('nuclear') && (citiesDark || mw.need >= mw.max - 0.5) && empireU >= 10 && owned(C, 'nuclear').length < 3 && afford(C, B.nuclear.cost, 20)) {
+      const s = coastSpot(C);
+      if (s !== undefined && tryB(s, 'nuclear')) mark('first nuclear plant');
     }
     // 2b) city levels: raise the biggest city when its country powers all its cities and has power to spare for the next level
     {
@@ -165,6 +183,7 @@
       // city levels (upgrades) of your settlements, highest first, and how powered your cities are
       levels: g.buildings.filter(b => b.type === 'settlement' && G.owner[b.i] && G.cityLevel(b) > 1).map(b => G.cityLevel(b)).sort((a, b) => b - a).join(','),
       citiesPowered: cs.map(c => Math.round(G.poweredShare(c) * 100) + '%').join(' '),
+      uranium: Math.round(sum(c => c.res.uranium || 0) * 10) / 10, nukes: g.buildings.filter(b => b.type === 'nuclear' && G.owner[b.i]).length,
     };
   }
 
