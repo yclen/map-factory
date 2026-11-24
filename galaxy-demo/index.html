@@ -6,7 +6,6 @@
   <meta name="theme-color" content="#03040a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Galaxy Demo</title>
-  <link rel="stylesheet" href="style.css?v=20261123205002">
 </head>
 <body>
   <canvas id="gl"></canvas>
@@ -42,6 +41,14 @@
     </div>
   </div>
   <div id="fatal" hidden></div>
-  <script type="module" src="js/main.js?v=20261123205002"></script>
+  <script type="module">
+    // load the current release even if the browser kept an old copy of this page: version.txt is never cached
+    let v = '';
+    try { v = (await (await fetch('version.txt', { cache: 'no-store' })).text()).trim(); } catch (e) { /* offline */ }
+    v = v || String(Date.now());
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'style.css?v=' + v;
+    await new Promise(done => { css.onload = css.onerror = done; document.head.appendChild(css); });
+    import('./js/main.js?v=' + v);
+  </script>
 </body>
 </html>

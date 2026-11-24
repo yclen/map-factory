@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261123205002';
-import { RULES } from './rules.js?v=20261123205002';
-import { makeNoise } from './noise.js?v=20261123205002';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261123205002';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261123205142';
+import { RULES } from './rules.js?v=20261123205142';
+import { makeNoise } from './noise.js?v=20261123205142';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261123205142';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));

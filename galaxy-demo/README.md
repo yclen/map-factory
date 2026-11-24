@@ -83,6 +83,6 @@ memory. The **Walkers** button adds 1k–50k animated people to the planet you'r
 
 ## Releasing
 
-Before committing a change, run `python tools/stamp_galaxy.py`. It adds a fresh `?v=` stamp to every file the
+Before committing a change, run `python tools/stamp_galaxy.py`. It writes a new `version.txt` and puts the same `?v=` stamp on every file the
 page loads. Otherwise browsers can keep running old scripts for up to 10 minutes after a push, which breaks new
 buttons.

@@ -1,7 +1,8 @@
 """Stamp a release version onto every file the Galaxy demo loads, so browsers fetch fresh copies after a push.
 
 GitHub Pages lets browsers reuse files for up to 10 minutes, so a new index.html can end up running old scripts.
-Adding ?v=<stamp> to every import (the same stamp everywhere, so each module still loads once) avoids that.
+Adding ?v=<stamp> to every import (the same stamp everywhere, so each module still loads once) avoids that, and
+index.html fetches version.txt uncached to learn the stamp, so even a stale copy of the page loads fresh code.
 Run before committing a galaxy-demo change:  python tools/stamp_galaxy.py
 """
 import re, sys, time
@@ -20,10 +21,6 @@ for path in sorted((root / 'js').glob('*.js')):
     new = stamp_text(text, r"('\./[\w-]+\.js)(\?v=\w+)?(')")
     if new != text:
         path.write_text(new, encoding='utf-8'); changed += 1
-html = root / 'index.html'
-text = html.read_text(encoding='utf-8')
-new = stamp_text(text, r'("js/main\.js)(\?v=\w+)?(")')
-new = stamp_text(new, r'("style\.css)(\?v=\w+)?(")')
-if new != text:
-    html.write_text(new, encoding='utf-8'); changed += 1
+# index.html reads version.txt (never cached) and loads main.js and style.css with that stamp
+(root / 'version.txt').write_text(stamp + '\n', encoding='utf-8'); changed += 1
 print(f'stamped v={stamp} into {changed} files')
