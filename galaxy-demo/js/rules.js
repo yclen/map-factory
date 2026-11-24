@@ -23,7 +23,9 @@ export const RULES = {
   },
 
   scale: {
-    guPerSu: 0.002,        // one system unit, in galaxy units (systems are tiny next to the gaps between stars)
+    // one system unit, in galaxy units. Tiny on purpose: the Sun's whole system is about 1/5000 of the gap to
+    // its nearest neighbour (the biggest blue systems about 1/130), so no orbits show while other stars are on screen
+    guPerSu: 0.00001,
     homeOrbit: 60,         // su: a planet this far from a yellow star is "temperate" (heat 1.0)
     yearAtHome: 480,       // seconds for one orbit at homeOrbit around a yellow star
   },
@@ -49,7 +51,7 @@ export const RULES = {
       name: 'Blue giant', color: [150, 186, 255], radius: 13, mass: 8, luminosity: 30,
       chance: { bulge: 0.02, arms: 0.18, disk: 0.06 },
       planets: [16, 24],           // huge systems, about 20 planets
-      firstOrbit: 70, spacing: [1.14, 1.24],
+      firstOrbit: 70, spacing: [1.13, 1.22],
       giants: 0.6,
     },
   },

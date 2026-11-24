@@ -111,7 +111,7 @@ function centerWorld() {
 const minLogZ = () => Math.log2(minDim() / (2.5 * RULES.galaxy.radius));
 function maxLogZ(f) {
   const big = Math.max(cw, ch);
-  if (!f) return Math.log2(3000);
+  if (!f) return Math.log2(4e5);
   if (f.kind === 'star') return Math.log2(1.4 * big / (f.r * SU));
   if (f.giant) return Math.log2(1.5 * big / (f.r * SU));
   return Math.log2(56 / (2 * f.r * SU / f.surface.W));     // a tile 56 px wide at most
@@ -192,7 +192,7 @@ function flyTo(b) {
   refocus(b);
   const w0 = cw / zoom(), w1 = fitWidth(b);
   const f = interpolateZoom([cam.ox, cam.oy, w0], [0, 0, w1]);
-  cam.fly = { f, t0: performance.now(), dur: clamp(f.duration * 0.42, 700, 2800) };
+  cam.fly = { f, t0: performance.now(), dur: clamp(f.duration * 0.42, 700, 3200) };
   if (b) select(b);
 }
 function stepFly(now) {
@@ -452,9 +452,13 @@ function render(now, dt) {
     const outerPx = st.outer * SU * z, margin = Math.max(40, outerPx);
     if (sx < -margin || sy < -margin || sx > cw + margin || sy > ch + margin) continue;
     const Rp = st.r * SU * z;
-    const glow = Math.max(STAR_GLOW[st.type] * (1 + 0.22 * clamp(lz + 1.5, 0, 7)), Rp * 4.2);
+    // from afar a whole system is one point of light; once its orbits open up (sys -> 1) the point
+    // dims and shrinks to a halo round the star's own disk
+    const sys = smooth(6, 30, outerPx);
+    const point = STAR_GLOW[st.type] * (1 + 0.22 * clamp(lz + 1.5, 0, 7));
+    const glow = point * (1 - sys) + Math.max(point * 0.6, Rp * 4.2) * sys;
     const c = st.color;
-    pushSprite(sx * s, sy * s, glow * s, 0, c[0] / 255, c[1] / 255, c[2] / 255, 1);
+    pushSprite(sx * s, sy * s, glow * s, 0, c[0] / 255, c[1] / 255, c[2] / 255, 1 - 0.45 * sys);
     addPick(st, sx, sy, Math.max(Rp, 5));
     const pri = (st.isSun ? 2000 : 0) + (st === selected ? 1500 : 0) + (st.type === 'blue' ? 40 : st.type === 'yellow' ? 25 : 10);
     // star names only once stars are spread out enough to read: the Sun (and a selected star) always
@@ -486,7 +490,7 @@ function drawSystem(st, ssx, ssy, z, md, s) {
   const oc = st.type === 'blue' ? [0.55, 0.65, 1] : st.type === 'red' ? [1, 0.55, 0.45] : [1, 0.85, 0.55];
   for (const p of st.planets) {
     const op = p.orbit * SU * z;
-    const a = smooth(3, 14, op);
+    const a = smooth(8, 24, op);                 // planets appear with their orbits, not before
     if (a <= 0) continue;
     place(p);
     const ringA = a * 0.2 * smooth(10, 40, op) * (1 - smooth(3e4, 1.2e5, op));
@@ -670,7 +674,7 @@ glCanvas.addEventListener('wheel', e => {
   e.preventDefault();
   cam.fly = null;
   const px = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
-  const dz = -e.deltaY * px * (e.ctrlKey ? 0.012 : 0.0022);
+  const dz = -e.deltaY * px * (e.ctrlKey ? 0.014 : 0.003);
   cam.tz = clamp(cam.tz + clamp(dz, -1.5, 1.5), minLogZ(), maxLogZ(cam.focus) + 1);
   cam.ax = e.clientX; cam.ay = e.clientY;
   if (dz > 0) autoFocus(e.clientX, e.clientY);
