@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261123210352';
-import { SKIN } from './skin.js?v=20261123210352';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123210352';
-import { buildAtlas } from './art.js?v=20261123210352';
-import { Renderer } from './renderer.js?v=20261123210352';
-import { Labels } from './labels.js?v=20261123210352';
-import { mulberry32, hash32 } from './rng.js?v=20261123210352';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123210352';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261123210352';
+import { RULES } from './rules.js?v=20261123211419';
+import { SKIN } from './skin.js?v=20261123211419';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123211419';
+import { buildAtlas } from './art.js?v=20261123211419';
+import { Renderer } from './renderer.js?v=20261123211419';
+import { Labels } from './labels.js?v=20261123211419';
+import { mulberry32, hash32 } from './rng.js?v=20261123211419';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123211419';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261123211419';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -266,7 +266,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261123210352', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261123211419', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -627,17 +627,16 @@ function drawBody(d, s, md, now) {
   if (b.atmo) bp.atmo = b.atmo;
   bp.atmoH = b === HOME ? RK.atmosphere / HOME.r : 0.05;
   const lv = levelsOf(b), D = 2 * Rd, focus = b === cam.focus ? 1e6 : 0;
-  // the whole-planet base (also draws the rim and atmosphere)
+  // the whole-planet base (also draws the rim and atmosphere), then sharper chunks on top at the level this
+  // zoom needs (a level is enough once it has ~0.4 samples per device pixel: far-view pixels are drawn in 2-3 px
+  // blocks), with the two levels below standing in while those load
   const base = wantPage(b, 0, 0, 0, 4e6 + focus + d.R);
-  setPage(bp, base.ready ? base : null, lv, D, s);
-  R.body(bp);
-  // sharper chunks on top, at the level this zoom needs (and the two below it while those load)
-  // (a level is enough once it has ~0.4 samples per device pixel: far-view pixels are drawn in 2-3 px blocks)
   const Lt = Math.min(lv.Lmax, Math.max(0, Math.ceil(Math.log2(D * 0.4 / lv.N[0]))));
-  if (Lt < 1) return;
+  const levels = [];                                         // per level: visible chunks (null = not built yet)
+  let topDone = true;
   const sx0 = cx - Rd, sy0 = cy - Rd;
-  for (let L = Math.max(1, Lt - 2); L <= Lt; L++) {
-    const N = lv.N[L], k = D / N;                              // device px per sample at this level
+  for (let L = Math.max(1, Lt - 2); L <= Lt && Lt >= 1; L++) {
+    const N = lv.N[L], k = D / N, list = [];                   // k = device px per sample at this level
     const pxA = Math.max(0, Math.floor(-sx0 / k / PAGE)), pxB = Math.min(Math.ceil(N / PAGE) - 1, Math.floor((R.w - sx0) / k / PAGE));
     const pyA = Math.max(0, Math.floor(-sy0 / k / PAGE)), pyB = Math.min(Math.ceil(N / PAGE) - 1, Math.floor((R.h - sy0) / k / PAGE));
     for (let py = pyA; py <= pyB; py++) for (let px = pxA; px <= pxB; px++) {
@@ -649,8 +648,26 @@ function drawBody(d, s, md, now) {
         const off = Math.hypot((rx0 + rx1) / 2 - R.w / 2, (ry0 + ry1) / 2 - R.h / 2);
         p = wantPage(b, L, px, py, 2e6 + focus - (Lt - L === 0 ? 5e4 : 0) - off);
       } else if (p) p.used = frameNo;
-      if (!p || !p.ready) continue;
-      bp.x0 = Math.max(0, rx0); bp.y0 = Math.max(0, ry0); bp.x1 = Math.min(R.w, rx1); bp.y1 = Math.min(R.h, ry1);
+      const ok = !!(p && p.ready);
+      if (L === Lt && !ok) topDone = false;
+      list.push(ok ? p : null, rx0, ry0, rx1, ry1);
+    }
+    levels.push(list);
+  }
+  // once the sharpest level covers the view, the layers under it would be painted over: skip them. The base
+  // is still needed where the view shows the rim or space around the planet
+  const inside = (x, y) => (x - cx) ** 2 + (y - cy) ** 2 < Rd * Rd * 0.98;
+  const screenInDisk = inside(0, 0) && inside(R.w, 0) && inside(0, R.h) && inside(R.w, R.h);
+  if (!(Lt >= 1 && topDone && screenInDisk)) {
+    setPage(bp, base.ready ? base : null, lv, D, s);
+    R.body(bp);
+  }
+  for (let li = topDone ? levels.length - 1 : 0; li < levels.length; li++) {
+    const list = levels[li];
+    for (let i = 0; i < list.length; i += 5) {
+      const p = list[i];
+      if (!p) continue;
+      bp.x0 = Math.max(0, list[i + 1]); bp.y0 = Math.max(0, list[i + 2]); bp.x1 = Math.min(R.w, list[i + 3]); bp.y1 = Math.min(R.h, list[i + 4]);
       setPage(bp, p, lv, D, s);
       bp.detail = true;
       R.body(bp);
@@ -1144,6 +1161,47 @@ function takeControl(rk) {
   if (cam.focus !== rk) { cam.fly = null; refocus(rk); }
 }
 
+// Drawing a path that's mostly off screen is costly (the browser still lays out every dash along the whole
+// length), and zoomed in a coarse path also cuts corners. So: skip what's off screen, and add detail where
+// the path is visible, aiming for a point every ~8 px.
+const VIEW_PAD = 40;
+const onView = (x0, y0, x1, y1, pad) => Math.max(x0, x1) > -pad && Math.min(x0, x1) < cw + pad && Math.max(y0, y1) > -pad && Math.min(y0, y1) < ch + pad;
+function strokeConic(g, c, hx, hy, k) {
+  const pt = (nu, out) => {
+    const rr = c.p / (1 + c.e * Math.cos(nu)), a = c.w + nu;
+    out[0] = hx + (c.hx + Math.cos(a) * rr) * k; out[1] = hy + (c.hy + Math.sin(a) * rr) * k; out[2] = rr;
+  };
+  const A = [0, 0, 0], B = [0, 0, 0], P = [0, 0, 0], STEPS = 240;
+  const dnu = (c.nuEnd - c.nu0) / STEPS;
+  let pen = false;
+  pt(c.nu0, A);
+  for (let i = 1; i <= STEPS; i++) {
+    const nb = c.nu0 + dnu * i;
+    pt(nb, B);
+    // how far the curve can bow away from the straight chord between two samples
+    const bow = Math.max(A[2], B[2]) * k * dnu * dnu / 8 + 2;
+    if (onView(A[0], A[1], B[0], B[1], VIEW_PAD + bow)) {
+      if (!pen) { g.moveTo(A[0], A[1]); pen = true; }
+      const m = Math.min(4000, Math.max(1, Math.ceil(Math.hypot(B[0] - A[0], B[1] - A[1]) / 8)));
+      for (let j = 1; j <= m; j++) {
+        pt(nb - dnu + dnu * j / m, P);
+        if (P[2] < c.rMin) return;                               // reaches the ground
+        g.lineTo(P[0], P[1]);
+      }
+    } else pen = false;
+    A[0] = B[0]; A[1] = B[1]; A[2] = B[2];
+  }
+}
+function strokeClipped(g, buf, n, hx, hy, k, sx, sy) {
+  let ax = sx, ay = sy, pen = false;
+  for (let i = 0; i < n; i++) {
+    const bx = hx + buf[i * 2] * k, by = hy + buf[i * 2 + 1] * k;
+    if (onView(ax, ay, bx, by, VIEW_PAD)) { if (!pen) { g.moveTo(ax, ay); pen = true; } g.lineTo(bx, by); }
+    else pen = false;
+    ax = bx; ay = by;
+  }
+}
+
 function drawRocketLayer(g) {
   if (!rockets.length) return;
   const z = zoom(), [wcx, wcy] = centerWorld();
@@ -1179,8 +1237,8 @@ function drawRocketLayer(g) {
     if (n > 1) {
       g.strokeStyle = 'rgba(120,220,255,0.75)'; g.lineWidth = 1.5; g.setLineDash([6, 5]);
       g.beginPath();
-      g.moveTo(hx + active.x * k, hy + active.y * k);
-      for (let i = 0; i < n; i++) g.lineTo(hx + pathBuf[i * 2] * k, hy + pathBuf[i * 2 + 1] * k);
+      if (pathN) strokeClipped(g, pathBuf, n, hx, hy, k, hx + active.x * k, hy + active.y * k);
+      else strokeConic(g, c, hx, hy, k);
       g.stroke(); g.setLineDash([]);
       const mark = (pt, label, col) => {
         const x = hx + pt.x * k, y = hy + pt.y * k;
@@ -1197,7 +1255,7 @@ function drawRocketLayer(g) {
   for (const rk of rockets) {
     const x = hx + rk.x * k, y = hy + rk.y * k;
     if (x < -200 || y < -200 || x > cw + 200 || y > ch + 200) continue;
-    const hgt = Math.max(16, RK.length * tile), wid = hgt * 0.4;
+    const hgt = Math.max(30, RK.length * tile), wid = hgt * 0.4;
     if (rk.state !== 'crashed' && rk.state !== 'building') rocketHits.push({ rk, x, y, r: Math.max(12, hgt / 2) });
     if (rk.state === 'crashed') {
       const t = rk.crashT, a = Math.max(0, 1 - t / 2.2);
@@ -1225,7 +1283,7 @@ function drawRocketLayer(g) {
       g.strokeStyle = 'rgba(242,193,78,0.7)'; g.lineWidth = 1;
       g.strokeRect(-wid / 2 - 2, -hgt / 2, wid + 4, hgt);
     } else g.drawImage(SPR_ROCKET, -wid / 2, -hgt / 2, wid, hgt);
-    if ((rk === active && rocketMode) || rk === hoverRocket) { g.strokeStyle = rk === hoverRocket ? 'rgba(242,193,78,0.85)' : 'rgba(120,220,255,0.6)'; g.lineWidth = 1; g.strokeRect(-wid / 2 - 4, -hgt / 2 - 4, wid + 8, hgt + 8); }
+    if (rk === hoverRocket) { g.strokeStyle = 'rgba(242,193,78,0.85)'; g.lineWidth = 1; g.strokeRect(-wid / 2 - 4, -hgt / 2 - 4, wid + 8, hgt + 8); }
     g.restore();
     if (rk.state === 'building' && tile * 9 > 5) {
       g.font = '600 11px "Segoe UI", system-ui, sans-serif'; g.fillStyle = '#ffe6a6';

@@ -1,7 +1,7 @@
 // Background worker: builds chunks of planet maps so the main thread never stalls while drawing.
-import { generatePage } from './terrain.js?v=20261123210352';
-import { buildAtlas } from './art.js?v=20261123210352';
-import { SKIN } from './skin.js?v=20261123210352';
+import { generatePage } from './terrain.js?v=20261123211419';
+import { buildAtlas } from './art.js?v=20261123211419';
+import { SKIN } from './skin.js?v=20261123211419';
 
 const art = buildAtlas(SKIN);
 

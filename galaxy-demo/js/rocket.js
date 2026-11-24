@@ -1,7 +1,7 @@
 // Rocket flight: a small 2D physics sim around Home. Positions are in system units relative to Home's centre
 // (Home's radius = HOME.r), y pointing down the screen, so Home's North Pole is at (0, -R).
 // angle 0 = nose pointing north (up the screen); positive angles turn clockwise.
-import { RULES } from './rules.js?v=20261123210352';
+import { RULES } from './rules.js?v=20261123211419';
 
 const P = RULES.rocket;
 const TAU = Math.PI * 2;
@@ -146,5 +146,7 @@ export function conicPath(rk, home, out, steps = 240) {
   const periR = p / (1 + e), apoR = closed ? p / (1 - e) : Infinity;
   // the top of the arc counts if the rocket gets there before landing; the bottom only if it's above ground
   const reachesTop = closed && (periR > home.r || passedTop || Math.cos(nu0) < -0.999);
-  return { n, closed, apo: reachesTop ? at(w + Math.PI, apoR) : null, peri: closed && periR > home.r ? at(w, periR) : null, apoR };
+  const nuEnd = nu0 + dir * lap * Math.max(0, n - 1) / steps;            // how far round the drawn arc goes
+  return { n, closed, apo: reachesTop ? at(w + Math.PI, apoR) : null, peri: closed && periR > home.r ? at(w, periR) : null, apoR,
+    p, e, w, nu0, nuEnd, hx: home.x, hy: home.y, rMin: home.r };
 }

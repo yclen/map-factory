@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261123210352';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261123210352';
+import * as S from './shaders.js?v=20261123211419';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261123211419';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
