@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261123212214';
-import { SKIN } from './skin.js?v=20261123212214';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123212214';
-import { buildAtlas } from './art.js?v=20261123212214';
-import { Renderer } from './renderer.js?v=20261123212214';
-import { Labels } from './labels.js?v=20261123212214';
-import { mulberry32, hash32 } from './rng.js?v=20261123212214';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123212214';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261123212214';
+import { RULES } from './rules.js?v=20261124014027';
+import { SKIN } from './skin.js?v=20261124014027';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124014027';
+import { buildAtlas } from './art.js?v=20261124014027';
+import { Renderer } from './renderer.js?v=20261124014027';
+import { Labels } from './labels.js?v=20261124014027';
+import { mulberry32, hash32 } from './rng.js?v=20261124014027';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124014027';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124014027';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -282,7 +282,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261123212214', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261124014027', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -1335,9 +1335,10 @@ thrEl.addEventListener('pointermove', e => { if (thrEl.hasPointerCapture && thrE
 function updateTouch() {
   const show = touchUI && (rocketMode || rockets.some(r => r.state === 'flying'));
   touchEl.hidden = !show;
+  document.body.classList.toggle('touchfly', show);              // other panels make room for the controls
   if (!show || !active) return;
   // sit just above the bottom bar, however many rows it wraps to
-  touchEl.style.setProperty('--above-bar', (innerHeight - $('bar').getBoundingClientRect().top + 10) + 'px');
+  document.documentElement.style.setProperty('--above-bar', (innerHeight - $('bar').getBoundingClientRect().top + 10) + 'px');
   const burning = active.engine && active.fuel > 0;
   engineBtn.classList.toggle('on', burning);
   engineBtn.textContent = active.state === 'building' ? 'Building…' : active.engine ? (active.fuel > 0 ? 'Engine ON' : 'No fuel') : 'Engine';
