@@ -111,9 +111,10 @@ export const RULES = {
     gas: { name: 'Gas giant', giant: true, size: [3.4, 5.8], rings: 0.35 },
     icegiant: { name: 'Ice giant', giant: true, size: [2.4, 3.4], rings: 0.25 },
   },
-  // the cold rim of every disk planet: how strongly distance from the centre cools it (rim), and how much extra
-  // cold the north and south (top and bottom) get (poles). Smaller rim = thinner ice ring; bigger poles = bigger caps
-  ice: { rim: 0.95, poles: 0.3 },
+  // polar ice: cold comes only from latitude (how far north or south, i.e. towards the top or bottom of the disk),
+  // so worlds get ice caps at the poles and ordinary terrain at the east and west edges. cap = roughly how deep
+  // each cap reaches in from its pole, as a share of the radius (noise and mountains make the edges ragged)
+  ice: { cap: 0.16 },
   resourceBlob: 22,        // typical deposit size, in tiles
 
   // which ground a resource can sit on ('land' = anything that isn't water or lava)

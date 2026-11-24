@@ -10,7 +10,8 @@ import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js';
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
 const SETTLE_GROUND = nameToId(RULES.settlements.ground);
-const ICE = RULES.ice;
+// scaled so the ice starts about RULES.ice.cap of the radius in from each pole (the climate turns icy near lat 0.92)
+const ICE_K = 0.92 / (1 - RULES.ice.cap);
 const RES_GROUND = {};
 for (const res of RESOURCES) {
   const g = RULES.resourceGround[res];
@@ -35,11 +36,10 @@ export function makeSampler(desc) {
     let e = N.fbm((x + wx) * fC + oE[0], (y + wx) * fC + oE[1], (z - wx) * fC + oE[2], octE) * 0.5 + 0.5;
     const m = N.fbm(x * 2.2 + oM[0], y * 2.2 + oM[1], z * 2.2 + oM[2], 2) * 0.5 + 0.5;
     const n = N.simplex3(x * 9 + oN[0], y * 9 + oN[1], z * 9 + oN[2]) * 0.5 + 0.5;
-    // how cold this spot is from its position: 0 = warm middle, about 1 = the icy rim. Distance from the centre
-    // does most of it; facing north or south (top/bottom of the disk) adds more, so the ice ring is thin at the
-    // sides and grows into caps at the poles
-    const d2 = x * x + y * y, pole = d2 > 1e-9 ? (y * y) / d2 : 0;
-    const lat = d2 * (ICE.rim + ICE.poles * pole * pole);
+    // latitude: 0 along the equator (the line across the middle of the disk), about 1 at the north and south
+    // poles (top and bottom). Only latitude makes things cold, so ice forms caps at the poles and the east and
+    // west edges of the world are ordinary terrain
+    const lat = Math.abs(y) * ICE_K;
     switch (type) {
       case 'terran': case 'ocean': {
         const sea = tr.sea;
