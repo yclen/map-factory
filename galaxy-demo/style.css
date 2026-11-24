@@ -69,6 +69,23 @@ button.on { border-color: var(--gold); color: #ffe6a6; }
 #rocketHud .row b { color: var(--dim); } #rocketHud .row b.on { color: #ffb347; }
 #rocketHud .keys { margin-top: 6px; color: var(--dim); font-size: 11.5px; }
 #rocketHud[hidden] { display: none; }
+/* on-screen rocket controls (touch screens) */
+#touch { position: fixed; inset: 0; pointer-events: none; }
+#touch[hidden] { display: none; }
+#touch button, #touch .thr { pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#touch .thr { position: fixed; left: 14px; bottom: var(--above-bar, 70px); width: 54px; height: min(200px, 32vh);
+  border-radius: 14px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+#touch .thr .fill { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(0deg, #e0874e, #f2c14e); opacity: 0.85; }
+#touch .thr span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg); font-size: 11px; font-weight: 700;
+  color: #fff; text-shadow: 0 1px 2px #000; white-space: nowrap; pointer-events: none; }
+#touch .right { position: fixed; right: 12px; bottom: var(--above-bar, 70px); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+#touch .small { display: flex; gap: 6px; }
+#touch .small button { padding: 7px 10px; font-size: 12px; }
+#touch .engine { width: 140px; height: 58px; border-radius: 16px; font-size: 16px; font-weight: 700; }
+#touch .engine.on { border-color: #ffb347; color: #ffd9a0; box-shadow: 0 0 18px rgba(255, 150, 60, 0.45); }
+#touch .turn { display: flex; gap: 8px; }
+#touch .turn button { width: 66px; height: 58px; border-radius: 16px; font-size: 20px; }
+#touch button.down, #touch button.on { border-color: var(--gold); color: #ffe6a6; }
 #tip { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; pointer-events: none; font-size: 12px; white-space: nowrap; }
 
 #bar { position: fixed; left: 0; right: 0; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; pointer-events: none; padding: 0 12px; }
@@ -84,6 +101,8 @@ button.on { border-color: var(--gold); color: #ffe6a6; }
   #info { left: 8px; right: 8px; width: auto; bottom: calc(58px + env(safe-area-inset-bottom)); padding: 9px 11px; font-size: 12.5px; }
   #info .res div { grid-template-columns: 64px 1fr 40px; }
   #perf { top: auto; bottom: auto; left: 8px; right: 8px; top: calc(44px + env(safe-area-inset-top)); max-width: none; font-size: 10.5px; }
-  #bar button { padding: 7px 11px; }
+  #bar { gap: 4px; padding: 0 6px; }
+  #bar button { padding: 6px 9px; font-size: 12px; }
   #scale { left: 8px; right: 8px; width: auto; bottom: calc(58px + env(safe-area-inset-bottom)); }
+  #rocketHud { top: calc(44px + env(safe-area-inset-top)); font-size: 12px; padding: 8px 10px; }
 }

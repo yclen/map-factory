@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261123211419';
-import { SKIN } from './skin.js?v=20261123211419';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123211419';
-import { buildAtlas } from './art.js?v=20261123211419';
-import { Renderer } from './renderer.js?v=20261123211419';
-import { Labels } from './labels.js?v=20261123211419';
-import { mulberry32, hash32 } from './rng.js?v=20261123211419';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123211419';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261123211419';
+import { RULES } from './rules.js?v=20261123211956';
+import { SKIN } from './skin.js?v=20261123211956';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123211956';
+import { buildAtlas } from './art.js?v=20261123211956';
+import { Renderer } from './renderer.js?v=20261123211956';
+import { Labels } from './labels.js?v=20261123211956';
+import { mulberry32, hash32 } from './rng.js?v=20261123211956';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123211956';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261123211956';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -266,7 +266,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261123211419', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261123211956', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -482,7 +482,7 @@ function frame(now) {
   }
   const tu = performance.now();
   if (frameNo % 15 === 0) updateUI();
-  if (frameNo % 5 === 0) updateRocketHud();
+  if (frameNo % 5 === 0) { updateRocketHud(); updateTouch(); }
   parts[4] += performance.now() - tu;
 }
 
@@ -662,7 +662,7 @@ function drawBody(d, s, md, now) {
     setPage(bp, base.ready ? base : null, lv, D, s);
     R.body(bp);
   }
-  for (let li = topDone ? levels.length - 1 : 0; li < levels.length; li++) {
+  for (let li = topDone ? Math.max(0, levels.length - 1) : 0; li < levels.length; li++) {
     const list = levels[li];
     for (let i = 0; i < list.length; i += 5) {
       const p = list[i];
@@ -886,7 +886,8 @@ function updateUI(force) {
     if (txt) { tipEl.innerHTML = txt; tipEl.style.left = (hover.x + 14) + 'px'; tipEl.style.top = (hover.y + 16) + 'px'; }
   } else tipEl.hidden = true;
   // info panel
-  infoEl.hidden = coarse && !selected;
+  // on phones the info card waits for a tap, and gives way to the rocket controls while you're flying
+  infoEl.hidden = (coarse && !selected) || (!touchEl.hidden && innerWidth <= 640);
   if (frameNo % 30 === 0 || force) infoEl.innerHTML = infoHTML(selected);
   const fly = infoEl.querySelector('[data-fly]');
   if (fly && !fly.onclick) fly.onclick = () => flyTo(selected);
@@ -1295,6 +1296,40 @@ function drawRocketLayer(g) {
 
 // the readout: fuel, throttle, height, speed, orbit
 const hudEl = $('rocketHud');
+
+// on-screen controls for touch screens: throttle bar on the left; engine, turn and camera buttons on the right
+const touchEl = $('touch'), touchUI = coarse || navigator.maxTouchPoints > 0;
+const engineBtn = touchEl.querySelector('.engine'), thrEl = touchEl.querySelector('.thr'), thrFill = thrEl.querySelector('.fill');
+touchEl.addEventListener('contextmenu', e => e.preventDefault());
+touchEl.querySelectorAll('[data-hold]').forEach(b => {             // hold to turn
+  const k = b.dataset.hold;
+  const off = () => { held.delete(k); b.classList.remove('down'); };
+  b.addEventListener('pointerdown', e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } held.add(k); b.classList.add('down'); });
+  b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off);
+});
+const TAPS = { engine: toggleEngine, back: backToRocket, next: switchRocket, follow: toggleFollow };
+touchEl.querySelectorAll('[data-tap]').forEach(b => b.addEventListener('click', () => { TAPS[b.dataset.tap](); updateTouch(); updateRocketHud(); }));
+const setThrottle = e => {                                         // drag up and down the bar
+  const r = thrEl.getBoundingClientRect();
+  if (active) active.throttle = clamp(1 - (e.clientY - r.top) / r.height, 0, 1);
+  updateTouch();
+};
+thrEl.addEventListener('pointerdown', e => { e.preventDefault(); try { thrEl.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } setThrottle(e); });
+thrEl.addEventListener('pointermove', e => { if (thrEl.hasPointerCapture && thrEl.hasPointerCapture(e.pointerId)) setThrottle(e); });
+function updateTouch() {
+  const show = touchUI && (rocketMode || rockets.some(r => r.state === 'flying'));
+  touchEl.hidden = !show;
+  if (!show || !active) return;
+  // sit just above the bottom bar, however many rows it wraps to
+  touchEl.style.setProperty('--above-bar', (innerHeight - $('bar').getBoundingClientRect().top + 10) + 'px');
+  const burning = active.engine && active.fuel > 0;
+  engineBtn.classList.toggle('on', burning);
+  engineBtn.textContent = active.state === 'building' ? 'Building…' : active.engine ? (active.fuel > 0 ? 'Engine ON' : 'No fuel') : 'Engine';
+  thrFill.style.height = (active.throttle * 100).toFixed(0) + '%';
+  thrEl.querySelector('span').textContent = `Throttle ${Math.round(active.throttle * 100)}%`;
+  touchEl.querySelector('[data-tap="follow"]').classList.toggle('on', follow);
+}
+
 function updateRocketHud() {
   const show = rocketMode || rockets.some(r => r.state === 'flying');
   hudEl.hidden = !show;
@@ -1318,7 +1353,7 @@ function updateRocketHud() {
     <div class="row">Engine <b class="${rk.engine && rk.fuel > 0 ? 'on' : ''}">${rk.engine ? (rk.fuel > 0 ? 'ON' : 'OUT OF FUEL') : 'off'}</b> · height ${fmt(Math.round(alt / tl))} tiles · speed ${fmt(Math.round(spd / tl))} tiles/s</div>
     ${orbit ? `<div class="row">${orbit}</div>` : ''}
     <div class="row dim">Next rocket: ${pad}${rockets.filter(r => r.state === 'flying').length > 1 ? ` · ${rockets.filter(r => r.state === 'flying').length} in flight` : ''}</div>
-    <div class="keys">Space engine · Q/E throttle · A/D turn · R back to rocket · Tab switch · F follow ${follow ? '(on)' : '(off)'}</div>`;
+    ${touchUI ? '' : `<div class="keys">Space engine · Q/E throttle · A/D turn · R back to rocket · Tab switch · F follow ${follow ? '(on)' : '(off)'}</div>`}`;
 }
 
 // ---------- start: on Home, then let the player zoom out ----------
