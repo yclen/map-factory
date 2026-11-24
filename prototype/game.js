@@ -38,25 +38,25 @@ const CFG = {
   desertShare: 0.24,           // driest X% of land becomes desert
 
   startPeople: 100, startRadius: 8,
-  // Land holds the capacity: every owned land tile can support this many people...
+  // Land still counts for each settlement's `reach` (how AI nations space out their settlements), but it houses nobody.
   landCap: { grass: 0.5, desert: 0.2, mountain: 0.1, ice: 0.05 },
-  // ...but only if a settlement is within `reach` tiles of it. Each tile counts for its nearest settlement,
-  // so settlements packed together share the same land. A settlement's level is read off the capacity it serves.
-  // City levels: place a settlement on one of your own (or press Upgrade on its card) to raise its level. Every
-  // level past the first adds housing that only fills with power: `perMW` people per MW. Power a country makes
-  // beyond what its machines use goes to its cities, shared out evenly; a city with half the power it needs fills
-  // half its powered housing. Upgrading always works; without power it just doesn't help yet. Cities only draw
-  // power for the people actually living in that housing, so burners burn more wood as the cities fill up.
-  // `upgrades[k]` is the step to level k + 2; past the list each step adds `grow` x the housing for `costGrow` x the
-  // cost. A settlement tool aimed within `snap` tiles of one of your cities upgrades it instead of founding another.
-  // People above a country's capacity die off slowly (`shrink` = share of the excess per second).
-  // `levels` names a city by the people it holds right now (land and powered housing together).
-  settlement: { reach: 12, perMW: 12.5, shrink: 0.01, snap: 2,
-                upgrades: [{ add: 150, cost: { stone: 80, iron: 20 } }, { add: 400, cost: { stone: 200, iron: 80 } },
-                           { add: 1000, cost: { stone: 500, iron: 250 } }, { add: 2500, cost: { stone: 1200, iron: 600 } }],
-                grow: 2.5, costGrow: 2.4,
-                levels: [{ name: 'Hamlet', cap: 0 }, { name: 'Village', cap: 50 }, { name: 'Town', cap: 110 }, { name: 'City', cap: 175 },
-                         { name: 'Metropolis', cap: 300 }, { name: 'Megacity', cap: 1200 }, { name: 'Megalopolis', cap: 3000 }] },
+  // Cities. Every person lives in a city: a country's people are the sum of its cities' people (each settlement
+  // keeps its own count, b.pop). A city's level sets how many it houses. Villages and Towns need no power; from City
+  // up, the housing past `unpowered` only fills with power: `perMW` people per MW, shared out evenly between the
+  // country's cities. Losing power never downgrades a city: it just holds no more than a Town until power comes back.
+  // Place a settlement on one of your cities (within `snap` tiles) or press Upgrade on its card to raise its level.
+  // A new city must be at least `spacing` tiles from every other city. Each city protects the land in its `zone`:
+  // while it has people, enemies can't claim that land, and pushing into it fights the city's people one for one
+  // until none are left. Shelling alone never takes a city below `shellFloor` of its housing: only troops finish it.
+  // Each city also stores goods: `store` x the per-city amounts in CFG.storage.
+  // People above a country's housing die off slowly (`shrink` = share of the excess per second).
+  settlement: { reach: 12, perMW: 12.5, shrink: 0.01, snap: 2, spacing: 10, unpowered: 300, shellFloor: 0.1,
+                levels: [{ name: 'Village', housing: 120, zone: 5, store: 1 },
+                         { name: 'Town', housing: 300, zone: 6, store: 2, cost: { wood: 100, stone: 100 } },
+                         { name: 'City', housing: 700, zone: 8, store: 4, cost: { stone: 300, iron: 80 } },
+                         { name: 'Metropolis', housing: 1600, zone: 10, store: 8, cost: { stone: 900, iron: 300 } },
+                         { name: 'Megacity', housing: 4000, zone: 12, store: 16, cost: { stone: 2500, iron: 1000 } },
+                         { name: 'Megalopolis', housing: 10000, zone: 14, store: 32, cost: { stone: 6000, iron: 2500 } }] },
   startResources: { wood: 50, stone: 50, iron: 0 },
   // An expedition takes the same share of its country's stockpile as of its people (the send %),
   // and at least this much if home has it: enough for a station with some track, or a cabin and a camp.
@@ -99,19 +99,19 @@ const CFG = {
   // tiles, along the grid with one or two right-angle turns, when such a route stays on that country's land.
   // Trucks drive them. For show only.
   roadMax: 34, roadLinks: 2, truckSpeed: 5,
-  // Every resource can only be stockpiled so far: a country stores `base` plus `perCap` for each person its settlements
-  // can house. Collectors set how fast a store fills; settlements set how much it holds. Wood and stone are generous
-  // (enough for a long building spree); iron is tighter, because it is what war runs on.
-  storage: { wood: { base: 200, perCap: 5 }, stone: { base: 200, perCap: 5 }, iron: { base: 50, perCap: 1 }, uranium: { base: 40, perCap: 0.1 } },
+  // Every resource can only be stockpiled so far, and cities hold the stock: a country stores `base` plus `city` x each
+  // of its cities' `store` (Village 1, Town 2, City 4 ...), plus what a launch pad's depot holds. Wood and stone are
+  // generous (enough for a long building spree); iron is tighter, because it is what war runs on.
+  storage: { wood: { base: 100, city: 300 }, stone: { base: 100, city: 300 }, iron: { base: 30, city: 60 }, uranium: { base: 20, city: 20 } },
   // AI nations keep iron under the same rule: they mine the iron in their land, plus a small trickle so none is ever unarmed.
   iron: { aiStart: 30, aiTrickle: 0.15 },
   prodPerTile: { forest: 0.1, stone: 0.12, iron: 0.1, uranium: 0.02 },   // stone a bit richer: it's in almost everything   // per owned, connected deposit tile, per second
 
   // unlock = how many people your whole empire must reach (at its peak) before you can build it
   buildings: {
-    // the one housing building. It has no capacity of its own: it unlocks the capacity of the land around it.
+    // the one housing building: every person lives in one. See CFG.settlement for levels, power, zones and storage.
     settlement: { cat: 'Housing', name: 'Settlement', unlock: 0, cost: { wood: 40, stone: 40 }, people: 20,
-               desc: 'Houses the people the land within 12 tiles can support, and grows from hamlet to city as you own more of it. Costs 20 settlers. Spread them out: land is only counted once. Place one on a settlement you already have to upgrade it instead: each level adds housing that runs on power.' },
+               desc: 'A new village: 20 settlers move in and it houses 120. It stores goods, and while it has people, enemies cannot take the land within 5 tiles of it without fighting them. Place one on a city you already have to upgrade it: Town, City, Metropolis and beyond. From City up, the extra housing runs on power. Cities need 10 tiles between them.' },
     station: { cat: 'Transport', name: 'Station', cap: 0,  unlock: 0, cost: { wood: 15, stone: 10 },
                desc: 'Lays its own rail to your nearest station. Trains carry people and cargo between your countries.' },
     port:    { cat: 'Transport', name: 'Port',    cap: 0,  unlock: 0, cost: { wood: 20, stone: 10 },
@@ -144,7 +144,7 @@ const CFG = {
                desc: 'Mines the stone, iron and uranium within 4 tiles of it. Employs 5 of the country\'s people, who can\'t be sent anywhere. Two close together share the same rock.' },
     // weapons
     mortar:  { cat: 'Military', name: 'Mortar', cap: 0, unlock: 300, cost: { wood: 20, stone: 20 }, weapon: 'shell',
-               desc: 'Fires by itself at the weapons and defenses of any nation you are at war with, up to 22 tiles away (never its settlements: aim a missile for those). Shells cost 5 iron and reload in under 3 seconds. Holds fire when the country is down to 20 iron.' },
+               desc: 'Fires by itself at the weapons and defenses of any nation you are at war with, up to 22 tiles away, and at its cities when none are in range: each shell kills a few of the people defending it. Shells cost 5 iron and reload in under 3 seconds. Holds fire when the country is down to 20 iron.' },
     turret:  { cat: 'Military', name: 'Gun turret', cap: 0, unlock: 400, cost: { stone: 25, iron: 15 }, gun: true,
                desc: 'Guns down enemy soldiers pushing into your land within 9 tiles of it, by itself: 6 a second, for a little iron. Enough of them stop a wave dead.' },
     airdef:  { cat: 'Military', name: 'Air defense', cap: 0, unlock: 500, cost: { stone: 30, iron: 30 }, use: 2, defense: true,
@@ -154,8 +154,8 @@ const CFG = {
     // space: ice drills turn polar ice into rocket fuel, launch pads store it (and, next, launch rockets)
     drill:   { cat: 'Space', name: 'Ice drill', cap: 0, unlock: 800, cost: { stone: 20, iron: 25 }, use: 6, fuel: 0.5,
                desc: 'Only on polar ice. Drills ice and splits it into rocket fuel: 0.5 fuel/s on full power, and it draws 6 MW. A pipe lays itself to your nearest launch pad in the same country; with no pad, it waits.' },
-    pad:     { cat: 'Space', name: 'Launch pad', cap: 0, unlock: 800, cost: { stone: 80, iron: 60 },
-               desc: 'Builds a rocket at once, for 100 iron, whenever it has none and you have the iron. Then your ice drills in the same country pump fuel straight into the rocket, 0.5/s for each drill, so more drills fuel it faster. Click a pad to pause or resume it.' },
+    pad:     { cat: 'Space', name: 'Launch pad', cap: 0, unlock: 800, cost: { stone: 80, iron: 60 }, store: { stone: 100, iron: 150 },
+               desc: 'Has its own depot (100 stone, 150 iron). Builds a rocket at once, for 100 iron, whenever it has none and you have the iron. Then your ice drills in the same country pump fuel straight into the rocket, 0.5/s for each drill, so more drills fuel it faster. Click a pad to pause or resume it.' },
   },
   // Rockets: a launch pad with no rocket builds one at once for `iron`, as soon as the country has that much on top of
   // `ironReserve` (kept back so your mortars keep firing). Then the country's ice drills pump fuel straight into its `tank`:
@@ -174,9 +174,10 @@ const CFG = {
     // Space turns the engine on and off; E/Q (or W/S) set the throttle at `throttleRate` per second; A/D turn at `turn` radians a second.
     flight: { mu: 1.08e6, atm: 120, scaleH: 35, drag: 0.008, dry: 1, wet: 3, ve: 90, thrust: 24, turn: 1.8, throttleRate: 0.8, lost: 40 } },
   power: { burnerWood: 0.25, rigMult: 3, nukeUranium: 0.05 },   // uranium a nuclear plant burns a second at full output
-  // AI nations (v1: static). Taking a tile of theirs costs extra people: defenseBase + defensePerDensity x (their people per tile)
-  ai: { count: 7, minDist: 75, radius: [8, 14], tilesPerSettlement: 300, fill: [0.6, 0.9], growth: 0.5,
-        defenseBase: 0.5, defensePerDensity: 2.5, killShare: 0.6,
+  // AI nations. Their land costs the same to claim as anyone's; their cities defend the land in their zones (CFG.settlement).
+  // Their cities count as fully powered. A nation that is nearly full upgrades one of its cities, up to `maxLevel`
+  // (paying the upgrade's iron, the only goods it keeps); its first city starts as a Town.
+  ai: { count: 7, minDist: 75, radius: [8, 14], tilesPerSettlement: 300, fill: [0.6, 0.9], growth: 0.5, maxLevel: 3, upgradeAt: 0.9,
         // v2: nations play the game. Every `think` seconds each one may build a weapon, found a settlement and claim land.
         think: 2, expandAt: 0.75, expandShare: 0.05, maxTiles: 5000, settleGain: 40,
         tilesPerMortar: 500, maxMortars: 4, tilesPerSilo: 1200, maxSilos: 3, tilesPerAirDef: 900, maxAirDefs: 2, tilesPerTurret: 500, maxTurrets: 3,
@@ -668,7 +669,7 @@ const BIOME_KEY = [null, 'grass', 'desert', 'mountain', 'ice', null, null];
 const params = new URLSearchParams(location.search);
 // autosave lives in this browser (localStorage). Opening the game without ?seed= resumes it.
 const SAVE_KEY = 'map-factory-save-v1';
-const SAVE_V = 3;                               // v2: settlements replaced houses; v3: polar ice reshaped the map
+const SAVE_V = 4;                               // v2: settlements replaced houses; v3: polar ice reshaped the map; v4: people live in cities
 const SAVED = (() => { try { const v = JSON.parse(localStorage.getItem(SAVE_KEY)); return v && v.v === SAVE_V ? v : null; } catch (e) { return null; } })();
 const SEED = params.has('seed') ? (parseInt(params.get('seed'), 10) || 1) : SAVED ? SAVED.seed : ((Math.random() * 1e6) | 0);
 const RESUME = SAVED && SAVED.seed === SEED ? SAVED : null;
@@ -1015,6 +1016,7 @@ function claim(i, cid, conquer = false) {
     const n = game.nations[aiOf[i] - 1];
     n.tiles--; n.sx -= x; n.sy -= y;
     if (n.tiles) { n.lx = n.sx / n.tiles + 0.5; n.ly = n.sy / n.tiles + 0.5; }
+    loseSettlement(i);                             // a city taken: its people are gone, and yours move in
     aiOf[i] = 0;                                   // their buildings on this tile are now yours
     provoke(n);
     game.bldDirty = true;
@@ -1136,6 +1138,7 @@ function spawnNations() {
       towns.push(spots.reduce((a, b) => (far(a) >= far(b) ? a : b)));
     }
     for (const i of towns) if (!building[i]) placeBuilding(i, 'settlement');
+    if (buildingAt(towns[0])) buildingAt(towns[0]).up = 2;   // its capital starts as a Town
     // they start armed: a mortar and a missile silo by the first settlement
     for (const w of ['mortar', 'silo']) { const sp = aiSpot(game.nations[k], towns[0] % W, (towns[0] / W) | 0, 5, r); if (sp >= 0) placeBuilding(sp, w); }
     const seen = new Set();
@@ -1162,9 +1165,11 @@ function scanNationTiles() {
   }
 }
 function recomputeNations() {
-  for (const n of game.nations) n.cap = 0;
-  for (const b of game.buildings) if (b.type === 'settlement' && aiOf[b.i]) game.nations[aiOf[b.i] - 1].cap += b.base || 0;
-  for (const n of game.nations) n.ironCap = CFG.storage.iron.base + CFG.storage.iron.perCap * n.cap;
+  for (const n of game.nations) { n.cap = 0; n.ironCap = CFG.storage.iron.base; }
+  for (const b of game.buildings) if (b.type === 'settlement' && aiOf[b.i]) {
+    const n = game.nations[aiOf[b.i] - 1];
+    n.cap += settlementCap(b); n.ironCap += CFG.storage.iron.city * levelDef(cityLevel(b)).store;
+  }
   for (const n of game.nations) {
     if (n.tiles) { n.lx = n.sx / n.tiles + 0.5; n.ly = n.sy / n.tiles + 0.5; }
     n.people = Math.min(n.people, n.cap);          // lost land or settlements: the people who lived there are gone
@@ -1200,8 +1205,6 @@ function aiClaim(n, i) {
   }
   game.landDirty = true;
 }
-// what one of your tiles costs a nation, beyond the land itself: the more crowded your country, the harder it fights
-const yourDefense = c => CFG.ai.defenseBase + CFG.ai.defensePerDensity * (c ? c.people / Math.max(1, c.tiles) : 0);
 // a nation takes one of your tiles: the land, and anything built on it, is now theirs
 function aiTake(n, i) {
   const x = i % W, y = (i / W) | 0, c = countryAt(i);
@@ -1270,13 +1273,19 @@ function aiThink(n) {
     const t = d.tiles.find(q => aiOf[q] === n.id + 1 && !isHarvested(q) && !building[q]);
     if (t !== undefined) { placeBuilding(t, 'camp'); game.bldDirty = true; break; }
   }
+  // grow up: a nearly full nation upgrades its smallest city (paying the iron part of the cost)
+  if (n.people >= n.cap * A.upgradeAt && towns.length) {
+    const low = towns.reduce((a, b) => (cityLevel(a) <= cityLevel(b) ? a : b)), step = upgradeStep(cityLevel(low));
+    const iron = step ? step.cost.iron || 0 : 0;
+    if (step && cityLevel(low) < A.maxLevel && (n.iron || 0) >= iron) { n.iron -= iron; low.up = cityLevel(low) + 1; low.bump = game.time; game.bldDirty = true; }
+  }
   // 2) settle: a new settlement where a good patch of its land has none in reach
   const front = [...n.front];
   for (let k = 0; k < 6 && front.length; k++) {
     const f = front[(Math.random() * front.length) | 0], x = f % W, y = (f / W) | 0;
     let c = -1;
     for (const [dx, dy] of DIRS4) { const nb = idx(x + dx * 3, y + dy * 3); if (inb(x + dx * 3, y + dy * 3) && aiOf[nb] === n.id + 1) c = nb; }
-    if (c < 0 || isServed(c) || building[c] || depositOf[c] >= 0) continue;
+    if (c < 0 || isServed(c) || building[c] || depositOf[c] >= 0 || crowdingCity(c)) continue;
     if (settlementGain(c).gain >= A.settleGain) { placeBuilding(c, 'settlement'); game.bldDirty = true; break; }
   }
   // 3) expand: spend people on the free land nearest its centre, like a slow, steady push
@@ -1344,24 +1353,34 @@ function stepRaid(r, dt) {
     let touching = false;
     if (owner[f]) for (const [dx, dy] of DIRS4) if (inb(x + dx, y + dy) && aiOf[idx(x + dx, y + dy)] === n.id + 1) touching = true;
     if (!touching) { n.warFront.delete(f); continue; }
-    const C = countryAt(f), def = yourDefense(C);
-    cands.push({ f, C, def, cost: tileCost(f) + def, d: Math.hypot(x - r.tx, y - r.ty) + Math.random() * 3 });
+    cands.push({ f, cost: tileCost(f), d: Math.hypot(x - r.tx, y - r.ty) + Math.random() * 3 });
   }
   cands.sort((a, b) => a.d - b.d);
   if (r.lx == null && cands.length) { r.lx = cands[0].f % W + 0.5; r.ly = ((cands[0].f / W) | 0) + 0.5; }
-  let cheapest = Infinity;
+  let cheapest = Infinity, guarded = 0;
   for (const c of cands) if (c.cost < cheapest) cheapest = c.cost;
+  const cities = allCities(), fought = new Set(), atk = -(n.id + 1);
   for (const c of cands) {
+    const g = guardAt(c.f, atk, cities);           // your city's people defend the land in its zone, one for one
+    if (g) {
+      guarded++;
+      if (fought.has(g)) continue;
+      fought.add(g);
+      const fell = fightCity(g, Math.min(r.budget, r.work), true);
+      r.work -= fell; r.budget -= fell;
+      r.lx = c.f % W + 0.5; r.ly = ((c.f / W) | 0) + 0.5;
+      if (r.work < 1 || r.budget < 0.5) break;
+      continue;
+    }
     if (c.cost > r.budget) continue;
     const work = c.cost / CFG.tileCost.grass;
     if (work > r.work) break;
     r.work -= work; r.budget -= c.cost;
-    if (c.C) c.C.people = Math.max(0, c.C.people - c.def * A.killShare);   // your defenders fall holding the tile
     aiTake(n, c.f);
     r.lx = c.f % W + 0.5; r.ly = ((c.f / W) | 0) + 0.5;
     if (r.work < 1) break;
   }
-  if (!cands.length || r.budget < cheapest) { r.done = true; n.people += r.budget; }   // nowhere left to go, or too few to take a tile
+  if (!cands.length || r.budget < 0.5 || (!guarded && r.budget < cheapest)) { r.done = true; n.people += Math.max(0, r.budget); }   // nowhere left to go, or too few to take a tile
 }
 // their weapons: mortars shoot at your expeditions and your weapons and defenses in range (never your settlements or
 // economy); silos hit any of your buildings, once the nation is at war with you
@@ -1381,6 +1400,10 @@ function aiFire() {
       yours = yours || game.buildings.filter(q => owner[q.i]);
       const shell = def.weapon === 'shell';
       for (const q of yours) { const d = tileDist(q.i, bx, by); if (d < bd && (!shell || isMilitary(q))) { bd = d; tgt = tileCenter(q.i); } }
+      if (!tgt && shell && n.hostile) {           // at war with no weapon of yours in range: it shells your cities' people
+        let bc = Wp.range;
+        for (const q of yours) { const d = tileDist(q.i, bx, by); if (q.type === 'settlement' && d < bc && (q.pop || 0) > shellFloor(q) + 1) { bc = d; tgt = tileCenter(q.i); } }
+      }
     }
     if (!tgt) continue;
     launchShot(b, tgt[0], tgt[1], def.weapon, n);
@@ -1392,13 +1415,10 @@ function aiFire() {
     }
   }
 }
-// extra people it costs to take one tile of a nation's land: the more crowded they are, the harder they fight
-const defenseAt = i => {
-  const n = nationAt(i);
-  return n ? CFG.ai.defenseBase + CFG.ai.defensePerDensity * n.people / Math.max(1, n.tiles) : 0;
-};
+// the people defending a nation's tile: those of the city whose zone covers it (0 if none: then it's just land)
+const defenseAt = i => { const g = aiOf[i] ? guardAt(i, 1, allCities()) : null; return g ? g.pop : 0; };
 
-const newPower = () => ({ burners: 0, solar: 0, nukes: 0, need: 0, capPow: 0, workers: 0, drills: 0, pads: 0, padList: [],
+const newPower = () => ({ burners: 0, solar: 0, nukes: 0, need: 0, capPow: 0, workers: 0, drills: 0, pads: 0, padList: [], cities: 0, cityStore: 0, depot: {},
   rigDep: { forest: 0, stone: 0, iron: 0, uranium: 0 }, colDep: { forest: 0, stone: 0, iron: 0, uranium: 0 } });
 // people not working a collector: only they can be sent on pushes and expeditions
 const freePeople = c => Math.max(0, c.people - c.pw.workers);
@@ -2240,30 +2260,32 @@ function landTotals(list, n, dx, dy) {
   }
 }
 // ---------- city levels ----------
-// level 1 = a plain settlement (land housing only); each level after that adds powered housing
-const cityLevel = b => b.up || 1;
-function upgradeStep(lvl) {                        // going from `lvl` to lvl + 1: { add, cost }
-  const S = CFG.settlement, U = S.upgrades;
-  if (lvl - 1 < U.length) return U[lvl - 1];
-  const last = U[U.length - 1], k = lvl - U.length;
-  const cost = {};
-  for (const r in last.cost) cost[r] = Math.round(last.cost[r] * S.costGrow ** k / 10) * 10;
-  return { add: Math.round(last.add * S.grow ** k / 50) * 50, cost };
-}
-function poweredHousing(lvl) {                     // all the powered housing a city of this level has
-  let h = 0;
-  for (let l = 1; l < lvl; l++) h += upgradeStep(l).add;
-  return h;
+// level 1 = Village ... level 6 = Megalopolis (CFG.settlement.levels). The level is the name.
+const CITY_MAX = () => CFG.settlement.levels.length;
+const cityLevel = b => clamp(b.up || 1, 1, CITY_MAX());
+const levelDef = lvl => CFG.settlement.levels[clamp(lvl, 1, CITY_MAX()) - 1];
+const settlementLevel = b => cityLevel(b) - 1;     // index into CFG.settlement.levels
+const cityName = b => levelDef(cityLevel(b)).name;
+const unpoweredHousing = lvl => Math.min(levelDef(lvl).housing, CFG.settlement.unpowered);
+const poweredHousing = lvl => Math.max(0, levelDef(lvl).housing - CFG.settlement.unpowered);   // only fills with power
+const zoneOf = b => levelDef(cityLevel(b)).zone;
+// going from `lvl` to lvl + 1: { add: housing added, pow: how much of it runs on power, cost }, or null at the top
+function upgradeStep(lvl) {
+  if (lvl >= CITY_MAX()) return null;
+  const a = levelDef(lvl), b = levelDef(lvl + 1);
+  return { add: b.housing - a.housing, pow: poweredHousing(lvl + 1) - poweredHousing(lvl), cost: b.cost };
 }
 // how much of its powered housing a country can fill right now (0..1): its cities share the spare power evenly
 const poweredShare = c => c && c.pw && c.pw.capPow > 0 ? clamp((c.powCap || 0) / c.pw.capPow, 0, 1) : 0;
-// what a settlement holds right now: its land, plus the part of its powered housing its country can power
+// how many people a city houses right now: its unpowered housing, plus the part of the rest its country can power.
+// An AI nation's cities count as fully powered.
 function settlementCap(b) {
-  const base = b.base || 0;
-  if (!owner[b.i]) return base;
-  const up = cityLevel(b);
-  return up > 1 ? base + poweredHousing(up) * poweredShare(countryAt(b.i)) : base;
+  const lvl = cityLevel(b);
+  if (!owner[b.i]) return levelDef(lvl).housing;
+  return unpoweredHousing(lvl) + poweredHousing(lvl) * poweredShare(countryAt(b.i));
 }
+// the people a city may not be shelled below (only troops finish it)
+const shellFloor = b => CFG.settlement.shellFloor * settlementCap(b);
 // one of your cities within `snap` tiles of tile i (the nearest), for the settlement tool to upgrade
 function upgradeTargetAt(i) {
   if (i == null || i < 0) return null;
@@ -2278,35 +2300,116 @@ function upgradeTargetAt(i) {
   }
   return best == null ? null : buildingAt(best);
 }
-// raise a city one level: paid by its country in stone and iron (no settlers: its own people fill it)
+// the nearest city (anyone's) closer to tile i than CFG.settlement.spacing, or null: no new city may go there
+function crowdingCity(i) {
+  const x = i % W, y = (i / W) | 0, R = CFG.settlement.spacing;
+  let best = null, bd = R * R;
+  for (const b of game.buildings) {
+    if (b.type !== 'settlement' || b.i === i) continue;
+    const d = (b.i % W - x) ** 2 + (((b.i / W) | 0) - y) ** 2;
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+// raise a city one level: paid by its country (no settlers: its own people fill it)
 function upgradeCity(b) {
   const c = countryAt(b.i);
   if (!c || b.type !== 'settlement') return;
   const lvl = cityLevel(b), step = upgradeStep(lvl), S = CFG.settlement;
+  if (!step) return toast(`A ${levelDef(lvl).name} is as big as a city gets`);
   if (missingFor(step.cost, c)) return askFor(c, step.cost);   // the rest of the empire ships it in
   for (const [r, n] of Object.entries(step.cost)) c.res[r] -= n;
   noteSpend(c, step.cost);
   b.up = lvl + 1;
   b.bump = game.time;
   const [x, y] = tileCenter(b.i);
-  ringBurst(x, y, 6, '#8fd3ff');
+  ringBurst(x, y, zoneOf(b), '#f2c14e');
   for (let j = 0; j < 8; j++) {
     const a = j / 8 * Math.PI * 2;
     addSmoke(x, y + 0.3, 0, 0, false, { vx: Math.cos(a) * 0.9, vy: Math.sin(a) * 0.55, life: 0.9, size: 0.8, rise: 1.5 });
   }
   recomputeBuildings();
-  const mw = step.add / S.perMW;
-  floatText(x, y - 2, `Level ${b.up}: +${fmtNum(step.add)} homes, needs ${fmtNum(mw)} MW`, '#8fd3ff');
-  const spare = c.mw ? Math.max(0, c.mw.max - c.mw.need) : 0;
-  if (spare < mw * 0.99) toast(`${c.short}'s cities need ${fmtNum(Math.ceil((c.pw.capPow - (c.powCap || 0)) / S.perMW))} MW more power to fill their new housing: build burners or solar there`);
+  const mw = step.pow / S.perMW;
+  floatText(x, y - 2, `Now a ${cityName(b)}: +${fmtNum(step.add)} homes${mw > 0 ? `, ${fmtNum(step.pow)} of them on ${fmtNum(mw)} MW` : ''}`, '#f2c14e');
+  if (mw > 0) {
+    const spare = c.mw ? Math.max(0, c.mw.max - c.mw.need) : 0;
+    if (spare < mw * 0.99) toast(`${c.short}'s cities need ${fmtNum(Math.ceil((c.pw.capPow - (c.powCap || 0)) / S.perMW))} MW more power to fill their new housing: build burners or solar there`);
+  }
 }
-function levelOfCap(cap) {
-  const L = CFG.settlement.levels;
-  let k = 0;
-  while (k + 1 < L.length && cap >= L[k + 1].cap) k++;
+// ---------- people live in cities ----------
+// Each settlement keeps its own people (b.pop). The country (or nation) total, who.people, is still what most of the
+// game spends from and adds to; this keeps the two in step once a tick:
+// - people spent or lost from the total come out of every city in proportion to its people;
+// - people added to the total (growth, arrivals, troops coming home) move into the cities with room, except cities
+//   under fire, which don't regrow;
+// - a city holding more than it houses (its power dropped) sends the extra out: they wait in the total, move to a
+//   city with room, or die off slowly like any people over the country's housing.
+// Whatever hits one city on its own (shells, troops) comes off that city and the total together (hurtCity).
+function syncCityPop() {
+  const by = new Map();
+  for (const b of game.buildings) {
+    if (b.type !== 'settlement') continue;
+    const w = countryAt(b.i) || nationAt(b.i);
+    if (!w) continue;
+    let L = by.get(w);
+    if (!L) by.set(w, L = []);
+    L.push(b);
+  }
+  for (const [w, L] of by) {
+    let sum = 0;
+    for (const b of L) { b.pop = Math.min(b.pop || 0, settlementCap(b)); sum += b.pop; }
+    const d = w.people - sum;
+    if (d < -1e-6) {
+      const k = Math.max(0, w.people) / sum;
+      for (const b of L) b.pop *= k;
+    } else if (d > 1e-6) {
+      let room = 0;
+      for (const b of L) if (!underFire(b)) room += Math.max(0, settlementCap(b) - b.pop);
+      if (room > 0) { const k = Math.min(1, d / room); for (const b of L) if (!underFire(b)) b.pop += Math.max(0, settlementCap(b) - b.pop) * k; }
+    }
+  }
+}
+// k people of this city die (shelled, or fighting troops): off the city and its country's total. Returns how many.
+function hurtCity(b, k) {
+  const w = countryAt(b.i) || nationAt(b.i);
+  k = Math.min(k, b.pop || 0);
+  if (k <= 0) return 0;
+  b.pop -= k;
+  if (w) w.people = Math.max(0, w.people - k);
   return k;
 }
-const settlementLevel = b => levelOfCap(settlementCap(b));
+// a shell or missile hit kills `frac` of the people living there, but never takes the city below its shell floor
+const shellCity = (b, frac) => hurtCity(b, Math.min((b.pop || 0) * frac, Math.max(0, (b.pop || 0) - shellFloor(b))));
+// the city defending tile i against side `atk` (see sideOf): the nearest city of the tile's owner whose zone covers
+// it and that still has people. Its land can't be claimed until they're gone.
+function guardAt(i, atk, cities) {
+  const side = sideOf(i);
+  if (!side || side === atk) return null;
+  const x = i % W, y = (i / W) | 0;
+  let best = null, bd = Infinity;
+  for (const b of cities) {
+    if ((b.pop || 0) < 0.5 || sideOf(b.i) !== side) continue;
+    const R = zoneOf(b) + 0.5, d = (b.i % W - x) ** 2 + (((b.i / W) | 0) - y) ** 2;
+    if (d <= R * R && d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+const allCities = () => game.buildings.filter(b => b.type === 'settlement');
+// troops at a city's zone fight its people one for one: up to k on each side fall. Returns how many fell.
+// `mine` = the city is yours (so its losses show in red).
+function fightCity(b, k, mine) {
+  const fell = hurtCity(b, k);
+  if (fell <= 0) return 0;
+  b.hitAt = game.time;                             // a city being fought doesn't regrow
+  if (game.time - (b.hitFx || -9) > 0.35) b.hitFx = game.time;
+  b.acc = (b.acc || 0) + fell;
+  if (b.pop < 0.5 || (b.acc >= 5 && game.time - (b.accAt ?? -9) >= 0.8)) {   // one number every so often, not a pile
+    const [x, y] = tileCenter(b.i);
+    floatText(x, y - 1.6, b.pop < 0.5 ? 'Defenders gone: the city can be taken' : `-${Math.round(b.acc)} defenders`, mine ? '#ff7a6b' : '#7bd389');
+    b.acc = 0; b.accAt = game.time;
+  }
+  return fell;
+}
 // hits a building can take (settlements take none: a hit costs them people instead)
 const hpOf = () => CFG.hp.other;
 // a settlement hit in the last `underFire` seconds: it isn't regrowing
@@ -2386,16 +2489,12 @@ function recomputeBuildings() {
   for (const b of game.buildings) {
     if (!owner[b.i]) continue;                    // an AI nation's building
     const def = CFG.buildings[b.type], c = game.countries[countryOf[b.i]];
-    if (b.type === 'settlement') {
-      c.capBase += b.base; c.pw.capPow += poweredHousing(cityLevel(b));   // land housing, and what its levels add on power
-      const lvl = settlementLevel(b);              // tell the player when one grows up (not on the first look, and never twice)
-      if (b.peak !== undefined && lvl > b.peak && game.started) {
-        floatText(b.i % W + 0.5, ((b.i / W) | 0) - 1.5, `Now a ${CFG.settlement.levels[lvl].name}`, '#f2c14e');
-        b.bump = game.time;                        // the town swells for a moment, with a gold ring round it
-        ringBurst(b.i % W + 0.5, ((b.i / W) | 0) + 0.5, 5 + lvl, '#f2c14e');
-      }
-      b.peak = Math.max(b.peak ?? lvl, lvl);
+    if (b.type === 'settlement') {               // housing that needs no power, and what its levels add on power
+      const lvl = cityLevel(b);
+      c.capBase += unpoweredHousing(lvl); c.pw.capPow += poweredHousing(lvl);
+      c.pw.cities++; c.pw.cityStore += levelDef(lvl).store;
     }
+    if (def.store) for (const r in def.store) c.pw.depot[r] = (c.pw.depot[r] || 0) + def.store[r];
     if (def.use) c.pw.need += def.use;
     if (b.type === 'burner') c.pw.burners++;
     if (b.type === 'solar') c.pw.solar++;
@@ -2880,6 +2979,10 @@ function canBuild(i, type) {
   if (want) return building[i] === BLD_CODE[want] ? null
     : `Click one of your ${want}s: a ${CFG.buildings[type].name.toLowerCase()} rolls out from there`;
   if (type === 'drill' && biome[i] !== ICE) return 'Ice drills only work on ice: settle a polar ice cap first';
+  if (type === 'settlement') {
+    const near = crowdingCity(i);
+    if (near) return `Too close to ${aiOf[near.i] ? nationAt(near.i).short + "'s" : 'your'} ${cityName(near).toLowerCase()}: cities need ${CFG.settlement.spacing} tiles between them`;
+  }
   const def = CFG.buildings[type];
   if (type === 'rig') {
     const have = building[i] ? buildingAt(i).type : null;
@@ -2938,13 +3041,18 @@ function tryBuild(i, type) {
   const cost = totalCost(type, plan, i);
   if (missingFor(cost, C)) return askFor(C, cost);   // the rest of the empire ships it in
   if (CFG.buildings[type].vehicle) return launchVehicle(i, type, C, cost);
-  const settlers = CFG.buildings[type].people || 0;   // a settlement is founded by people, like an expedition
+  const settlers = CFG.buildings[type].people || 0;   // a settlement is founded by people, who move in from your other cities
   if (freePeople(C) < settlers) return toast(`${C.short} needs ${settlers} free people to found a settlement`);
-  C.people -= settlers;
   for (const [r, n] of Object.entries(cost)) C.res[r] -= n;
   noteSpend(C, cost);
   const before = empireCap();
   placeBuilding(i, type);
+  if (settlers) {                                  // they leave their old homes and live here now
+    const nb = buildingAt(i), from = allCities().filter(b => b !== nb && countryAt(b.i) === C);
+    const had = from.reduce((a, b) => a + (b.pop || 0), 0);
+    if (had > 0) for (const b of from) b.pop -= (b.pop || 0) * Math.min(1, settlers / had);
+    nb.pop = settlers;
+  }
   noteBuilt(type);
   popIn(i);
   if (plan && plan.path) layLink(i, type, plan);
@@ -3086,22 +3194,37 @@ function stepPush(p, dt) {
   const cands = [];
   for (const m of mine) if (m.d <= minD + band) cands.push({ i: m.i, s: (m.d - minD) / band * 1.2 - m.on * 0.45 + rng() });
   cands.sort((a, b) => a.s - b.s);
+  const cities = allCities(), fought = new Set();
+  let guarded = 0;
   for (const c of cands) {
     if (owner[c.i]) continue;
-    const def = defenseAt(c.i), cost = tileCost(c.i) + def, work = cost / grassCost;
+    // inside a city's zone: its people stand in the way, and fall one for one with your troops until none are left
+    const g = guardAt(c.i, cid + 1, cities);
+    if (g) {
+      guarded++;
+      if (fought.has(g)) continue;
+      fought.add(g);
+      const foe = nationAt(g.i);
+      if (foe) provoke(foe);
+      const fell = fightCity(g, Math.min(p.budget, p.work), false);
+      p.work -= fell; p.budget -= fell;
+      const cx = c.i % W + 0.5, cy = ((c.i / W) | 0) + 0.5;
+      p.lx = cx; p.ly = cy;
+      if (p.work < 1 || p.budget < 0.5) break;
+      continue;
+    }
+    const cost = tileCost(c.i), work = cost / grassCost;
     if (cost > p.budget) continue;
     if (work > p.work) break;
     p.work -= work; p.budget -= cost;
-    const foe = nationAt(c.i);
-    if (foe) foe.people = Math.max(0, foe.people - def * CFG.ai.killShare);
     claim(c.i, cid, true);
     // marker follows the part of the front closest to the target
     const cx = c.i % W + 0.5, cy = ((c.i / W) | 0) + 0.5;
     if (p.lx == null || Math.hypot(cx - p.tx, cy - p.ty) < Math.hypot(p.lx - p.tx, p.ly - p.ty) + 1.5) { p.lx = cx; p.ly = cy; }
     if (p.work < 1) break;
   }
-  const cheapest = cands.length ? Math.min(...cands.slice(0, 40).map(c => tileCost(c.i) + defenseAt(c.i))) : Infinity;
-  if (!cands.length || p.budget < cheapest || p.budget < grassCost) p.done = true;
+  const cheapest = cands.length ? Math.min(...cands.slice(0, 40).map(c => tileCost(c.i))) : Infinity;
+  if (!cands.length || p.budget < 0.5 || (!guarded && p.budget < Math.max(cheapest, grassCost))) p.done = true;
 }
 
 // the tile just outside a country's border that's closest to a spot (falls back to its centre)
@@ -3445,7 +3568,7 @@ function tick(dt) {
     c.cap = c.capBase + c.powCap;
     if (c.tier + 1 < TITLE_TIERS.length && c.cap >= TITLE_TIERS[c.tier + 1].cap) retitle(c);
     c.store = {};                                  // how much of each resource this country can hold
-    for (const r in CFG.storage) c.store[r] = CFG.storage[r].base + CFG.storage[r].perCap * c.cap;
+    for (const r in CFG.storage) c.store[r] = CFG.storage[r].base + CFG.storage[r].city * P.cityStore + (P.depot[r] || 0);
     c.staff = P.workers > 0 ? Math.min(1, c.people / P.workers) : 1;   // too few people: collectors slow down
     for (const t of DEP_TYPES) {
       const r = DEP_RES[t];
@@ -3521,6 +3644,7 @@ function tick(dt) {
     n.growth = (CFG.growthRate * n.people * (1 - n.people / n.cap) + CFG.growthBase) * CFG.ai.growth * growing(n);
     n.people = Math.min(n.cap, n.people + n.growth * dt);
   }
+  syncCityPop();                                   // every city's own people, in step with the totals
   for (const L of game.links) {
     const speed = L.kind === 'rail' ? CFG.trainSpeed : CFG.shipSpeed;
     const A = countryAt(L.a), B = countryAt(L.b);
@@ -3550,7 +3674,7 @@ function tick(dt) {
 // ---------- saving ----------
 let noSave = false;
 // what a building remembers across a reload besides where it is: its tallies, and a launch pad's rocket and pause
-const KEPT = ['shots', 'stops', 'killed', 'rocket', 'paused', 'supply', 'up'];
+const KEPT = ['shots', 'stops', 'killed', 'rocket', 'paused', 'supply', 'up', 'pop'];
 function keptState(b) {
   let out = null;
   for (const k of KEPT) if (b[k]) (out || (out = {}))[k] = k === 'rocket' ? { iron: b.rocket.iron, fuel: b.rocket.fuel } : b[k];
@@ -3729,13 +3853,15 @@ function yourMortars() {
     if (b.type !== 'mortar' || !owner[b.i] || (b.ready || 0) > game.time) continue;
     const C = countryAt(b.i);
     if (!C || C.res.iron < Wp.cost.iron + CFG.mortarReserve) continue;
-    theirs = theirs || game.buildings.filter(q => aiOf[q.i] && game.nations[aiOf[q.i] - 1].hostile && isMilitary(q));
+    theirs = theirs || game.buildings.filter(q => aiOf[q.i] && game.nations[aiOf[q.i] - 1].hostile && (isMilitary(q) || q.type === 'settlement'));
     const bx = b.i % W, by = (b.i / W) | 0;
-    let tgt = null, best = Wp.range;
+    let tgt = null, best = Wp.range, city = null, bestC = Wp.range;
     for (const q of theirs) {
       const d = tileDist(q.i, bx, by);
-      if (d <= best) { best = d; tgt = q; }
+      if (q.type === 'settlement') { if (d <= bestC && (q.pop || 0) > shellFloor(q) + 1) { bestC = d; city = q; } }
+      else if (d <= best) { best = d; tgt = q; }
     }
+    tgt = tgt || city;
     if (!tgt) continue;
     C.res.iron -= Wp.cost.iron;
     b.rd = Wp.reload; b.ready = game.time + b.rd; b.shots = (b.shots || 0) + 1;
@@ -3817,13 +3943,13 @@ function removeBuilding(i) {
   game.links = game.links.filter(L => L.a !== i && L.b !== i);
 }
 const everyone = () => game.countries.reduce((a, c) => a + (c.alive ? c.people : 0), 0) + game.nations.reduce((a, n) => a + n.people, 0);
-// A settlement that is destroyed or captured takes its share of its country's people with it.
-// (A nation's people are simply cut down to its new capacity when its buildings are recounted.)
-// `frac` = the share of the people living there who are lost (1 = all of them; a bomb hit takes its weapon's `kill`)
-function loseSettlement(i, frac = 1) {
-  const b = buildingAt(i), who = countryAt(i) || nationAt(i);
-  if (!b || b.type !== 'settlement' || !who || who.cap <= 0) return;
-  who.people -= Math.min(who.people, who.people * settlementCap(b) / who.cap * frac);
+// A city that is captured loses whoever still lives there (taking its land meant fighting them all first): they come
+// off its old owner's total, and it starts empty for its new owner, whose people move in as it has room.
+function loseSettlement(i) {
+  const b = buildingAt(i);
+  if (!b || b.type !== 'settlement') return;
+  hurtCity(b, b.pop || 0);
+  b.pop = 0; b.up = cityLevel(b);                  // it keeps its level
 }
 function explode(x, y, m) {
   const Wp = CFG.weapons[m.w], R = Wp.radius, cx = Math.floor(x), cy = Math.floor(y), before = everyone();
@@ -3836,7 +3962,7 @@ function explode(x, y, m) {
     if (building[i]) {
       const b = buildingAt(i);
       if (b.type === 'settlement') {               // never damaged: the hit kills a share of the people living there
-        loseSettlement(i, Wp.kill);
+        shellCity(b, Wp.kill);
         b.hitAt = game.time;                       // and it stops regrowing for a while
         b.hitFx = game.time;
       } else {
@@ -3903,14 +4029,16 @@ function drawRingFx(z) {
   }
   ctx.globalAlpha = 1;
 }
-// "Lv 3" over the city whose card is open (hovering a city shows its level in the label under it instead),
-// coloured by how much of its powered housing has power
+// the name of the city whose card is open over it, and the land it protects. From City up the name is coloured
+// by how much of its powered housing has power: blue all of it, gold some, grey none.
 function drawCityLevels(z) {
   const b = inspected;
-  if (!b || b.type !== 'settlement' || !b.up || b.up < 2 || !owner[b.i] || z < CFG.cityZoom * 0.5) return;
+  if (!b || b.type !== 'settlement' || !owner[b.i] || z < CFG.cityZoom * 0.5) return;
+  reachRing(b.i, 'rgba(242,193,78,0.85)', z, [6, 6], zoneOf(b));
   const [sx, sy] = toScreen(b.i % W + 0.5, ((b.i / W) | 0) + 0.5);
-  const f = poweredShare(countryAt(b.i)), col = f >= 0.995 ? '#8fd3ff' : f > 0.02 ? '#f2c14e' : '#8a93a3';
-  pill(sx, sy - Math.max(18, z * 2.6), `Lv ${b.up}`, { fg: col, border: col, size: 11, bold: 800 });
+  const f = poweredShare(countryAt(b.i)), pow = poweredHousing(cityLevel(b)) > 0;
+  const col = !pow || f >= 0.995 ? '#8fd3ff' : f > 0.02 ? '#f2c14e' : '#8a93a3';
+  pill(sx, sy - Math.max(18, z * 2.6), cityName(b), { fg: col, border: col, size: 11, bold: 800 });
 }
 // you built something: it pops up out of a puff of dust with a gold ring
 function popIn(i) {
@@ -6420,20 +6548,13 @@ function unionRings(circles, { color, dash = [7, 6], width = 1.8, fill = null })
   ctx.setLineDash(dash); ctx.lineWidth = width; ctx.strokeStyle = color; ctx.stroke(); ctx.setLineDash([]);
 }
 const ringAt = (i, R, z) => { const [sx, sy] = toScreen(...tileCenter(i)); return [sx, sy, (R + 0.5) * z]; };
-// placing a settlement: the land it would add in green, land another settlement already serves in grey
+// placing a settlement: the land your cities protect, the village's own zone in green, or in red with the city it's
+// too close to (and how far away from it it has to be)
 function drawReachPreview(i, z) {
-  unionRings(game.buildings.filter(b => b.type === 'settlement' && owner[b.i]).map(b => ringAt(b.i, CFG.settlement.reach, z)),
-    { color: 'rgba(255,255,255,0.28)', dash: [3, 7] });
-  const side = sideOf(i);
-  if (side > 0 && z >= 1.5) {
-    eachInReach(i, t => {
-      if (sideOf(t) !== side || !isLand(t)) return;
-      const [sx, sy] = toScreen(t % W, (t / W) | 0);
-      ctx.fillStyle = isServed(t) ? 'rgba(150,158,170,0.30)' : 'rgba(123,211,137,0.30)';
-      ctx.fillRect(sx, sy, z + 0.5, z + 0.5);
-    });
-  }
-  reachRing(i, '#7bd389', z);
+  unionRings(allCities().filter(b => owner[b.i]).map(b => ringAt(b.i, zoneOf(b), z)), { color: 'rgba(255,255,255,0.28)', dash: [3, 7] });
+  const near = crowdingCity(i);
+  if (near) reachRing(near.i, '#ff7a6b', z, [4, 5], CFG.settlement.spacing);
+  reachRing(i, near ? '#ff7a6b' : '#7bd389', z, [7, 6], CFG.settlement.levels[0].zone);
 }
 // placing a collector: deposit tiles it would work in green, tiles another collector already works in grey
 function drawHarvestPreview(i, type, z) {
@@ -6456,12 +6577,11 @@ function drawSettlementHover(z) {
     if (d < bd) { bd = d; best = { b, sx, sy }; }
   }
   if (!best) return;
-  const b = best.b, foe = nationAt(b.i), who = foe || countryAt(b.i), cap = settlementCap(b), lvl = settlementLevel(b);
-  const living = who && who.cap > 0 ? who.people * cap / who.cap : 0;
+  const b = best.b, foe = nationAt(b.i), who = foe || countryAt(b.i), cap = settlementCap(b), pop = b.pop || 0;
   const r = ringGeom(b, z)[2] + 2;                 // just below the ring the pointer puts round it
-  const up = !foe && owner[b.i] ? cityLevel(b) : 1;   // your upgraded cities: their level and how powered they are
-  const lv = up > 1 ? ` · level ${up} (${Math.round(poweredShare(who) * 100)}% powered)` : '';
-  pill(best.sx, best.sy + r + 16, `${CFG.settlement.levels[lvl].name}${lv} · ${fmtNum(living)} people · holds ${Math.round(cap)}${underFire(b) ? ` · under fire, not growing (${fireLeft(b)}s)` : ''}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
+  const pw = !foe && owner[b.i] && poweredHousing(cityLevel(b)) > 0 ? ` (${Math.round(poweredShare(who) * 100)}% powered)` : '';
+  if (z >= CFG.cityZoom * 0.5 && b !== inspected) reachRing(b.i, foe ? foe.hex : 'rgba(242,193,78,0.7)', z, [5, 6], zoneOf(b));   // the land it protects
+  pill(best.sx, best.sy + r + 16, `${cityName(b)}${pw} · ${fmtNum(pop)} / ${Math.round(cap)} people${underFire(b) ? ` · under attack, not growing (${fireLeft(b)}s)` : ''}`, { dot: foe ? foe.hex : OWN_HEX, size: 11 });
 }
 // ---------- pointing and picking: a ring glides to whatever you point at; clicking one of yours opens its card ----------
 // Anything can be picked: a building, a truck or boat you drove out, a train or cargo ship on its route, a bridge.
@@ -6612,14 +6732,18 @@ function reloadRows(b, { row, bar }) {
 }
 // what upgrading this city would do: shown by the settlement tool over the city
 function upgradeTip(b) {
-  const c = countryAt(b.i), S = CFG.settlement, lvl = cityLevel(b), step = upgradeStep(lvl), mw = step.add / S.perMW;
+  const c = countryAt(b.i), S = CFG.settlement, lvl = cityLevel(b), step = upgradeStep(lvl);
+  if (!step) return [`<div class="t">${cityName(b)}</div><div class="d">As big as a city gets</div>`, true];
+  const next = levelDef(lvl + 1), mw = step.pow / S.perMW;
   const miss = missingFor(step.cost, c), spare = c.mw ? Math.max(0, c.mw.max - c.mw.need) : 0;
   const unfilled = Math.max(0, (c.pw.capPow - (c.powCap || 0)) / S.perMW);   // MW its cities already lack
-  let html = `<div class="t">Upgrade ${S.levels[settlementLevel(b)].name} to level ${lvl + 1}</div>`;
-  html += `<div class="g">+${fmtNum(step.add)} homes that run on power: needs ${fmtNum(mw)} MW</div>`;
-  html += spare - unfilled >= mw ? `<div class="g">${c.short} has the spare power: they fill up right away</div>`
-    : `<div class="d">${c.short} has ${fmtNum(Math.max(0, spare - unfilled))} MW to spare for them: they only fill as far as the power reaches. Build burners or solar here.</div>`;
-  html += `<div class="d">Cost: ${listRes(step.cost, ['stone', 'iron'])}, paid by ${c.short}</div>`;
+  let html = `<div class="t">Upgrade ${cityName(b)} to ${next.name}</div>`;
+  html += step.pow ? `<div class="g">+${fmtNum(step.add)} homes: ${fmtNum(step.pow)} of them run on power and need ${fmtNum(mw)} MW</div>`
+    : `<div class="g">+${fmtNum(step.add)} homes, no power needed</div>`;
+  if (step.pow) html += spare - unfilled >= mw ? `<div class="g">${c.short} has the spare power: they fill up right away</div>`
+    : `<div class="d">${c.short} has ${fmtNum(Math.max(0, spare - unfilled))} MW to spare for them: they only fill as far as the power reaches. Without power it still houses ${fmtNum(unpoweredHousing(lvl + 1))}.</div>`;
+  html += `<div class="g">Stores ${next.store / levelDef(lvl).store}x as much and protects the land within ${next.zone} tiles</div>`;
+  html += `<div class="d">Cost: ${listRes(step.cost, ['wood', 'stone', 'iron'])}, paid by ${c.short}</div>`;
   if (miss) html += `<div class="r">Not enough ${miss}: click to ask your other countries to ship it</div>`;
   return [html, !!miss];
 }
@@ -6627,35 +6751,40 @@ function cardBuilding(b, ui) {
   const { row, bar, note, sep, button } = ui;
   const c = countryAt(b.i), def = CFG.buildings[b.type], S = CFG.settlement;
   if (b.type === 'settlement') {
-    const L = S.levels, lvl = settlementLevel(b), cap = settlementCap(b), up = cityLevel(b);
-    const share = c.cap > 0 ? cap / c.cap : 0, living = c.people * share;
-    const powered = Math.max(0, cap - b.base), maxPow = poweredHousing(up);
-    const draw = c.powCap > 0 ? ((c.mw && c.mw.city) || 0) * powered / c.powCap : 0;   // its share of what the cities draw
-    row('People', `${fmtNum(living)} / ${Math.round(cap)}`);
-    bar(cap > 0 ? living / cap : 0);
-    row('Level', `${up}`, up > 1 ? 'p' : '');
+    const lvl = cityLevel(b), D = levelDef(lvl), cap = settlementCap(b), pop = b.pop || 0, ST = CFG.storage;
+    const unp = unpoweredHousing(lvl), maxPow = poweredHousing(lvl), powered = Math.max(0, cap - unp);
+    const draw = Math.min(Math.max(0, pop - unp), powered) / S.perMW;   // what its people on power draw right now
+    row('People', `${fmtNum(pop)} / ${Math.round(cap)}`);
+    bar(cap > 0 ? pop / cap : 0);
+    if (underFire(b)) row('Growth', `Under attack (${fireLeft(b)}s)`, 'r');
+    else row('Growth', pop < cap - 0.5 ? (c.growth > 0.005 ? 'Growing' : 'Waiting for people') : 'Full', pop < cap - 0.5 && c.growth > 0.005 ? 'g' : '');
     sep();
-    row('Housing from land', `${Math.round(b.base)}`);
-    note(`${b.tiles} tiles within ${S.reach} of it`);
-    if (up > 1) {
-      row('Housing from power', `+${Math.round(powered)} of ${fmtNum(maxPow)}`, powered > 0.5 ? 'g' : 'r');
-      bar(maxPow > 0 ? powered / maxPow : 0, 'power');
+    if (maxPow > 0) {
+      row('Housing', `${fmtNum(D.housing)}`);
+      row('Without power', `${fmtNum(unp)}`);
+      row('On power', `+${Math.round(powered)} of ${fmtNum(maxPow)}`, powered > 0.5 ? 'g' : 'r');
+      bar(powered / maxPow, 'power');
       row('Uses', `${draw.toFixed(1)} of ${fmtNum(maxPow / S.perMW)} MW`, draw > 0.05 ? 'u' : '');
       if (maxPow - powered > 0.5) {
         const mw = Math.max(0, (c.pw.capPow - (c.powCap || 0)) / S.perMW);
         note(`${c.short}'s cities are ${Math.round(poweredShare(c) * 100)}% powered: ${fmtNum(Math.ceil(mw))} MW more would fill them`, 'r');
       } else note('Fully powered', 'g');
-    } else note('Upgrade it to add housing that runs on power');
-    {
-      const step = upgradeStep(up), miss = missingFor(step.cost, c);
-      button(`Upgrade to level ${up + 1}: ${listRes(step.cost, ['stone', 'iron'])} · +${fmtNum(step.add)} homes, ${fmtNum(step.add / S.perMW)} MW`, 'upgrade', true);
-      note(miss ? `Not enough ${miss}: upgrading asks your other countries to ship it` : say('Or press 1 (Settlement) and click the city', 'Or pick Settlement and tap the city twice'), miss ? 'r' : 'd');
+    } else {
+      row('Housing', `${fmtNum(D.housing)}`);
+      note(`Needs no power. From City up, housing past ${fmtNum(S.unpowered)} runs on power`);
     }
-    sep();
-    if (underFire(b)) row('Growth', `Under fire (${fireLeft(b)}s)`, 'r');
-    else row('Growth', c.growth > 0.005 ? `+${(c.growth * share).toFixed(2)} / sec` : c.growth < -0.005 ? `${(c.growth * share).toFixed(2)} / sec` : 'Full',
-      c.growth < -0.005 ? 'r' : c.growth > 0.005 ? 'g' : '');
-    return [up > 1 ? `${L[lvl].name} · level ${up}` : L[lvl].name, 'settle' + (Math.min(lvl, 3) + 1), c.full];
+    row('Stores', `${fmtNum(ST.wood.city * D.store)} wood, stone · ${fmtNum(ST.iron.city * D.store)} iron`);
+    row('Protects', `Land within ${D.zone} tiles`);
+    note('While it has people, enemies must fight them to take that land');
+    {
+      const step = upgradeStep(lvl);
+      if (step) {
+        const miss = missingFor(step.cost, c);
+        button(`Upgrade to ${levelDef(lvl + 1).name}: ${listRes(step.cost, ['wood', 'stone', 'iron'])} · +${fmtNum(step.add)} homes${step.pow ? `, ${fmtNum(step.pow / S.perMW)} MW` : ''}`, 'upgrade', true);
+        note(miss ? `Not enough ${miss}: upgrading asks your other countries to ship it` : say('Or press 1 (Settlement) and click the city', 'Or pick Settlement and tap the city twice'), miss ? 'r' : 'd');
+      } else note('As big as a city gets', 'g');
+    }
+    return [D.name, 'settle' + (Math.min(lvl - 1, 3) + 1), c.full];
   }
   const M = c.mw || { gen: 0, max: 0, need: 0 }, ST = c.store || {};   // (no store yet before the first tick after a load)
   switch (b.type) {
@@ -6880,7 +7009,7 @@ function cardBridge(br, { row, note }) {
 function drawReachHover(z) {
   if (game.tool || game.aiming || blueprint || !mouse.in || pointingAtBody()) return;
   const t = hoverTile();
-  if (t && building[t.i] === BLD_CODE.settlement) reachRing(t.i, '#f2c14e', z);
+  if (t && building[t.i] === BLD_CODE.settlement) { /* drawSettlementHover rings its zone */ }
   else if (t && building[t.i] && HARVESTS[buildingAt(t.i).type]) reachRing(t.i, '#f2c14e', z, [5, 5], CFG.collectorReach);
   else if (t && building[t.i] === BLD_CODE.mortar) reachRing(t.i, aiOf[t.i] ? 'rgba(255,122,107,0.9)' : '#f2c14e', z, [4, 5], CFG.weapons.shell.range);
   else if (t && building[t.i] === BLD_CODE.turret) reachRing(t.i, aiOf[t.i] ? 'rgba(255,122,107,0.9)' : '#f2c14e', z, [4, 5], CFG.turret.range);
@@ -7720,7 +7849,7 @@ function renderBuildMenu() {
       <div class="bm-body"><div class="bm-name">${b.name}${isNewTech(type) ? ' <span class="tag-new">NEW</span>' : ''}${slot >= 0 ? ` <span class="bm-key" title="on your bar">${SLOT_KEYS[slot]}</span>` : ''}</div>
       <div class="bm-desc">${TOUCH ? (b.desc || '').replace('Press F, then click', 'Tap Fire, then tap') : b.desc || ''}</div>
       <div class="bm-foot"><div class="cost">${cost}</div>
-      <div class="bm-status">${open ? (type === 'settlement' ? `capacity from land · ${b.people} people` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : bmToGo(b)}</div></div></div>`;
+      <div class="bm-status">${open ? (type === 'settlement' ? `houses ${CFG.settlement.levels[0].housing} · ${b.people} settlers` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : bmToGo(b)}</div></div></div>`;
     if (open) el.addEventListener('click', () => { setTool(type); toggleBuildMenu(false); });
     el.addEventListener('mouseenter', () => { menuHover = type; });
     el.addEventListener('mouseleave', () => { if (menuHover === type) menuHover = null; });
@@ -7982,7 +8111,7 @@ function updateHud() {
     : cam.zoom > fitZoom() * 0.8 ? 'Map' : 'Orbit';
   $('people-lbl').textContent = alive > 1 ? `PEOPLE · EMPIRE ${fmtNum(game.population)}` : 'PEOPLE';
   $('val-people').textContent = `${fmtNum(C.people)} / ${fmtNum(C.cap)}`;
-  $('val-people').title = `Land holds ${fmtNum(C.capBase)}; city levels add ${fmtNum(C.powCap || 0)} of up to ${fmtNum(C.pw.capPow)} more on power (${CFG.settlement.perMW} people per spare MW). Keeps a crew of ${fmtNum(crewOf(C))}: trains and ships bring people when it's short.`;
+  $('val-people').title = `${C.short}'s ${C.pw.cities} ${C.pw.cities === 1 ? 'city houses' : 'cities house'} ${fmtNum(C.capBase)} without power, plus ${fmtNum(C.powCap || 0)} of up to ${fmtNum(C.pw.capPow)} more on power (${CFG.settlement.perMW} people per spare MW). Keeps a crew of ${fmtNum(crewOf(C))}: trains and ships bring people when it's short.`;
   $('people-fill').style.width = (C.cap ? clamp(C.people / C.cap, 0, 1) * 100 : 0) + '%';
   $('people-rate').innerHTML = (inc.people >= 1 ? `<span class="incoming">+${fmtNum(inc.people)} arriving</span> ` : '') + (C.growth > 0 ? `+${C.growth.toFixed(1)} / sec` : C.growth < 0 ? `<span style="color:var(--bad)">Overcrowded: ${C.growth.toFixed(1)} / sec</span>` : (C.people > C.cap + 0.5 ? 'Crew on hand' : C.people >= C.cap - 0.5 ? 'Full' : '')) + (C.fireCap > 0 ? ` <span style="color:var(--bad)">Under fire</span>` : '');
   $('send-n').textContent = `= ${sendFrom(C)} people`;
@@ -8046,12 +8175,12 @@ function updateHover() {
   if (onBridge(t.i)) info += ' · bridge';
   if (isLand(t.i)) {
     const foe = nationAt(t.i);
-    info += foe ? ` · ${foe.full} (AI) · ${fmtNum(foe.people)} people · ${Math.floor(foe.iron || 0)} / ${Math.round(foe.ironCap || 0)} iron · ${(tileCost(t.i) + defenseAt(t.i)).toFixed(1)} people/tile to take`
+    info += foe ? ` · ${foe.full} (AI) · ${fmtNum(foe.people)} people · ${Math.floor(foe.iron || 0)} / ${Math.round(foe.ironCap || 0)} iron · ${tileCost(t.i).toFixed(1)} people/tile to take${defenseAt(t.i) >= 0.5 ? ` · defended by ${fmtNum(defenseAt(t.i))} people of its city` : ''}`
       : ` · ${tileCost(t.i)} people/tile`;
     if (depositOf[t.i] >= 0) info += ` · ${deposits[depositOf[t.i]].type}`;
     if (building[t.i] === BLD_CODE.settlement) {
-      const sb = buildingAt(t.i), lit = owner[t.i] ? settlementCap(sb) - sb.base : 0;
-      info += ` · ${CFG.settlement.levels[settlementLevel(sb)].name}${cityLevel(sb) > 1 ? ` (level ${cityLevel(sb)})` : ''} · holds ${Math.round(settlementCap(sb))} people: ${Math.round(sb.base)} from ${sb.tiles} tiles in reach${lit >= 0.5 ? ` + ${Math.round(lit)} powered` : ''}${underFire(sb) ? ` · under fire: not growing for ${fireLeft(sb)}s` : ''}`;
+      const sb = buildingAt(t.i);
+      info += ` · ${cityName(sb)} · ${fmtNum(sb.pop || 0)} / ${Math.round(settlementCap(sb))} people · protects land within ${zoneOf(sb)} tiles${underFire(sb) ? ` · under attack: not growing for ${fireLeft(sb)}s` : ''}`;
     } else if (building[t.i]) {
       const hb = buildingAt(t.i);
       info += ` · ${CFG.buildings[hb.type].name}`;
@@ -8141,10 +8270,10 @@ function updateHover() {
     html += `<div class="d">Crew and cargo: your send % (${game.sendPct}%) of ${TC ? TC.short + "'s" : 'the'} free people and stock, at least ${CFG.drive.minCrew} people and ${CFG.expeditionKit.wood} wood and ${CFG.expeditionKit.stone} stone when it has them</div>`;
     html += `<div class="d">You drive it to free land and settle a colony there. The colony's first ${bdef.vehicle} links home along the way it came.</div>`;
   } else if (type === 'settlement') {
-    const g = owner[t.i] ? settlementGain(t.i) : { gain: 0, fresh: 0, shared: 0 }, S = CFG.settlement;
-    html += `<div class="${g.gain >= 1 ? 'g' : 'r'}">+${Math.round(g.gain)} people capacity${TC ? ' in ' + TC.short : ''}</div>`;
-    html += `<div class="d">${g.fresh} new tiles in reach${g.shared ? ` · ${g.shared} already served by another settlement` : ''}</div>`;
-    html += `<div class="d">Grows as you claim more land within ${S.reach} tiles. Place a settlement on it later to upgrade it: each level adds housing that runs on power.</div>`;
+    const S = CFG.settlement, V = S.levels[0];
+    html += `<div class="g">A village: ${bdef.people} settlers move in from your other cities, and it houses ${V.housing}${TC ? ' in ' + TC.short : ''}</div>`;
+    html += `<div class="d">Stores ${fmtNum(CFG.storage.wood.city * V.store)} wood and stone, ${fmtNum(CFG.storage.iron.city * V.store)} iron. Protects the land within ${V.zone} tiles while it has people.</div>`;
+    html += `<div class="d">Place a settlement on it later to upgrade it: Town, then City and up, where the extra housing runs on power.</div>`;
   } else if (plan) {
     if (plan.route) {
       html += type === 'station'
@@ -8215,11 +8344,12 @@ function drawMissiles(z) {
     ctx.fillStyle = `rgba(22,18,16,${0.42 * (1 - sc.t)})`; ctx.fill();
   }
   // reload bars under every weapon that's reloading (yours and theirs)
-  if (z >= CFG.cityZoom) for (const b of game.buildings) {      // a shelled settlement: how long until it grows again
-    if (!underFire(b)) continue;
-    const [sx, sy] = toScreen(...tileCenter(b.i)), w = Math.max(22, z * 1.6), f = clamp((b.hitAt + CFG.underFire - game.time) / CFG.underFire, 0, 1), up = z * 1.7;
-    ctx.fillStyle = 'rgba(20,26,37,0.9)'; ctx.fillRect(sx - w / 2 - 1, sy - up - 1, w + 2, 6);
-    ctx.fillStyle = '#ff7a6b'; ctx.fillRect(sx - w / 2, sy - up, w * f, 4);
+  if (z >= CFG.cityZoom * 0.5) for (const b of game.buildings) {   // a city under attack: its people are its health
+    if (b.type !== 'settlement' || !underFire(b)) continue;
+    const [sx, sy] = toScreen(...tileCenter(b.i)), w = Math.max(30, z * 2.4), f = clamp((b.pop || 0) / Math.max(1, settlementCap(b)), 0, 1), up = Math.max(16, z * 2);
+    ctx.fillStyle = 'rgba(20,26,37,0.9)'; ctx.fillRect(sx - w / 2 - 1, sy - up - 1, w + 2, 7);
+    ctx.fillStyle = '#5a2320'; ctx.fillRect(sx - w / 2, sy - up, w, 5);
+    ctx.fillStyle = f > 0.5 ? '#7bd389' : f > 0.2 ? '#f2c14e' : '#ff7a6b'; ctx.fillRect(sx - w / 2, sy - up, w * f, 5);
   }
   if (z >= CFG.cityZoom) for (const b of game.buildings) {      // how much more a damaged building can take
     if (!b.dmg || b.type === 'settlement') continue;
@@ -8416,11 +8546,11 @@ function drawBuildPreview(z) {
   if (type === 'settlement') {
     const u = upgradeTargetAt(t.i);
     if (u) {
-      const [sx, sy] = toScreen(...tileCenter(u.i)), ok = !missingFor(upgradeStep(cityLevel(u)).cost, countryAt(u.i));
+      const step = upgradeStep(cityLevel(u)), [sx, sy] = toScreen(...tileCenter(u.i)), ok = !!step && !missingFor(step.cost, countryAt(u.i));
       const r = Math.max(14, z * 3.2) * (1 + 0.06 * Math.sin(game.time * 6));
       ctx.setLineDash([6, 5]); ctx.lineWidth = 3; ctx.strokeStyle = ok ? '#8fd3ff' : '#ff7a6b';
       ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-      pill(sx, sy - r - 12, `Upgrade to level ${cityLevel(u) + 1}`, { fg: ok ? '#8fd3ff' : '#ff7a6b', border: ok ? '#8fd3ff' : '#ff7a6b', size: 12 });
+      pill(sx, sy - r - 12, step ? `Upgrade to ${levelDef(cityLevel(u) + 1).name}` : `${cityName(u)}: as big as it gets`, { fg: ok ? '#8fd3ff' : '#ff7a6b', border: ok ? '#8fd3ff' : '#ff7a6b', size: 12 });
       return;
     }
   }
