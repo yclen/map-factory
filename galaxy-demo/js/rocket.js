@@ -1,7 +1,7 @@
 // Rocket flight: a small 2D physics sim around Home. Positions are in system units relative to Home's centre
 // (Home's radius = HOME.r), y pointing down the screen, so Home's North Pole is at (0, -R).
 // angle 0 = nose pointing north (up the screen); positive angles turn clockwise.
-import { RULES } from './rules.js?v=20261123205142';
+import { RULES } from './rules.js?v=20261123210352';
 
 const P = RULES.rocket;
 const TAU = Math.PI * 2;
@@ -117,4 +117,34 @@ export function orbitAround(rk, home) {
   if (energy >= 0) return { escaping: true, peri: null, apo: null };
   const a = -gm / (2 * energy), e = Math.sqrt(Math.max(0, 1 + 2 * energy * h * h / (gm * gm)));
   return { escaping: false, peri: a * (1 - e) - home.r, apo: a * (1 + e) - home.r };
+}
+
+// The exact path around Home alone (ignoring the Moon and drag): one conic, drawn by angle around Home from
+// where the rocket is now, forward one full lap or until it would hit the ground or fly off. Cheap and steady,
+// so it never jitters. Writes x, y pairs into out and returns { n, apo, peri, closed }.
+export function conicPath(rk, home, out, steps = 240) {
+  const x = rk.x - home.x, y = rk.y - home.y, vx = rk.vx, vy = rk.vy, mu = home.gm;
+  const r = Math.hypot(x, y), v2 = vx * vx + vy * vy, h = x * vy - y * vx;
+  const rv = x * vx + y * vy, k = v2 - mu / r;
+  const ex = (k * x - rv * vx) / mu, ey = (k * y - rv * vy) / mu, e = Math.hypot(ex, ey);
+  const p = h * h / mu, dir = h >= 0 ? 1 : -1;
+  const w = e > 1e-6 ? Math.atan2(ey, ex) : Math.atan2(y, x);         // direction of the lowest point
+  const nu0 = Math.atan2(y, x) - w;
+  const closed = e < 1;
+  const lap = closed ? 2 * Math.PI : Math.acos(Math.max(-1, -1 / e)) * 2;   // a hyperbola only sweeps so far
+  let n = 0, passedTop = false;
+  for (let i = 0; i <= steps; i++) {
+    const nu = nu0 + dir * lap * i / steps, den = 1 + e * Math.cos(nu);
+    if (den <= 0.02) break;
+    const rr = p / den;
+    if (rr < home.r * 0.999 && i > 0) { out[n * 2] = home.x + Math.cos(w + nu) * home.r; out[n * 2 + 1] = home.y + Math.sin(w + nu) * home.r; n++; break; }
+    if (rr > 80) break;
+    out[n * 2] = home.x + Math.cos(w + nu) * rr; out[n * 2 + 1] = home.y + Math.sin(w + nu) * rr; n++;
+    if (closed && Math.cos(nu) < -0.999) passedTop = true;
+  }
+  const at = (ang, rr) => ({ x: home.x + Math.cos(ang) * rr, y: home.y + Math.sin(ang) * rr, alt: rr - home.r });
+  const periR = p / (1 + e), apoR = closed ? p / (1 - e) : Infinity;
+  // the top of the arc counts if the rocket gets there before landing; the bottom only if it's above ground
+  const reachesTop = closed && (periR > home.r || passedTop || Math.cos(nu0) < -0.999);
+  return { n, closed, apo: reachesTop ? at(w + Math.PI, apoR) : null, peri: closed && periR > home.r ? at(w, periR) : null, apoR };
 }

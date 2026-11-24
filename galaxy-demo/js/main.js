@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261123205142';
-import { SKIN } from './skin.js?v=20261123205142';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123205142';
-import { buildAtlas } from './art.js?v=20261123205142';
-import { Renderer } from './renderer.js?v=20261123205142';
-import { Labels } from './labels.js?v=20261123205142';
-import { mulberry32, hash32 } from './rng.js?v=20261123205142';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123205142';
-import { makeRocket, stepRocket, predictPath, orbitAround } from './rocket.js?v=20261123205142';
+import { RULES } from './rules.js?v=20261123210352';
+import { SKIN } from './skin.js?v=20261123210352';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123210352';
+import { buildAtlas } from './art.js?v=20261123210352';
+import { Renderer } from './renderer.js?v=20261123210352';
+import { Labels } from './labels.js?v=20261123210352';
+import { mulberry32, hash32 } from './rng.js?v=20261123210352';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123210352';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261123210352';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -266,7 +266,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261123205142', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261123210352', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -625,6 +625,7 @@ function drawBody(d, s, md, now) {
   }
   bp.mode = 0; bp.c1 = b.dot; bp.c2 = b.dot; bp.c3 = b.dot;
   if (b.atmo) bp.atmo = b.atmo;
+  bp.atmoH = b === HOME ? RK.atmosphere / HOME.r : 0.05;
   const lv = levelsOf(b), D = 2 * Rd, focus = b === cam.focus ? 1e6 : 0;
   // the whole-planet base (also draws the rim and atmosphere)
   const base = wantPage(b, 0, 0, 0, 4e6 + focus + d.R);
@@ -760,6 +761,8 @@ function tap(x, y) {
     return;
   }
   lastTap = { t, x, y };
+  const rk = rocketAt(x, y);
+  if (rk) { takeControl(rk === 'pad' ? padRocket : rk); return; }
   select(pickAt(x, y));
 }
 glCanvas.addEventListener('wheel', e => {
@@ -782,7 +785,8 @@ addEventListener('keydown', e => {
   else if (k === 's') cycleStress();
   else if (k === 'escape') select(null);
   else if (k === ' ') { e.preventDefault(); toggleEngine(); }
-  else if (k === 'r') switchRocket();
+  else if (k === 'r') backToRocket();
+  else if (k === 'tab') { e.preventDefault(); switchRocket(); }
   else if (k === 'f') toggleFollow();
   if ('qead'.includes(k) && k.length === 1) held.add(k);
 });
@@ -839,7 +843,16 @@ function updateUI(force) {
     for (const p of parts) add(p.name, p);
   }
   // hover tooltip (mouse only)
-  if (hover && !ptrs.size) {
+  hoverRocket = hover && !ptrs.size ? rocketAt(hover.x, hover.y) : null;
+  glCanvas.style.cursor = hoverRocket ? 'pointer' : '';
+  if (hoverRocket) {
+    const rk = hoverRocket === 'pad' ? padRocket : hoverRocket;
+    const what = hoverRocket === 'pad'
+      ? `<b>Launch pad</b> · ${rk.state === 'ready' ? `${rk.name} ready` : `building ${rk.name} (${Math.floor(rk.built * 100)}%)`}`
+      : `<b>${rk.name}</b> · ${rk.state === 'landed' ? (rk.on === 1 ? 'landed on the Moon' : 'landed') : 'flying'}`;
+    tipEl.hidden = false; tipEl.innerHTML = `${what} <span class="dim">· click to ${rk === active ? 'follow' : 'take control'}</span>`;
+    tipEl.style.left = (hover.x + 14) + 'px'; tipEl.style.top = (hover.y + 16) + 'px';
+  } else if (hover && !ptrs.size) {
     const b = pickAt(hover.x, hover.y);
     let txt = b ? `<b>${b.name}</b> · ${b.kind === 'star' ? RULES.stars[b.type].name : b.typeName}` : '';
     if (b && b.kind === 'star') txt = '';          // a hovered star shows its name label instead
@@ -1067,6 +1080,12 @@ function switchRocket() {
   rocketMode = true;
   if (follow) { cam.fly = null; refocus(active); }
 }
+function backToRocket() {
+  if (!active || active.state === 'crashed') active = rockets.find(r => r.state === 'flying') || padRocket;
+  rocketMode = true; follow = true;
+  $('btnRocket').classList.add('on');
+  flyTo(active);
+}
 function toggleFollow() {
   follow = !follow;
   cam.fly = null;
@@ -1109,8 +1128,21 @@ const SPR_TOWER = pixelSprite(4, 22, put => {
     if (y === 0) put(x, y, '#ffd34a');
   }
 });
-const pathBuf = new Float32Array(4000);
+const pathBuf = new Float32Array(4000), simBuf = new Float32Array(4000);
 let pathN = 0;
+const padHit = { x0: 0, y0: 0, x1: 0, y1: 0 }, rocketHits = [];   // screen areas from the last frame, for hover and click
+let hoverRocket = null;
+// what's under a screen point: a rocket you can fly, the launch pad, or nothing
+function rocketAt(x, y) {
+  for (const h of rocketHits) if (Math.hypot(x - h.x, y - h.y) <= h.r) return h.rk === padRocket ? 'pad' : h.rk;
+  if (x >= padHit.x0 && x <= padHit.x1 && y >= padHit.y0 && y <= padHit.y1) return 'pad';
+  return null;
+}
+function takeControl(rk) {
+  active = rk; rocketMode = true; follow = true;
+  $('btnRocket').classList.add('on');
+  if (cam.focus !== rk) { cam.fly = null; refocus(rk); }
+}
 
 function drawRocketLayer(g) {
   if (!rockets.length) return;
@@ -1121,45 +1153,52 @@ function drawRocketLayer(g) {
   if (Math.hypot(hx - cw / 2, hy - ch / 2) - R0 > Math.max(cw, ch) * 3 && !(cam.focus && cam.focus.kind === 'rocket')) return;
   g.save();
   g.imageSmoothingEnabled = false;
-  // the top of the atmosphere (drag stops beyond this line)
-  if (rocketMode && R0 > 40) {
-    g.strokeStyle = 'rgba(140,190,255,0.25)'; g.setLineDash([4, 8]); g.lineWidth = 1;
-    g.beginPath(); g.arc(hx, hy, (HOME.r + RK.atmosphere) * k, 0, TAU); g.stroke(); g.setLineDash([]);
-  }
   // launch pad and tower at the North Pole (only once they're big enough to see)
+  const px = hx, py = hy - R0;
   if (tile * 9 > 5) {
-    const px = hx, py = hy - R0;
     g.drawImage(SPR_PAD, px - 4.5 * tile, py, 9 * tile, 3 * tile);
     g.drawImage(SPR_TOWER, px + 2.2 * tile, py - 11 * tile, 2 * tile, 11 * tile);
   }
-  // predicted coast path of the rocket you're flying
+  padHit.x0 = px - Math.max(14, 5 * tile); padHit.x1 = px + Math.max(14, 5 * tile);
+  padHit.y0 = py - Math.max(22, 12 * tile); padHit.y1 = py + Math.max(6, 3 * tile);
+  if (hoverRocket === 'pad') {
+    g.strokeStyle = 'rgba(242,193,78,0.85)'; g.lineWidth = 1.5;
+    g.strokeRect(padHit.x0, padHit.y0, padHit.x1 - padHit.x0, padHit.y1 - padHit.y0);
+  }
+  // where the rocket you're flying will coast: one exact orbit around Home (steady, cheap). Near the Moon its
+  // pull matters, so there the path is simulated instead, for at most about one lap
   if (active && active.state === 'flying') {
-    if (frameNo % 4 === 0 || !pathN) pathN = predictPath(active, simT, rocketEnv, pathBuf, 1800, 0.35);
-    if (pathN > 1) {
+    const home = rocketEnv.bodiesAt(simT)[0];
+    const c = conicPath(active, home, pathBuf, 240);
+    let n = c.n, apo = c.apo, peri = c.peri;
+    if (!c.closed || c.apoR > MOON.orbit * 0.35) {
+      if (frameNo % 10 === 0 || !pathN) pathN = predictPath(active, simT, rocketEnv, simBuf, 900, 0.5);
+      pathBuf.set(simBuf.subarray(0, pathN * 2)); n = pathN;
+      peri = null; apo = c.closed && c.apo ? apo : null;
+    } else pathN = 0;
+    if (n > 1) {
       g.strokeStyle = 'rgba(120,220,255,0.75)'; g.lineWidth = 1.5; g.setLineDash([6, 5]);
       g.beginPath();
-      let lo = Infinity, hi = -Infinity, li = 0, hiI = 0;
-      for (let i = 0; i < pathN; i++) {
-        const x = hx + pathBuf[i * 2] * k, y = hy + pathBuf[i * 2 + 1] * k;
-        if (i) g.lineTo(x, y); else g.moveTo(x, y);
-        const r = Math.hypot(pathBuf[i * 2], pathBuf[i * 2 + 1]);
-        if (r < lo) { lo = r; li = i; } if (r > hi) { hi = r; hiI = i; }
-      }
+      g.moveTo(hx + active.x * k, hy + active.y * k);
+      for (let i = 0; i < n; i++) g.lineTo(hx + pathBuf[i * 2] * k, hy + pathBuf[i * 2 + 1] * k);
       g.stroke(); g.setLineDash([]);
-      const mark = (i, label, col) => {
-        const x = hx + pathBuf[i * 2] * k, y = hy + pathBuf[i * 2 + 1] * k;
+      const mark = (pt, label, col) => {
+        const x = hx + pt.x * k, y = hy + pt.y * k;
         g.fillStyle = col; g.beginPath(); g.arc(x, y, 3.5, 0, TAU); g.fill();
-        g.font = '600 11px "Segoe UI", system-ui, sans-serif'; g.fillText(label, x + 6, y - 6);
+        g.font = '600 11px "Segoe UI", system-ui, sans-serif';
+        g.fillText(`${label} · ${fmt(Math.round(pt.alt / tileSu()))} tiles`, x + 7, y - 6);
       };
-      if (hiI > 0 && hiI < pathN - 1) mark(hiI, 'Highest', '#ffd36e');
-      if (li > 0 && li < pathN - 1) mark(li, 'Lowest', '#8fe3ff');
+      if (apo) mark(apo, 'Highest', '#ffd36e');
+      if (peri) mark(peri, 'Lowest', '#8fe3ff');
     }
   } else pathN = 0;
+  rocketHits.length = 0;
   // rockets
   for (const rk of rockets) {
     const x = hx + rk.x * k, y = hy + rk.y * k;
     if (x < -200 || y < -200 || x > cw + 200 || y > ch + 200) continue;
     const hgt = Math.max(16, RK.length * tile), wid = hgt * 0.4;
+    if (rk.state !== 'crashed' && rk.state !== 'building') rocketHits.push({ rk, x, y, r: Math.max(12, hgt / 2) });
     if (rk.state === 'crashed') {
       const t = rk.crashT, a = Math.max(0, 1 - t / 2.2);
       for (let j = 0; j < 3; j++) {
@@ -1186,7 +1225,7 @@ function drawRocketLayer(g) {
       g.strokeStyle = 'rgba(242,193,78,0.7)'; g.lineWidth = 1;
       g.strokeRect(-wid / 2 - 2, -hgt / 2, wid + 4, hgt);
     } else g.drawImage(SPR_ROCKET, -wid / 2, -hgt / 2, wid, hgt);
-    if (rk === active && rocketMode) { g.strokeStyle = 'rgba(120,220,255,0.6)'; g.lineWidth = 1; g.strokeRect(-wid / 2 - 4, -hgt / 2 - 4, wid + 8, hgt + 8); }
+    if ((rk === active && rocketMode) || rk === hoverRocket) { g.strokeStyle = rk === hoverRocket ? 'rgba(242,193,78,0.85)' : 'rgba(120,220,255,0.6)'; g.lineWidth = 1; g.strokeRect(-wid / 2 - 4, -hgt / 2 - 4, wid + 8, hgt + 8); }
     g.restore();
     if (rk.state === 'building' && tile * 9 > 5) {
       g.font = '600 11px "Segoe UI", system-ui, sans-serif'; g.fillStyle = '#ffe6a6';
@@ -1221,7 +1260,7 @@ function updateRocketHud() {
     <div class="row">Engine <b class="${rk.engine && rk.fuel > 0 ? 'on' : ''}">${rk.engine ? (rk.fuel > 0 ? 'ON' : 'OUT OF FUEL') : 'off'}</b> · height ${fmt(Math.round(alt / tl))} tiles · speed ${fmt(Math.round(spd / tl))} tiles/s</div>
     ${orbit ? `<div class="row">${orbit}</div>` : ''}
     <div class="row dim">Next rocket: ${pad}${rockets.filter(r => r.state === 'flying').length > 1 ? ` · ${rockets.filter(r => r.state === 'flying').length} in flight` : ''}</div>
-    <div class="keys">Space engine · Q/E throttle · A/D turn · R switch rocket · F follow ${follow ? '(on)' : '(off)'}</div>`;
+    <div class="keys">Space engine · Q/E throttle · A/D turn · R back to rocket · Tab switch · F follow ${follow ? '(on)' : '(off)'}</div>`;
 }
 
 // ---------- start: on Home, then let the player zoom out ----------
@@ -1231,4 +1270,4 @@ cam.logZ = cam.tz = Math.log2(0.32 * minDim() / (HOME.r * SU));   // Home about 
 select(coarse ? null : HOME);      // on phones the info card waits for a tap, so it doesn't cover the planet
 updateUI(true);
 requestAnimationFrame(frame);
-window.__demo = { G, cam, pages, flyTo, R, centerWorld, zoom, levelsOf };
+window.__demo = { G, cam, pages, flyTo, R, centerWorld, zoom, levelsOf, rockets, get active() { return active; }, padHit };

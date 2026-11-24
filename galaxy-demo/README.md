@@ -52,15 +52,17 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
 
 **Rocket** in the bottom bar takes you to a launch pad at Home's North Pole.
 
-- **Controls:** Space starts or stops the engine, Q/E lower or raise the throttle, A/D turn, R switches between
-  rockets, and F makes the camera follow the rocket.
+- **Controls:** Space starts or stops the engine, Q/E lower or raise the throttle, and A/D turn. R brings the
+  camera back to your rocket, Tab switches between rockets, and F makes the camera follow the rocket. Hover over
+  the pad or a rocket to see what it is, and click it to take control.
 - **Physics** (`js/rocket.js`):
   - gravity from Home and the Moon;
   - fuel that burns with throttle, so the rocket gets lighter;
-  - air drag that fades to nothing at the top of the atmosphere (the dashed circle);
+  - air drag that fades to nothing at the top of the atmosphere (the outer edge of Home's hazy glow);
   - gentle, upright touchdowns land, and anything else crashes.
-- **Orbit path:** the dashed line is where the rocket will coast with the engine off, with its highest and lowest
-  points marked.
+- **Orbit path:** the dashed line is where the rocket will coast with the engine off: one exact orbit around Home,
+  with its highest and lowest points and their heights marked. Near the Moon, where its pull matters, the path is
+  simulated instead, for about one lap.
 - **Rebuilds:** a new rocket is built on the pad 10 s after each launch.
 - **Tuning:** all the numbers are in `rules.js` under `rocket`. With the defaults, a low orbit takes about 100 s and
   reaching it uses roughly 40% of the fuel.

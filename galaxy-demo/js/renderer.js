@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261123205142';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261123205142';
+import * as S from './shaders.js?v=20261123210352';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261123210352';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -173,6 +173,7 @@ export class Renderer {
     gl.uniform1f(u.u_seed, b.seed); gl.uniform1f(u.u_time, b.time);
     gl.uniform4f(u.u_ring, b.ringIn, b.ringOut, b.ringA, b.ringGap);
     gl.uniform4f(u.u_atmo, b.atmo[0] / 255, b.atmo[1] / 255, b.atmo[2] / 255, b.atmo[3]);
+    gl.uniform1f(u.u_atmoH, b.atmoH || 0.05);
     gl.uniform1f(u.u_alpha, b.alpha);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.draws++;
   }

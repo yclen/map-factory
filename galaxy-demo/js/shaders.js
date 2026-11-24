@@ -90,7 +90,7 @@ uniform vec3 u_light;
 uniform int u_hasMap; uniform usampler2D u_ids; uniform sampler2D u_col; uniform sampler2D u_atlas;
 uniform vec2 u_map; uniform float u_art; uniform float u_lod;
 uniform vec3 u_c1, u_c2, u_c3; uniform float u_seed; uniform float u_time;
-uniform vec4 u_ring; uniform vec4 u_atmo; uniform float u_alpha;
+uniform vec4 u_ring; uniform vec4 u_atmo; uniform float u_alpha; uniform float u_atmoH;
 uniform vec4 u_page;     // this chunk's place in the disk's square (x, y, width, height; 0..1)
 uniform int u_detail;    // 1 = a detail chunk drawn over the whole-planet base: only its own square, inside the disk
 out vec4 o;
@@ -140,7 +140,7 @@ void main() {
       outc = vec4(u_c1 * g, 0.0);
     } else {
       if (u_atmo.a > 0.0) {                          // a thin glowing rim of atmosphere
-        float g = (1.0 - smoothstep(1.0, 1.0 + max(0.05, edgeW * 3.0), rr)) * u_atmo.a;
+        float g = pow(1.0 - smoothstep(1.0, 1.0 + max(u_atmoH, edgeW * 3.0), rr), 1.6) * u_atmo.a;   // fades out at the top of the atmosphere
         outc += vec4(u_atmo.rgb * g, 0.0);
       }
       if (u_ring.z > 0.0 && rr > u_ring.x && rr < u_ring.y) {      // rings, with the planet's shadow across them
