@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js';
-import { SKIN } from './skin.js';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js';
-import { buildAtlas } from './art.js';
-import { Renderer } from './renderer.js';
-import { Labels } from './labels.js';
-import { mulberry32, hash32 } from './rng.js';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js';
-import { makeRocket, stepRocket, predictPath, orbitAround } from './rocket.js';
+import { RULES } from './rules.js?v=20261123205002';
+import { SKIN } from './skin.js?v=20261123205002';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123205002';
+import { buildAtlas } from './art.js?v=20261123205002';
+import { Renderer } from './renderer.js?v=20261123205002';
+import { Labels } from './labels.js?v=20261123205002';
+import { mulberry32, hash32 } from './rng.js?v=20261123205002';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123205002';
+import { makeRocket, stepRocket, predictPath, orbitAround } from './rocket.js?v=20261123205002';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -243,7 +243,7 @@ function flyTo(b) {
   const w0 = cw / zoom(), w1 = fitWidth(b);
   const f = interpolateZoom([cam.ox, cam.oy, w0], [0, 0, w1]);
   cam.fly = { f, end: [0, 0, w1], t0: performance.now(), dur: clamp(f.duration * 0.42, 700, 3200) };
-  if (b) select(b);
+  if (b && b.kind !== 'rocket') select(b);
 }
 function stepFly(now) {
   const F = cam.fly;
@@ -266,7 +266,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261123205002', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -864,6 +864,7 @@ function updateUI(force) {
   if (close && !close.onclick) close.onclick = () => select(null);
 }
 function infoHTML(b) {
+  if (b && b.kind === 'rocket') b = null;                // rockets have their own readout
   if (!b) {
     const c = G.counts;
     return `<div class="t">The Galaxy</div><div class="s">${G.stars.length} stars · seed ${SEED}</div>
