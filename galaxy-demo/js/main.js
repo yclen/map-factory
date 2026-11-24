@@ -252,16 +252,20 @@ function stepFly(now) {
   if (t >= 1) cam.fly = null;
 }
 
-// ---------- maps: requested from background workers, kept in a small cache ----------
-const maps = new Map();          // body uid -> { low, full }
-const jobs = [];
+// ---------- planet maps: a pyramid of chunks, built by background workers, kept within a memory budget ----------
+// Level 0 is the whole disk at up to 256 samples across, always loaded for anything drawn as a sphere. Each level
+// up doubles the detail and is split into 256 x 256 chunks; the top level has one sample per tile. Only the chunks
+// on screen, at the detail the zoom needs, get built; chunks nobody looks at fall out of the cache.
+const PAGE = 256;
+const pages = new Map();          // key -> chunk
+const jobs = [];                  // chunks waiting for a worker
 let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
   const w = new Worker(new URL('./mapworker.js', import.meta.url), { type: 'module' });
   w.busy = null;
-  w.onmessage = e => { onMapBand(e.data); w.busy = null; pump(); };
+  w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
   workers.push(w);
 }
@@ -269,92 +273,89 @@ const bodyByUid = new Map(G.bodies.map(b => [b.uid, b]));
 function descOf(b) {
   return { id: b.uid, seed: b.seed, type: b.type, r: b.r, W: b.surface.W, heat: b.heat, settle: b.settle, home: b.home };
 }
-function wantMap(b, level) {
-  let m = maps.get(b.uid);
-  if (!m) { m = { low: null, full: null }; maps.set(b.uid, m); }
-  m.used = frameNo;
-  if (m[level]) { m[level].used = frameNo; return; }
-  const { W, H } = b.surface;
-  const lw = level === 'low' ? Math.min(128, W) : W, lh = lw / 2;
-  const bands = level === 'low' ? 1 : Math.ceil(lh / 64);
-  m[level] = { W: lw, H: lh, ids: null, col: null, done: 0, bands, ready: false, counts: new Uint32Array(64),
-    cpu: level === 'full' ? new Uint8Array(lw * lh * 2) : null, used: frameNo };
-  for (let k = 0; k < bands; k++) {
-    jobs.push({ job: ++jobSeq, b, level, W: lw, H: lh, y0: k * 64 * (level === 'full' ? 1 : 0), y1: level === 'full' ? Math.min(lh, (k + 1) * 64) : lh });
+// the detail levels of a body's map: samples across at each level, top level = tiles across
+function levelsOf(b) {
+  const W = b.surface.W;
+  if (!b.lv || b.lv.W !== W) {
+    const Lmax = Math.max(0, Math.ceil(Math.log2(W / PAGE)));
+    const N = [];
+    for (let L = 0; L <= Lmax; L++) N.push(Math.ceil(W / 2 ** (Lmax - L)));
+    b.lv = { W, Lmax, N };
   }
-  pump();
+  return b.lv;
+}
+function wantPage(b, L, px, py, pri) {
+  const N = levelsOf(b).N[L], key = `${b.uid}/${N}/${L}/${px}/${py}`;
+  let p = pages.get(key);
+  if (!p) {
+    const x0 = px * PAGE, y0 = py * PAGE, sx = Math.min(PAGE, N - x0), sy = Math.min(PAGE, N - y0);
+    p = { key, b, L, px, py, N, x0, y0, sx, sy, W: sx, H: sy, uv: [x0 / N, y0 / N, sx / N, sy / N],
+      ids: null, col: null, cpu: null, ready: false, used: frameNo, pri, bytes: 0 };
+    pages.set(key, p); jobs.push(p);
+  }
+  p.used = frameNo; p.pri = pri;
+  return p;
 }
 function pump() {
   for (const w of workers) {
     if (w.busy || !jobs.length) continue;
     let bi = -1, best = -Infinity;
     for (let i = 0; i < jobs.length; i++) {
-      const j = jobs[i], b = j.b;
-      const score = (j.level === 'low' ? 1e6 : 0) + (b === cam.focus ? 5e5 : 0) + (b._want || 0) - (frameNo - (b._seen || 0)) * 10;
+      const score = jobs[i].pri - (frameNo - jobs[i].used) * 1e4;
       if (score > best) { best = score; bi = i; }
     }
-    const j = jobs.splice(bi, 1)[0];
-    w.busy = j;
-    w.postMessage({ job: j.job, desc: descOf(j.b), W: j.W, H: j.H, level: j.level, y0: j.y0, y1: j.y1 });
+    const p = jobs.splice(bi, 1)[0];
+    w.busy = p;
+    w.postMessage({ job: ++jobSeq, key: p.key, desc: descOf(p.b), N: p.N, x0: p.x0, y0: p.y0, sx: p.sx, sy: p.sy, L: p.L });
   }
 }
-function onMapBand(d) {
-  const b = bodyByUid.get(d.id), m = maps.get(d.id);
+function onPage(d) {
   mapsMs += d.ms; mapsBuilt++;
-  if (!m || !m[d.level]) return;                            // evicted while building
-  const L = m[d.level];
-  if (L.W !== d.W) return;                                   // built for an older map size
-  if (!L.ids) { L.ids = R.makeIdTexture(L.W, L.H); L.col = R.makeColorTexture(L.W, L.H); }
-  R.uploadBand(L.ids, L.col, L.W, d.y0, d.y1 - d.y0, d.ids, d.col);
-  if (L.cpu) L.cpu.set(d.ids, d.y0 * L.W * 2);
-  for (let i = 0; i < 64; i++) L.counts[i] += d.counts[i];
-  if (!b.settlements) b.settlements = d.settlements;
-  if (++L.done === L.bands) {
-    R.mipmap(L.col); L.ready = true;
-    if (d.level === 'full' || !b.counts) b.counts = L.counts;
-    if (d.level === 'full') { b.cpu = L.cpu; if (b === cam.focus) walkersDirty = true; }
+  const p = pages.get(d.key);
+  if (!p) return;                                           // dropped while it was being built
+  const b = p.b;
+  p.ids = R.makeIdTexture(p.sx, p.sy); p.col = R.makeColorTexture(p.sx, p.sy);
+  R.uploadBand(p.ids, p.col, p.sx, 0, p.sy, d.ids, d.col);
+  R.mipmap(p.col);
+  p.ready = true;
+  if (p.L === 0 || p.L === levelsOf(b).Lmax) p.cpu = d.ids;         // for hover info and placing walkers
+  p.bytes = p.sx * p.sy * (2 + 4 * 1.34) + (p.cpu ? p.sx * p.sy * 2 : 0);
+  if (p.L === 0) { b.counts = d.counts; b.settlements = d.settlements; b.base = p; if (b === cam.focus) walkersDirty = true; }
+}
+function freePage(p) {
+  if (p.ids) R.freeMap(p.ids, p.col, p.sx, p.sy);
+  pages.delete(p.key);
+  if (p.b.base === p) p.b.base = null;
+}
+// keep chunks within a memory budget, oldest first; level-0 maps are tiny, so up to 200 of them stay
+function evictPages() {
+  if (frameNo % 10) return;
+  // chunks requested while zooming past, and not wanted since, are dropped before a worker spends time on them
+  for (let i = jobs.length - 1; i >= 0; i--) if (frameNo - jobs[i].used > 20) { pages.delete(jobs[i].key); jobs.splice(i, 1); }
+  const budget = (coarse ? 48 : 160) * 1048576;
+  let total = 0, l0 = 0;
+  const list = [];
+  for (const p of pages.values()) if (p.ready) { total += p.bytes; if (p.L === 0) l0++; list.push(p); }
+  if (total <= budget && l0 <= 200) return;
+  list.sort((a, b) => a.used - b.used);
+  for (const p of list) {
+    if (frameNo - p.used < 30) break;                         // everything after this is in use
+    if (p.L === 0 ? l0 <= 200 : total <= budget) continue;
+    total -= p.bytes; if (p.L === 0) l0--;
+    freePage(p);
   }
 }
-function evictMaps() {
-  if (frameNo % 30) return;
-  const full = [], low = [];
-  for (const [uid, m] of maps) {
-    if (m.full && m.full.ready) full.push([uid, m]);
-    if (m.low && m.low.ready) low.push([uid, m]);
-  }
-  // full maps are kept within a memory budget (they can be millions of tiles), far maps by count
-  const bytes = L => L.W * L.H * 7.4;
-  const drop = (list, level, keep, budget = Infinity) => {
-    let total = 0;
-    for (const [, m] of list) total += bytes(m[level]);
-    if (list.length <= keep && total <= budget) return;
-    list.sort((a, b) => a[1][level].used - b[1][level].used);
-    for (let i = 0; i < list.length && (list.length - i > keep || total > budget); i++) {
-      const [uid, m] = list[i], L = m[level];
-      if (frameNo - L.used < 20) continue;
-      total -= bytes(L);
-      R.freeMap(L.ids, L.col, L.W, L.H);
-      m[level] = null;
-      if (level === 'full') { const b = bodyByUid.get(uid); b.cpu = null; }
-    }
-  };
-  drop(full, 'full', 8, (coarse ? 48 : 160) * 1048576); drop(low, 'low', 160);
-  // forget queued work for bodies nobody has looked at for a while
-  for (let i = jobs.length - 1; i >= 0; i--) {
-    const j = jobs[i];
-    if (frameNo - (j.b._seen || 0) > 240 && j.b !== selected) {
-      const m = maps.get(j.b.uid);
-      if (m && m[j.level] && !m[j.level].ready) m[j.level] = null;
-      jobs.splice(i, 1);
-    }
-  }
-}
-function mapFor(b) {
-  const m = maps.get(b.uid);
-  if (!m) return null;
-  if (m.full && m.full.ready) return m.full;
-  if (m.low && m.low.ready) return m.low;
-  return null;
+// the tile under a disk position (u, v in -1..1): from a full-detail chunk if loaded, else the level-0 map
+function tileAt(b, u, v) {
+  const lv = levelsOf(b), W = lv.W;
+  const tx = clamp(Math.floor((u * 0.5 + 0.5) * W), 0, W - 1), ty = clamp(Math.floor((v * 0.5 + 0.5) * W), 0, W - 1);
+  const top = pages.get(`${b.uid}/${lv.N[lv.Lmax]}/${lv.Lmax}/${Math.floor(tx / PAGE)}/${Math.floor(ty / PAGE)}`);
+  if (top && top.cpu) { const i = ((ty - top.y0) * top.sx + (tx - top.x0)) * 2; return { tx, ty, base: top.cpu[i], ov: top.cpu[i + 1], exact: true }; }
+  const p = b.base;
+  if (!p || !p.cpu) return null;
+  const N = p.N, x = clamp(Math.floor((u * 0.5 + 0.5) * N), 0, N - 1), y = clamp(Math.floor((v * 0.5 + 0.5) * N), 0, N - 1);
+  const i = (y * p.sx + x) * 2;
+  return { tx, ty, base: p.cpu[i], ov: p.cpu[i + 1], exact: false };
 }
 
 // ---------- per-frame buffers ----------
@@ -394,7 +395,7 @@ function addDraw(b, x, y, Rp) {
 const bp = { x0: 0, y0: 0, x1: 0, y1: 0, cx: 0, cy: 0, R: 0, mode: 0, pix: 1, lon: 0, lat: 0, lx: 0, ly: 0, lz: 1, flat: 0,
   map: null, art: 0, lod: 0, c1: [0, 0, 0], c2: [0, 0, 0], c3: [0, 0, 0], seed: 0, time: 0, ringIn: 0, ringOut: 0,
   ringA: 0, ringGap: 0, atmo: [0, 0, 0, 0], night: SKIN.night, alpha: 1 };
-const NO_ATMO = [0, 0, 0, 0], WHITE = [255, 255, 255];
+const NO_ATMO = [0, 0, 0, 0], WHITE = [255, 255, 255], FULL_PAGE = [0, 0, 1, 1];
 const starDark = c => [c[0] * 0.78, c[1] * 0.62, c[2] * 0.55];
 const STAR_GLOW = { red: 2.2, yellow: 3, blue: 4.4 };
 
@@ -410,7 +411,7 @@ function buildWalkers(b) {
   if (!n || !b || !b.surface) return;
   if (walkBuf.length < n * 4) walkBuf = new Float32Array(n * 4);
   const r = mulberry32(hash32(b.seed, n));
-  const W = b.surface.W, tile = 2 / W, cpu = b.cpu, sets = b.settlements || [];
+  const W = b.surface.W, tile = 2 / W, sets = b.settlements || [];
   for (let tries = 0; walkN < n && tries < n * 6; tries++) {
     let u, v;
     if (sets.length && r() < 0.75) {
@@ -418,10 +419,8 @@ function buildWalkers(b) {
       u = s.u + Math.cos(a) * rad; v = s.v + Math.sin(a) * rad;
     } else { const a = r() * TAU, d = Math.sqrt(r()) * 0.97; u = Math.cos(a) * d; v = Math.sin(a) * d; }
     if (u * u + v * v > 0.95) continue;
-    if (cpu) {
-      const tx = clamp(Math.floor((u * 0.5 + 0.5) * W), 0, W - 1), ty = clamp(Math.floor((v * 0.5 + 0.5) * W), 0, W - 1);
-      if (WATER.has(cpu[(ty * W + tx) * 2])) continue;
-    }
+    const t = tileAt(b, u, v);
+    if (t && WATER.has(t.base)) continue;
     const o = walkN * 4;
     walkBuf[o] = u; walkBuf[o + 1] = v; walkBuf[o + 2] = SLOT_WALKER; walkBuf[o + 3] = r();
     walkN++;
@@ -457,7 +456,7 @@ function frame(now) {
   updateFocus();
 
   render(now, dt);
-  evictMaps();
+  evictPages();
   pump();
 
   // timing, adaptive quality
@@ -597,6 +596,7 @@ function drawBody(d, s, md, now) {
   bodiesDrawn++;
   bp.x0 = x0; bp.y0 = y0; bp.x1 = x1; bp.y1 = y1; bp.cx = cx; bp.cy = cy; bp.R = Rd;
   bp.time = simT; bp.seed = (b.seed % 997) / 9.7; bp.alpha = 1; bp.map = null; bp.art = 0; bp.lod = 0;
+  bp.page = FULL_PAGE; bp.detail = false;
   bp.ringIn = 0; bp.ringOut = 0; bp.ringA = 0; bp.ringGap = 0; bp.atmo = NO_ATMO;
   if (star) {
     bp.mode = 2; bp.pix = Math.max(2, Math.min(5, d.R / 120)) * s;
@@ -619,20 +619,45 @@ function drawBody(d, s, md, now) {
   }
   bp.mode = 0; bp.c1 = b.dot; bp.c2 = b.dot; bp.c3 = b.dot;
   if (b.atmo) bp.atmo = b.atmo;
-  wantMap(b, 'low');
-  if (d.R > 40 || b === cam.focus) wantMap(b, 'full');
-  const map = mapFor(b);
-  bp.pix = 2 * s;
-  if (map) {
-    bp.map = map;
-    const texPerPx = map.W / (2 * Rd);                // tiles per device pixel
-    if (map.cpu) {
-      bp.art = clamp((1.15 - 8 * texPerPx) / 0.45, 0, 1);
-      if (bp.art > 0) bp.pix = 1;
-    }
-    bp.lod = Math.log2(Math.max(1, texPerPx * bp.pix));
-  }
+  const lv = levelsOf(b), D = 2 * Rd, focus = b === cam.focus ? 1e6 : 0;
+  // the whole-planet base (also draws the rim and atmosphere)
+  const base = wantPage(b, 0, 0, 0, 4e6 + focus + d.R);
+  setPage(bp, base.ready ? base : null, lv, D, s);
   R.body(bp);
+  // sharper chunks on top, at the level this zoom needs (and the two below it while those load)
+  // (a level is enough once it has ~0.4 samples per device pixel: far-view pixels are drawn in 2-3 px blocks)
+  const Lt = Math.min(lv.Lmax, Math.max(0, Math.ceil(Math.log2(D * 0.4 / lv.N[0]))));
+  if (Lt < 1) return;
+  const sx0 = cx - Rd, sy0 = cy - Rd;
+  for (let L = Math.max(1, Lt - 2); L <= Lt; L++) {
+    const N = lv.N[L], k = D / N;                              // device px per sample at this level
+    const pxA = Math.max(0, Math.floor(-sx0 / k / PAGE)), pxB = Math.min(Math.ceil(N / PAGE) - 1, Math.floor((R.w - sx0) / k / PAGE));
+    const pyA = Math.max(0, Math.floor(-sy0 / k / PAGE)), pyB = Math.min(Math.ceil(N / PAGE) - 1, Math.floor((R.h - sy0) / k / PAGE));
+    for (let py = pyA; py <= pyB; py++) for (let px = pxA; px <= pxB; px++) {
+      const rx0 = sx0 + px * PAGE * k, ry0 = sy0 + py * PAGE * k, rx1 = rx0 + PAGE * k, ry1 = ry0 + PAGE * k;
+      const nx = clamp(cx, rx0, rx1) - cx, ny = clamp(cy, ry0, ry1) - cy;
+      if (nx * nx + ny * ny > Rd * Rd) continue;                // a corner chunk entirely outside the disk
+      let p = pages.get(`${b.uid}/${N}/${L}/${px}/${py}`);
+      if (L >= Lt - 1) {                                       // request the target level and the one below
+        const off = Math.hypot((rx0 + rx1) / 2 - R.w / 2, (ry0 + ry1) / 2 - R.h / 2);
+        p = wantPage(b, L, px, py, 2e6 + focus - (Lt - L === 0 ? 5e4 : 0) - off);
+      } else if (p) p.used = frameNo;
+      if (!p || !p.ready) continue;
+      bp.x0 = Math.max(0, rx0); bp.y0 = Math.max(0, ry0); bp.x1 = Math.min(R.w, rx1); bp.y1 = Math.min(R.h, ry1);
+      setPage(bp, p, lv, D, s);
+      bp.detail = true;
+      R.body(bp);
+    }
+  }
+  bp.detail = false;
+}
+// point the body shader at one chunk: its textures, where it sits, and how to filter it at this zoom
+function setPage(q, p, lv, D, s) {
+  q.page = p ? p.uv : FULL_PAGE; q.detail = false; q.map = p; q.art = 0; q.pix = 2 * s; q.lod = 0;
+  if (!p) return;
+  const perPx = p.N / D;                                      // samples per device pixel
+  if (p.L === lv.Lmax) { q.art = clamp((1.15 - 8 * perPx) / 0.45, 0, 1); if (q.art > 0) q.pix = 1; }
+  q.lod = Math.log2(Math.max(1, perPx * q.pix));
 }
 
 function drawOnPlanet(s, md) {
@@ -754,7 +779,7 @@ addEventListener('keydown', e => {
 
 // ---------- UI ----------
 let selected = null;
-function select(b) { selected = b; if (b && b.surface) wantMap(b, 'low'); updateUI(true); }
+function select(b) { selected = b; if (b && b.surface) wantPage(b, 0, 0, 0, 4e6); updateUI(true); }
 const perfEl = $('perf'), infoEl = $('info'), tipEl = $('tip'), crumbsEl = $('crumbs');
 let perfOn = !coarse || params.has('perf'), autoQuality = true;
 perfEl.hidden = !perfOn;
@@ -776,14 +801,14 @@ function fmt(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n /
 function updatePerf() {
   if (!perfOn) return;
   let full = 0, low = 0;
-  for (const m of maps.values()) { if (m.full && m.full.ready) full++; if (m.low && m.low.ready) low++; }
+  for (const p of pages.values()) if (p.ready) { if (p.L === 0) low++; else full++; }
   const heap = performance.memory ? ` · heap ${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)} MB` : '';
   const zText = zoom() >= 1 ? `${fmt(Math.round(zoom()))} px/gu` : `1 px = ${(1 / zoom()).toFixed(1)} gu`;
   perfEl.innerHTML =
     `<b>${perf.fps.toFixed(0)} fps</b> · frame ${perf.avg.toFixed(1)} ms (worst ${perf.worst.toFixed(0)}) · JS ${perf.cpu.toFixed(2)} ms<br>` +
     `  └ stars ${partsAvg[0].toFixed(2)} · gpu ${partsAvg[1].toFixed(2)} · spheres ${partsAvg[2].toFixed(2)} · labels ${partsAvg[3].toFixed(2)} · ui ${partsAvg[4].toFixed(2)}<br>` +
     `draw calls ${R.draws} · sprites ${fmt(sprN)} · spheres ${bodiesDrawn}${walkN && cam.focus === walkFor ? ` · walkers ${fmt(walkN)}` : ''}<br>` +
-    `maps ${full} full / ${low} far · queued ${jobs.length} · built ${mapsBuilt} (${mapsBuilt ? (mapsMs / mapsBuilt).toFixed(0) : 0} ms avg, ${NW} workers)<br>` +
+    `map chunks ${full} + ${low} whole-planet · queued ${jobs.length} · built ${mapsBuilt} (${mapsBuilt ? (mapsMs / mapsBuilt).toFixed(0) : 0} ms avg, ${NW} workers)<br>` +
     `GPU textures ~${(R.texBytes / 1048576).toFixed(1)} MB${heap}<br>` +
     `render ${R.w}×${R.h} (×${scale.toFixed(2)})${quality < 1 ? ' auto-reduced' : ''} · zoom ${zText}<br>` +
     `galaxy built in ${G.ms.toFixed(0)} ms + glow ${dustMs.toFixed(0)} ms · seed ${SEED}`;
@@ -806,16 +831,12 @@ function updateUI(force) {
     let txt = b ? `<b>${b.name}</b> · ${b.kind === 'star' ? RULES.stars[b.type].name : b.typeName}` : '';
     if (b && b.kind === 'star') txt = '';          // a hovered star shows its name label instead
     const f = cam.focus;
-    if (f && f.surface && f.cpu) {
+    if (f && f.surface) {
       const d = drawList.slice(0, drawN).find(x => x.b === f);
       if (d) {
         const u = (hover.x - d.x) / d.R, v = (hover.y - d.y) / d.R;
-        if (u * u + v * v <= 1) {
-          const W = f.surface.W;
-          const tx = clamp(Math.floor((u * 0.5 + 0.5) * W), 0, W - 1), ty = clamp(Math.floor((v * 0.5 + 0.5) * W), 0, W - 1);
-          const i = (ty * W + tx) * 2, base = f.cpu[i], ov = f.cpu[i + 1];
-          txt = `<b>${f.name}</b> · ${BASE_NAME[BASE[base]]}${ov ? ' · ' + (RESOURCE_NAME[OVER[ov]] ? RESOURCE_NAME[OVER[ov]] + ' deposit' : 'buildings') : ''} <span class="dim">tile ${tx}, ${ty}</span>`;
-        }
+        const t = u * u + v * v <= 1 ? tileAt(f, u, v) : null;
+        if (t) txt = `<b>${f.name}</b> · ${BASE_NAME[BASE[t.base]]}${t.ov ? ' · ' + (RESOURCE_NAME[OVER[t.ov]] ? RESOURCE_NAME[OVER[t.ov]] + ' deposit' : 'buildings') : ''} <span class="dim">tile ${t.tx}, ${t.ty}</span>`;
       }
     }
     tipEl.hidden = !txt;
@@ -912,12 +933,9 @@ function copyText(text, btn, done) {
 }
 function resizeMaps() {
   applyHomeTiles();
-  for (const m of maps.values()) for (const level of ['low', 'full']) {
-    const L = m[level];
-    if (L && L.ids) R.freeMap(L.ids, L.col, L.W, L.H);
-  }
-  maps.clear(); jobs.length = 0;
-  for (const b of G.bodies) { b.settlements = null; b.counts = null; b.cpu = null; }
+  for (const p of [...pages.values()]) freePage(p);
+  jobs.length = 0;
+  for (const b of G.bodies) { b.settlements = null; b.counts = null; b.base = null; b.lv = null; }
   walkersDirty = true;
   updateUI(true);
 }
@@ -976,4 +994,4 @@ cam.logZ = cam.tz = Math.log2(0.32 * minDim() / (HOME.r * SU));   // Home about 
 select(coarse ? null : HOME);      // on phones the info card waits for a tap, so it doesn't cover the planet
 updateUI(true);
 requestAnimationFrame(frame);
-window.__demo = { G, cam, maps, flyTo, R, centerWorld, zoom };
+window.__demo = { G, cam, pages, flyTo, R, centerWorld, zoom, levelsOf };

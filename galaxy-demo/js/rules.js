@@ -25,7 +25,7 @@ export const RULES = {
   // THE DISTANCE LADDER: each rung is measured in the rung below it, so changing one rung stretches
   // everything above it. Real-world values in [brackets]. The demo's Scale panel changes these live.
   scale: {
-    homeTiles: 1024,       // Home is this many tiles across; every planet's map is sized relative to Home
+    homeTiles: 4096,       // Home is this many tiles across; every planet's map is sized relative to Home
     moonDistance: 17,      // Home to the Moon, in Home radii; every moon orbit scales with it          [~60]
     sunDistance: 28,       // Home to the Sun, in Home-Moon distances; every planet orbit scales with it [~390]
     starDistance: 1000,    // the Sun to its nearest star, in Home-Sun distances; spreads the stars out  [~270,000]

@@ -96,7 +96,7 @@ export class Renderer {
     gl.texStorage2D(gl.TEXTURE_2D, levels, gl.RGBA8, W, H);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.texBytes += W * H * 4 * 1.34;
     return t;
@@ -166,6 +166,7 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.atlas); gl.uniform1i(u.u_atlas, 2);
     gl.uniform2f(u.u_map, b.map ? b.map.W : 1, b.map ? b.map.H : 1);
     gl.uniform1f(u.u_art, b.art); gl.uniform1f(u.u_lod, b.lod);
+    gl.uniform4f(u.u_page, b.page[0], b.page[1], b.page[2], b.page[3]); gl.uniform1i(u.u_detail, b.detail ? 1 : 0);
     gl.uniform3f(u.u_c1, b.c1[0] / 255, b.c1[1] / 255, b.c1[2] / 255);
     gl.uniform3f(u.u_c2, b.c2[0] / 255, b.c2[1] / 255, b.c2[2] / 255);
     gl.uniform3f(u.u_c3, b.c3[0] / 255, b.c3[1] / 255, b.c3[2] / 255);

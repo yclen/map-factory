@@ -44,7 +44,7 @@ export function heatWord(heat) {
 }
 // a planet's surface is a square map with the disk inscribed: W tiles across, relative to Home
 export function surfaceSize(r, homeTiles = RULES.scale.homeTiles) {
-  const W = Math.max(96, Math.min(2048, Math.round(r * homeTiles / 32) * 32));
+  const W = Math.max(96, Math.min(16384, Math.round(r * homeTiles / 32) * 32));
   return { W, H: W };
 }
 function orbitPeriod(orbit, mass) {

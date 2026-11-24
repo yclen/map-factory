@@ -164,41 +164,50 @@ export function placeSettlements(desc, sampler) {
   return out;
 }
 
-// build a W x W map of the disk (rows y0..y1 of it). Tiles outside the disk get the rim's ground so edges
-// blend cleanly, but aren't counted. Returns tile ids (2 bytes per tile: ground, overlay), the colour map
-// (RGBA: average tile colour + glow), counts per id, and the settlement list.
-export function generateMap(desc, W, H, art, y0 = 0, y1 = H) {
+// One chunk ("page") of a planet's map. The disk's square is sampled on an N x N grid (N = the full tile count
+// at the finest detail level, fewer at coarser levels); this builds the sx x sy block starting at (x0, y0).
+// Every sample reads the same noise, so coarse and fine levels show the same continents. Samples outside the
+// disk copy the ground just inside the rim (clean edges) and aren't counted.
+// Returns tile ids (2 bytes each: ground, overlay), the colour map (RGBA: average tile colour + glow),
+// counts per id, and the planet's settlement list.
+const settleMemo = new Map();
+export function generatePage(desc, art, N, x0, y0, sx, sy) {
   const t0 = performance.now();
   const sampler = makeSampler(desc);
-  const rows = y1 - y0;
-  const ids = new Uint8Array(W * rows * 2);
-  // the ground just inside the rim, all the way round: tiles outside the disk copy it (cheap, clean edges)
-  const RIM = W * 2, rim = new Uint8Array(RIM);
-  for (let k = 0; k < RIM; k++) { const a = (k + 0.5) / RIM * TAU; rim[k] = sampler.classify(Math.cos(a) * 0.995, Math.sin(a) * 0.995); }
-  for (let y = y0; y < y1; y++) {
-    const v = ((y + 0.5) / H) * 2 - 1;
-    for (let x = 0; x < W; x++) {
-      const u = ((x + 0.5) / W) * 2 - 1, d = Math.hypot(u, v);
-      const i = ((y - y0) * W + x) * 2;
-      if (d > 1) { ids[i] = rim[Math.floor(((Math.atan2(v, u) + TAU) % TAU) / TAU * RIM) % RIM]; ids[i + 1] = 0; continue; }
+  const ids = new Uint8Array(sx * sy * 2);
+  let rim = null, RIM = 0;
+  for (let y = 0; y < sy; y++) {
+    const v = ((y0 + y + 0.5) / N) * 2 - 1;
+    for (let x = 0; x < sx; x++) {
+      const u = ((x0 + x + 0.5) / N) * 2 - 1, d = Math.hypot(u, v);
+      const i = (y * sx + x) * 2;
+      if (d > 1) {
+        if (!rim) {                       // the ground just inside the rim, all the way round (only if needed)
+          RIM = Math.min(4096, N * 2); rim = new Uint8Array(RIM);
+          for (let k = 0; k < RIM; k++) { const a = (k + 0.5) / RIM * TAU; rim[k] = sampler.classify(Math.cos(a) * 0.995, Math.sin(a) * 0.995); }
+        }
+        ids[i] = rim[Math.floor(((Math.atan2(v, u) + TAU) % TAU) / TAU * RIM) % RIM]; ids[i + 1] = 0;
+        continue;
+      }
       const base = sampler.classify(u, v);
       ids[i] = base;
       ids[i + 1] = sampler.deposit(u, v, 0, base);
     }
   }
-  // settlements: paint buildings in a disc around each centre, denser in the middle
-  const settlements = placeSettlements(desc, sampler);
+  // settlements (worked out once per planet): paint buildings in a disc around each centre, denser in the middle
+  const key = desc.id + '/' + desc.W;
+  let settlements = settleMemo.get(key);
+  if (!settlements) { settlements = placeSettlements(desc, sampler); settleMemo.set(key, settlements); if (settleMemo.size > 400) settleMemo.clear(); }
   for (const s of settlements) {
-    const rt = s.radius * W / desc.W;                     // radius in this map's tiles
-    const cx = (s.u * 0.5 + 0.5) * W, cy = (s.v * 0.5 + 0.5) * H;
-    for (let ty = Math.floor(cy - rt) - 1; ty <= cy + rt + 1; ty++) {
-      if (ty < y0 || ty >= y1) continue;
-      for (let tx = Math.floor(cx - rt) - 1; tx <= cx + rt + 1; tx++) {
-        if (tx < 0 || tx >= W) continue;
+    const rt = s.radius * N / desc.W;                     // radius in this level's samples
+    const cx = (s.u * 0.5 + 0.5) * N, cy = (s.v * 0.5 + 0.5) * N;
+    if (cx + rt + 1 < x0 || cx - rt - 1 > x0 + sx || cy + rt + 1 < y0 || cy - rt - 1 > y0 + sy) continue;
+    for (let ty = Math.max(y0, Math.floor(cy - rt) - 1); ty <= Math.min(y0 + sy - 1, cy + rt + 1); ty++) {
+      for (let tx = Math.max(x0, Math.floor(cx - rt) - 1); tx <= Math.min(x0 + sx - 1, cx + rt + 1); tx++) {
         const d = Math.hypot(tx + 0.5 - cx, ty + 0.5 - cy) / Math.max(rt, 0.5);
         const center = tx === Math.floor(cx) && ty === Math.floor(cy);
         if (d > 1 && !center) continue;
-        const i = ((ty - y0) * W + tx) * 2;
+        const i = ((ty - y0) * sx + (tx - x0)) * 2;
         if (WATER.has(ids[i]) && !center) continue;
         const h = (tileHash(tx, ty) % 1000) / 1000;
         if (!center && h > 1 - 0.55 * d) continue;
@@ -209,12 +218,12 @@ export function generateMap(desc, W, H, art, y0 = 0, y1 = H) {
   }
   // counts (inside the disk only) and colour map
   const counts = new Uint32Array(64);
-  const col = new Uint8Array(W * rows * 4);
-  for (let y = y0; y < y1; y++) for (let x = 0; x < W; x++) {
-    const t = (y - y0) * W + x, base = ids[t * 2], ov = ids[t * 2 + 1];
-    const u = ((x + 0.5) / W) * 2 - 1, v = ((y + 0.5) / H) * 2 - 1;
+  const col = new Uint8Array(sx * sy * 4);
+  for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) {
+    const t = y * sx + x, base = ids[t * 2], ov = ids[t * 2 + 1];
+    const u = ((x0 + x + 0.5) / N) * 2 - 1, v = ((y0 + y + 0.5) / N) * 2 - 1;
     if (u * u + v * v <= 1) { counts[base]++; if (ov) counts[32 + ov]++; }
-    const vv = tileHash(x, y) & 3, bi = (base * 4 + vv) * 3;
+    const vv = tileHash(x0 + x, y0 + y) & 3, bi = (base * 4 + vv) * 3;
     let r = art.baseAvg[bi], g = art.baseAvg[bi + 1], b = art.baseAvg[bi + 2], e = art.baseEmis[base];
     if (ov) {
       const a = art.overAvg[ov * 4 + 3];
@@ -225,3 +234,6 @@ export function generateMap(desc, W, H, art, y0 = 0, y1 = H) {
   }
   return { ids, col, counts, settlements, ms: performance.now() - t0 };
 }
+
+// the whole W x W map in one go (used by tests and tools)
+export function generateMap(desc, W, H, art) { return generatePage(desc, art, W, 0, 0, W, W); }

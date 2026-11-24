@@ -91,6 +91,8 @@ uniform int u_hasMap; uniform usampler2D u_ids; uniform sampler2D u_col; uniform
 uniform vec2 u_map; uniform float u_art; uniform float u_lod;
 uniform vec3 u_c1, u_c2, u_c3; uniform float u_seed; uniform float u_time;
 uniform vec4 u_ring; uniform vec4 u_atmo; uniform float u_alpha;
+uniform vec4 u_page;     // this chunk's place in the disk's square (x, y, width, height; 0..1)
+uniform int u_detail;    // 1 = a detail chunk drawn over the whole-planet base: only its own square, inside the disk
 out vec4 o;
 
 uint hashu(uvec2 p) { uint h = (p.x * 0x27d4eb2du) ^ (p.y * 0x165667b1u); h ^= h >> 15; h *= 0x85ebca6bu; h ^= h >> 13; return h; }
@@ -125,9 +127,11 @@ void main() {
   vec2 d = (fc - u_center) / u_R;                    // -1..1 across the disk, y down
   float rr = length(d);
   vec2 uv = d * 0.5 + 0.5;                           // 0..1 across the disk's square map
-  vec2 ap = uv * u_map * 8.0 - 0.5;                  // art-pixel coordinate
+  vec2 lp = (uv - u_page.xy) / u_page.zw;            // 0..1 across this chunk
+  vec2 ap = lp * u_map * 8.0 - 0.5;                  // art-pixel coordinate within the chunk
   vec2 fw = clamp(fwidth(ap), vec2(1e-3), vec2(2.0));
   float edgeW = max(u_pix, 1.0) / u_R;
+  if (u_detail == 1 && (rr > 1.0 || lp.x < 0.0 || lp.y < 0.0 || lp.x > 1.0 || lp.y > 1.0)) discard;
 
   vec4 outc = vec4(0.0);
   if (rr > 1.0) {
@@ -168,7 +172,7 @@ void main() {
       c = u_c1 * (0.85 + 0.3 * vnoise(vec3(d * 6.0, u_seed))) * limb;
     } else {
       vec3 cc = vec3(0.0), ca = vec3(0.0);
-      if (u_art < 1.0) cc = textureLod(u_col, uv, u_lod).rgb;
+      if (u_art < 1.0) cc = textureLod(u_col, lp, u_lod).rgb;
       if (u_art > 0.0) {
         vec2 i = floor(ap), f = clamp((fract(ap) - 0.5) / fw + 0.5, 0.0, 1.0);
         ivec2 ii = ivec2(i);

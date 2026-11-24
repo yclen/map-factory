@@ -1,13 +1,13 @@
-// Background worker: builds planet maps so the main thread never stalls while drawing.
-import { generateMap } from './terrain.js';
+// Background worker: builds chunks of planet maps so the main thread never stalls while drawing.
+import { generatePage } from './terrain.js';
 import { buildAtlas } from './art.js';
 import { SKIN } from './skin.js';
 
 const art = buildAtlas(SKIN);
 
 self.onmessage = e => {
-  const { job, desc, W, H, level, y0, y1 } = e.data;
-  const m = generateMap(desc, W, H, art, y0, y1);
-  self.postMessage({ job, id: desc.id, level, W, H, y0, y1, ids: m.ids, col: m.col, counts: m.counts, settlements: m.settlements, ms: m.ms },
-    [m.ids.buffer, m.col.buffer, m.counts.buffer]);
+  const { job, key, desc, N, x0, y0, sx, sy, L } = e.data;
+  const m = generatePage(desc, art, N, x0, y0, sx, sy);
+  self.postMessage({ job, key, id: desc.id, W: desc.W, L, x0, y0, sx, sy, ids: m.ids, col: m.col, counts: m.counts,
+    settlements: L === 0 ? m.settlements : null, ms: m.ms }, [m.ids.buffer, m.col.buffer, m.counts.buffer]);
 };

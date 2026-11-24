@@ -20,8 +20,11 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
 - **The Sun:** Vulcan, Home (with the Moon), Aries, Zeus (Hephaestus, Athena, Hermes) and Poseidon (Amphitrite,
   Triton), as in Factory Conquest. The outermost planet's name and type come from the seed.
 - **Surfaces:**
-  - Every rocky planet and moon is a flat, non-rotating disk of tiles, like Home in Factory Conquest.
-    Its tile map is generated in background workers when you get close.
+  - Every rocky planet and moon is a flat, non-rotating disk of tiles, like Home in Factory Conquest
+    (Home is 4096 tiles across).
+  - Maps are built as a pyramid of 256 x 256 chunks in background workers. A small whole-planet map is
+    always ready; sharper chunks are built only for the part on screen, at the detail the zoom needs, and
+    unused chunks are dropped to stay within a memory budget.
   - Biomes come from elevation, moisture and temperature. The centre is warmest and the rim coldest, so cold
     worlds end in an ice ring.
   - Resource deposits form round patches.
@@ -48,10 +51,10 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
 
 Every size and distance hangs off four numbers in `rules.js` (`scale`), each measured in the one before it:
 
-1. **Home size**: tiles across Home (480). Every planet's map is sized relative to Home.
-2. **Home → Moon**: in Home radii (6). Every moon orbit scales with it.
-3. **Home → Sun**: in Home–Moon distances (10). Every planet orbit scales with it.
-4. **Sun → nearest star**: in Home–Sun distances (400,000). This sets how small systems are next to the gaps
+1. **Home size**: tiles across Home (4096). Every planet's map is sized relative to Home.
+2. **Home → Moon**: in Home radii (17). Every moon orbit scales with it.
+3. **Home → Sun**: in Home–Moon distances (28). Every planet orbit scales with it.
+4. **Sun → nearest star**: in Home–Sun distances (1,000). This sets how small systems are next to the gaps
    between stars.
 
 The **Scale** button opens sliders for all four, applied live and saved in your browser. **Reset** goes back to
