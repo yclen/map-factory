@@ -37,12 +37,25 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
 
 | File | What it controls |
 |---|---|
-| `js/rules.js` | **All generation rules**: star types and mix, planet counts, orbits, planet types per zone, moons, resources, settlements, the Sun's planets |
+| `js/rules.js` | **All generation rules**: the distance ladder (`scale`), star types and mix, planet counts, orbits, planet types per zone, moons, resources, settlements, the Sun's planets |
 | `js/skin.js` | How every tile, deposit and building looks (colours and pixel patterns); swap it to reskin everything |
 | `js/terrain.js` | How each planet type turns noise into biomes and deposits |
 | `js/galaxy.js` | Galaxy shape and system layout (uses the rules) |
 | `js/main.js` | Camera, zoom levels, input, map cache, stats panel |
 | `js/renderer.js`, `js/shaders.js` | WebGL2 drawing |
+
+## The distance ladder
+
+Every size and distance hangs off four numbers in `rules.js` (`scale`), each measured in the one before it:
+
+1. **Home size**: tiles across Home (480). Every planet's map is sized relative to Home.
+2. **Home → Moon**: in Home radii (6). Every moon orbit scales with it.
+3. **Home → Sun**: in Home–Moon distances (10). Every planet orbit scales with it.
+4. **Sun → nearest star**: in Home–Sun distances (400,000). This sets how small systems are next to the gaps
+   between stars.
+
+The **Scale** button opens sliders for all four, applied live and saved in your browser. **Reset** goes back to
+the values in `rules.js`.
 
 The **Stats** button shows frame time, how long each part of the frame takes, draw calls, maps in memory and GPU
 memory. The **Walkers** button adds 1k–50k animated people to the planet you're on, to stress-test.

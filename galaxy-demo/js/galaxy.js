@@ -42,9 +42,9 @@ export function zoneFor(heat) { return RULES.zones.find(z => heat > z.above); }
 export function heatWord(heat) {
   return heat > 1.75 ? 'Scorching' : heat > 1.25 ? 'Hot' : heat > 0.8 ? 'Temperate' : heat > 0.55 ? 'Cold' : 'Frozen';
 }
-// a planet's surface is a square map with the disk inscribed: W tiles across
-function surfaceSize(r) {
-  const W = Math.max(96, Math.min(768, Math.round(r * RULES.tilesPerSu / 32) * 32));
+// a planet's surface is a square map with the disk inscribed: W tiles across, relative to Home
+export function surfaceSize(r, homeTiles = RULES.scale.homeTiles) {
+  const W = Math.max(96, Math.min(1024, Math.round(r * homeTiles / 32) * 32));
   return { W, H: W };
 }
 function orbitPeriod(orbit, mass) {
@@ -57,7 +57,7 @@ function makeBody(o) {
   const P = RULES.planetTypes[o.type];
   const b = {
     uid: nextId++, id: o.id, name: o.name, kind: o.kind, type: o.type, typeName: P.name,
-    star: o.star, parent: o.parent, r: o.r, orbit: o.orbit, period: o.period, phase: o.phase,
+    star: o.star, parent: o.parent, r: o.r, orbit: o.orbit, orbit0: o.orbit, period: o.period, phase: o.phase,
     spin: o.spin, spinOffset: o.spinOffset, seed: o.seed, heat: o.heat, moons: [], home: !!o.home,
     giant: !!P.giant, surface: P.giant ? null : surfaceSize(o.r), settle: 0, rings: null, palette: null,
     atmo: P.atmo || null, dot: P.dot || null, _f: -1, _x: 0, _y: 0,

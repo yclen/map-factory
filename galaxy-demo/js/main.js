@@ -2,14 +2,15 @@
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
 import { RULES } from './rules.js';
 import { SKIN } from './skin.js';
-import { generateGalaxy, galaxyPoint, heatWord } from './galaxy.js';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js';
 import { buildAtlas } from './art.js';
 import { Renderer } from './renderer.js';
 import { Labels } from './labels.js';
 import { mulberry32, hash32 } from './rng.js';
 import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js';
 
-const TAU = Math.PI * 2, SU = RULES.scale.guPerSu;
+const TAU = Math.PI * 2;
+let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const $ = id => document.getElementById(id);
@@ -28,6 +29,43 @@ const labels = new Labels(lblCanvas);
 const G = generateGalaxy(SEED);
 for (const s of G.stars) { s.kind = 'star'; s._x = s.x; s._y = s.y; s.uid = 'star' + s.idx; }
 const HOME = G.sun.planets.find(p => p.home);
+
+// ---------- the distance ladder (rules.js scale, adjustable live in the Scale panel) ----------
+// Home radius -> Home-Moon distance -> Home-Sun distance -> Sun to nearest star. Each rung is measured in the
+// one below, so a change stretches everything above it. Galaxy units stay fixed, so the top rung sets how big
+// solar systems are next to the gaps between stars.
+const LADDER_KEYS = ['homeTiles', 'moonDistance', 'sunDistance', 'starDistance'];
+const BASE_MOON = 6, BASE_SUN = RULES.scale.homeOrbit / BASE_MOON;   // the yardsticks generation used
+const SCALE = {};
+for (const k of LADDER_KEYS) SCALE[k] = RULES.scale[k];
+try { Object.assign(SCALE, JSON.parse(localStorage.getItem('galaxyDemo.scale') || '{}')); } catch (e) { /* no storage */ }
+const SUN_GAP = (() => {          // the Sun's nearest neighbour, in galaxy units
+  let d = Infinity;
+  for (const s of G.stars) if (s !== G.sun) d = Math.min(d, Math.hypot(s.x - G.sun.x, s.y - G.sun.y));
+  return d;
+})();
+function applyScale() {
+  const f1 = SCALE.moonDistance / BASE_MOON, f2 = SCALE.sunDistance / BASE_SUN;
+  for (const st of G.stars) {
+    let outer = st.r * 4;
+    for (const p of st.planets) {
+      p.orbit = p.orbit0 * f1 * f2;
+      let reach = p.r;
+      for (const m of p.moons) {
+        m.orbit = Math.max(m.orbit0 * f1, p.r * (p.rings ? p.rings.outer + 0.2 : 1.25) + m.r * 1.5);
+        reach = Math.max(reach, m.orbit + m.r);
+      }
+      outer = Math.max(outer, p.orbit + reach);
+    }
+    st.outer = outer;
+  }
+  SU = SUN_GAP / (SCALE.starDistance * SCALE.moonDistance * SCALE.sunDistance);
+}
+function applyHomeTiles() {
+  for (const b of G.bodies) if (b.surface) b.surface = surfaceSize(b.r, SCALE.homeTiles);
+}
+applyHomeTiles();
+applyScale();
 const art = buildAtlas(SKIN);
 R.makeAtlas(art.data);
 const tDust = performance.now();
@@ -255,6 +293,7 @@ function onMapBand(d) {
   mapsMs += d.ms; mapsBuilt++;
   if (!m || !m[d.level]) return;                            // evicted while building
   const L = m[d.level];
+  if (L.W !== d.W) return;                                   // built for an older map size
   if (!L.ids) { L.ids = R.makeIdTexture(L.W, L.H); L.col = R.makeColorTexture(L.W, L.H); }
   R.uploadBand(L.ids, L.col, L.W, d.y0, d.y1 - d.y0, d.ids, d.col);
   if (L.cpu) L.cpu.set(d.ids, d.y0 * L.W * 2);
@@ -812,6 +851,79 @@ function infoHTML(b) {
     <div class="row">${heatWord(b.heat)} · ${b.surface ? `${b.surface.W} tiles across` : 'no solid surface'}${b.moons.length ? ` · ${b.moons.length} moon${b.moons.length > 1 ? 's' : ''}` : ''}${b.rings ? ' · rings' : ''}</div>
     ${res}<button class="go" data-fly>Fly here</button>`;
 }
+
+// ---------- Scale panel: live knobs for the distance ladder ----------
+const KNOBS = [
+  { key: 'homeTiles', label: 'Home size', min: 96, max: 1024, log: false, step: 32, text: v => `${v} tiles across` },
+  { key: 'moonDistance', label: 'Home → Moon', min: 1.5, max: 120, log: true, text: v => `${nice(v)} Home radii` },
+  { key: 'sunDistance', label: 'Home → Sun', min: 2, max: 800, log: true, text: v => `${nice(v)} Moon distances` },
+  { key: 'starDistance', label: 'Sun → nearest star', min: 1e3, max: 1e7, log: true, text: v => `${nice(v)} Sun distances` },
+];
+function nice(v) {
+  if (v >= 1000) { const p = 10 ** (Math.floor(Math.log10(v)) - 1); return (Math.round(v / p) * p).toLocaleString('en-US'); }
+  return v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+}
+const toSlider = (k, v) => k.log ? Math.round(1000 * Math.log(v / k.min) / Math.log(k.max / k.min)) : v;
+const fromSlider = (k, t) => k.log ? +nice(k.min * (k.max / k.min) ** (t / 1000)).replace(/,/g, '') : +t;
+function saveScale() { try { localStorage.setItem('galaxyDemo.scale', JSON.stringify(SCALE)); } catch (e) { /* no storage */ } }
+// re-scale while keeping the focused body the same size on screen (orbits and gaps change around it)
+function rescale() {
+  const oldSU = SU;
+  applyScale();
+  if (cam.focus) {
+    const k = SU / oldSU;
+    cam.ox *= k; cam.oy *= k;
+    cam.logZ -= Math.log2(k); cam.tz = cam.logZ;
+  }
+  cam.fly = null;
+}
+function resizeMaps() {
+  applyHomeTiles();
+  for (const m of maps.values()) for (const level of ['low', 'full']) {
+    const L = m[level];
+    if (L && L.ids) R.freeMap(L.ids, L.col, L.W, L.H);
+  }
+  maps.clear(); jobs.length = 0;
+  for (const b of G.bodies) { b.settlements = null; b.counts = null; b.cpu = null; }
+  walkersDirty = true;
+  updateUI(true);
+}
+const scaleEl = $('scale');
+function buildScalePanel() {
+  scaleEl.innerHTML = '<div class="t">Scale<button class="x" data-close>×</button></div>' +
+    '<div class="s">Each distance is measured in the one above it.</div>' +
+    KNOBS.map(k => `<label><span>${k.label}</span><b data-v="${k.key}"></b>
+      <input type="range" data-k="${k.key}" min="${k.log ? 0 : k.min}" max="${k.log ? 1000 : k.max}" step="${k.log ? 1 : k.step}"></label>`).join('') +
+    '<button class="go" data-reset>Reset to rules.js</button>' +
+    '<div class="hint">Saved in this browser only. To make a value everyone\'s default, put it in js/rules.js.</div>';
+  const sync = () => KNOBS.forEach(k => {
+    scaleEl.querySelector(`[data-k="${k.key}"]`).value = toSlider(k, SCALE[k.key]);
+    scaleEl.querySelector(`[data-v="${k.key}"]`).textContent = k.text(SCALE[k.key]);
+  });
+  KNOBS.forEach(k => {
+    const input = scaleEl.querySelector(`[data-k="${k.key}"]`);
+    input.addEventListener('input', () => {
+      SCALE[k.key] = fromSlider(k, input.value);
+      scaleEl.querySelector(`[data-v="${k.key}"]`).textContent = k.text(SCALE[k.key]);
+      if (k.key !== 'homeTiles') rescale();
+    });
+    input.addEventListener('change', () => { if (k.key === 'homeTiles') { rescale(); resizeMaps(); } saveScale(); });
+  });
+  scaleEl.querySelector('[data-reset]').onclick = () => {
+    const tilesChanged = SCALE.homeTiles !== RULES.scale.homeTiles;
+    for (const k of LADDER_KEYS) SCALE[k] = RULES.scale[k];
+    rescale(); if (tilesChanged) resizeMaps();
+    saveScale(); sync();
+  };
+  scaleEl.querySelector('[data-close]').onclick = () => toggleScale(false);
+  sync();
+}
+function toggleScale(on = scaleEl.hidden) {
+  scaleEl.hidden = !on;
+  $('btnScale').classList.toggle('on', on);
+  if (on) buildScalePanel();
+}
+$('btnScale').onclick = () => toggleScale();
 
 // ---------- start: on Home, then let the player zoom out ----------
 cam.focus = HOME;

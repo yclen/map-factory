@@ -22,12 +22,15 @@ export const RULES = {
     sunRadius: 0.58,       // the Sun sits in an arm, this share of the way out
   },
 
+  // THE DISTANCE LADDER: each rung is measured in the rung below it, so changing one rung stretches
+  // everything above it. Real-world values in [brackets]. The demo's Scale panel changes these live.
   scale: {
-    // one system unit, in galaxy units. Tiny on purpose: the Sun's whole system is about 1/50,000 of the gap
-    // to its nearest neighbour (the biggest blue systems about 1/1,300). Zooming out, a system shrinks to one
-    // bright star long before any other star comes into view
-    guPerSu: 0.000001,
-    homeOrbit: 60,         // su: a planet this far from a yellow star is "temperate" (heat 1.0)
+    homeTiles: 480,        // Home is this many tiles across; every planet's map is sized relative to Home
+    moonDistance: 6,       // Home to the Moon, in Home radii; every moon orbit scales with it          [~60]
+    sunDistance: 10,       // Home to the Sun, in Home-Moon distances; every planet orbit scales with it [~390]
+    starDistance: 400000,  // the Sun to its nearest star, in Home-Sun distances; spreads the stars out  [~270,000]
+    // generation's own yardsticks (climate and orbit periods are worked out at these; change the ladder instead)
+    homeOrbit: 60,         // su (Home radii): a planet this far from a yellow star is "temperate" (heat 1.0)
     yearAtHome: 480,       // seconds for one orbit at homeOrbit around a yellow star
   },
 
@@ -108,7 +111,6 @@ export const RULES = {
     gas: { name: 'Gas giant', giant: true, size: [3.4, 5.8], rings: 0.35 },
     icegiant: { name: 'Ice giant', giant: true, size: [2.4, 3.4], rings: 0.25 },
   },
-  tilesPerSu: 480,         // a planet's disk is radius * this tiles across (clamped to 96..768); Home = 480
   resourceBlob: 22,        // typical deposit size, in tiles
 
   // which ground a resource can sit on ('land' = anything that isn't water or lava)
