@@ -50,7 +50,7 @@ button.on { border-color: var(--gold); color: #ffe6a6; }
 #help .card { max-width: 420px; background: #0b1020; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
 #help code { color: var(--gold); }
 #fatal { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-size: 16px; background: var(--bg); }
-#fatal[hidden], #help[hidden], #tip[hidden], #perf[hidden] { display: none; }
+#fatal[hidden], #help[hidden], #tip[hidden], #perf[hidden], #info[hidden] { display: none; }
 
 @media (max-width: 640px) {
   #info { left: 8px; right: 8px; width: auto; bottom: calc(58px + env(safe-area-inset-bottom)); padding: 9px 11px; font-size: 12.5px; }

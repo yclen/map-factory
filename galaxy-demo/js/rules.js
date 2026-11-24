@@ -105,7 +105,7 @@ export const RULES = {
     gas: { name: 'Gas giant', giant: true, size: [3.4, 5.8], rings: 0.35 },
     icegiant: { name: 'Ice giant', giant: true, size: [2.4, 3.4], rings: 0.25 },
   },
-  tilesPerSu: 640,         // surface map width = radius * this (clamped to 128..1024), height = width / 2
+  tilesPerSu: 480,         // a planet's disk is radius * this tiles across (clamped to 96..768); Home = 480
   resourceBlob: 22,        // typical deposit size, in tiles
 
   // which ground a resource can sit on ('land' = anything that isn't water or lava)

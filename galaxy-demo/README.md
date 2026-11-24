@@ -20,14 +20,16 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
 - **The Sun:** Vulcan, Home (with the Moon), Aries, Zeus (Hephaestus, Athena, Hermes) and Poseidon (Amphitrite,
   Triton), as in Factory Conquest. The outermost planet's name and type come from the seed.
 - **Surfaces:**
-  - Every rocky planet and moon has a wrapping tile map, generated in background workers when you get close.
-  - Biomes come from elevation, moisture and temperature.
+  - Every rocky planet and moon is a flat, non-rotating disk of tiles, like Home in Factory Conquest.
+    Its tile map is generated in background workers when you get close.
+  - Biomes come from elevation, moisture and temperature. The centre is warmest and the rim coldest, so cold
+    worlds end in an ice ring.
   - Resource deposits form round patches.
   - Settlements appear on Home and on worlds a civilisation has settled.
 - **Zoom:**
   - Each thing switches from a dot to a sphere to tile art based on how big it is on screen.
   - Labels fade so only the important ones show.
-  - Zooming toward a body locks onto it. Once a planet fills the screen, dragging turns the globe.
+  - Zooming toward a body locks onto it. Dragging pans across it.
 
 ## Where to change things
 

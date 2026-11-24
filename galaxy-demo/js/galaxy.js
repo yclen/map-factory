@@ -42,9 +42,10 @@ export function zoneFor(heat) { return RULES.zones.find(z => heat > z.above); }
 export function heatWord(heat) {
   return heat > 1.75 ? 'Scorching' : heat > 1.25 ? 'Hot' : heat > 0.8 ? 'Temperate' : heat > 0.55 ? 'Cold' : 'Frozen';
 }
+// a planet's surface is a square map with the disk inscribed: W tiles across
 function surfaceSize(r) {
-  const W = Math.max(128, Math.min(1024, Math.round(r * RULES.tilesPerSu / 64) * 64));
-  return { W, H: W / 2 };
+  const W = Math.max(96, Math.min(768, Math.round(r * RULES.tilesPerSu / 32) * 32));
+  return { W, H: W };
 }
 function orbitPeriod(orbit, mass) {
   const S = RULES.scale;

@@ -74,15 +74,16 @@ void main() {
   }
 }`;
 
-// ---------- planets, moons, gas giants and stars: one quad each ----------
+// ---------- planets, moons, gas giants and stars: flat disks, one quad each ----------
+// A planet's surface is a square tile map with the disk inscribed (like Home in Factory Conquest).
 export const BODY_FS = `#version 300 es
 precision highp float; precision highp int; precision highp usampler2D;
 uniform vec2 u_res; uniform vec2 u_center; uniform float u_R; uniform int u_mode; uniform float u_pix;
-uniform float u_lon, u_lat; uniform vec3 u_light; uniform float u_flat;
+uniform vec3 u_light;
 uniform int u_hasMap; uniform usampler2D u_ids; uniform sampler2D u_col; uniform sampler2D u_atlas;
 uniform vec2 u_map; uniform float u_art; uniform float u_lod;
 uniform vec3 u_c1, u_c2, u_c3; uniform float u_seed; uniform float u_time;
-uniform vec4 u_ring; uniform vec4 u_atmo; uniform vec3 u_night; uniform float u_alpha;
+uniform vec4 u_ring; uniform vec4 u_atmo; uniform float u_alpha;
 out vec4 o;
 
 uint hashu(uvec2 p) { uint h = (p.x * 0x27d4eb2du) ^ (p.y * 0x165667b1u); h ^= h >> 15; h *= 0x85ebca6bu; h ^= h >> 13; return h; }
@@ -97,8 +98,7 @@ float fbm3(vec3 p) { return vnoise(p) * 0.55 + vnoise(p * 2.1) * 0.3 + vnoise(p 
 // one art pixel of the surface: ground tile + overlay, looked up through the tile-id map
 vec3 artPix(ivec2 a) {
   int W8 = int(u_map.x) * 8, H8 = int(u_map.y) * 8;
-  a.x = a.x < 0 ? a.x + W8 : (a.x >= W8 ? a.x - W8 : a.x);
-  a.y = clamp(a.y, 0, H8 - 1);
+  a = clamp(a, ivec2(0), ivec2(W8 - 1, H8 - 1));
   ivec2 tile = a >> 3, inT = a & 7;
   uvec2 id = texelFetch(u_ids, tile, 0).rg;
   uint h = hashu(uvec2(tile));
@@ -115,30 +115,24 @@ vec3 artPix(ivec2 a) {
 void main() {
   vec2 fc = vec2(gl_FragCoord.x, u_res.y - gl_FragCoord.y);
   if (u_pix > 1.0) fc = (floor(fc / u_pix) + 0.5) * u_pix;
-  vec2 d = (fc - u_center) / u_R;
-  float r2 = dot(d, d), rr = sqrt(r2);
-  // sphere geometry, computed for every pixel so screen-space derivatives stay valid
-  vec3 n = vec3(d.x, -d.y, sqrt(max(0.0, 1.0 - r2)));
-  float cl = cos(u_lat), sl = sin(u_lat);
-  vec3 p = vec3(n.x, n.y * cl + n.z * sl, -n.y * sl + n.z * cl);
-  float lon = atan(p.x, p.z) + u_lon, lat = asin(clamp(p.y, -1.0, 1.0));
-  float u = fract(lon * 0.15915494), v = clamp(0.5 - lat * 0.31830989, 0.0, 0.99999);
-  vec2 ap = vec2(u * u_map.x, v * u_map.y) * 8.0 - 0.5;
+  vec2 d = (fc - u_center) / u_R;                    // -1..1 across the disk, y down
+  float rr = length(d);
+  vec2 uv = d * 0.5 + 0.5;                           // 0..1 across the disk's square map
+  vec2 ap = uv * u_map * 8.0 - 0.5;                  // art-pixel coordinate
   vec2 fw = clamp(fwidth(ap), vec2(1e-3), vec2(2.0));
+  float edgeW = max(u_pix, 1.0) / u_R;
 
   vec4 outc = vec4(0.0);
-  float edgeW = max(u_pix, 1.0) / u_R;
   if (rr > 1.0) {
-    if (u_mode == 2) {                                   // corona
+    if (u_mode == 2) {                               // corona (adds light)
       float g = exp(-(rr - 1.0) * 3.0) * 0.7 + exp(-(rr - 1.0) * 14.0) * 0.6;
       outc = vec4(u_c1 * g, 0.0);
     } else {
-      if (u_atmo.a > 0.0) {                              // thin glowing atmosphere
+      if (u_atmo.a > 0.0) {                          // a thin glowing rim of atmosphere
         float g = (1.0 - smoothstep(1.0, 1.0 + max(0.05, edgeW * 3.0), rr)) * u_atmo.a;
-        float lit = clamp(dot(normalize(vec3(d.x, -d.y, 0.0)), u_light) * 0.8 + 0.35, 0.1, 1.0);
-        outc += vec4(u_atmo.rgb * g * mix(lit, 1.0, u_flat), 0.0);
+        outc += vec4(u_atmo.rgb * g, 0.0);
       }
-      if (u_ring.z > 0.0 && rr > u_ring.x && rr < u_ring.y) {      // rings
+      if (u_ring.z > 0.0 && rr > u_ring.x && rr < u_ring.y) {      // rings, with the planet's shadow across them
         float t = (rr - u_ring.x) / (u_ring.y - u_ring.x);
         float band = vnoise(vec3(t * 38.0, u_seed, 0.0)) * 0.6 + 0.4;
         if (abs(t - u_ring.w) < 0.035) band *= 0.15;
@@ -152,69 +146,53 @@ void main() {
     }
   } else {
     float edge = u_pix > 1.0 ? 1.0 : 1.0 - smoothstep(1.0 - edgeW * 1.5, 1.0, rr);
-    vec3 albedo; float emis = 0.0;
-    if (u_mode == 2) {                                   // a star's face
-      float gran = fbm3(vec3(lon * 6.0, lat * 12.0, u_time * 0.05) + u_seed);
-      vec3 c = mix(u_c2, u_c1, 0.55 + 0.45 * gran) * (0.7 + 0.3 * n.z) + vec3(0.25) * pow(n.z, 3.0);
-      outc = vec4(c * edge, edge);
+    float limb = 1.0 - 0.22 * pow(rr, 4.0);          // the same gentle edge darkening the base game uses
+    vec3 c;
+    if (u_mode == 2) {                               // a star's face
+      float gran = fbm3(vec3(d * 7.0, u_time * 0.05) + u_seed);
+      c = mix(u_c2, u_c1, 0.55 + 0.45 * gran) * (0.75 + 0.25 * (1.0 - rr * rr)) + vec3(0.22) * pow(1.0 - rr * rr, 2.0);
+    } else if (u_mode == 1) {                        // gas giant: static bands
+      float freq = 9.0 + fract(u_seed * 7.13) * 9.0;
+      float turb = fbm3(vec3(d.x * 2.5, d.y * 7.0, u_seed)) - 0.5;
+      float b = d.y * freq + turb * 2.6;
+      float s1 = sin(b) * 0.5 + 0.5, s2 = sin(b * 2.3 + 1.7 + turb * 3.0) * 0.5 + 0.5;
+      c = mix(mix(u_c2, u_c1, s1), u_c3, s2 * 0.45) * limb;
+    } else if (u_hasMap == 0) {                      // map still being built: plain colour
+      c = u_c1 * (0.85 + 0.3 * vnoise(vec3(d * 6.0, u_seed))) * limb;
     } else {
-      if (u_mode == 1) {                                 // gas giant bands
-        float freq = 9.0 + fract(u_seed * 7.13) * 9.0;
-        float turb = fbm3(vec3(cos(lon) * 2.0, sin(lon) * 2.0, lat * 7.0) + u_seed) - 0.5;
-        float b = lat * freq + turb * 2.6;
-        float s1 = sin(b) * 0.5 + 0.5, s2 = sin(b * 2.3 + 1.7 + turb * 3.0) * 0.5 + 0.5;
-        albedo = mix(mix(u_c2, u_c1, s1), u_c3, s2 * 0.45);
-      } else if (u_hasMap == 0) {                        // map still being built: plain colour
-        albedo = u_c1 * (0.85 + 0.3 * vnoise(p * 7.0 + u_seed));
-      } else {
-        vec3 cc = vec3(0.0), ca = vec3(0.0);
-        if (u_art < 1.0) cc = textureLod(u_col, vec2(u, v), u_lod).rgb;
-        if (u_art > 0.0) {
-          vec2 i = floor(ap), f = clamp((fract(ap) - 0.5) / fw + 0.5, 0.0, 1.0);
-          ivec2 ii = ivec2(i);
-          ca = mix(mix(artPix(ii), artPix(ii + ivec2(1, 0)), f.x), mix(artPix(ii + ivec2(0, 1)), artPix(ii + ivec2(1, 1)), f.x), f.y);
-        }
-        albedo = mix(cc, ca, u_art);
-        emis = texelFetch(u_col, ivec2(int(u * u_map.x), int(v * u_map.y)), 0).a;
+      vec3 cc = vec3(0.0), ca = vec3(0.0);
+      if (u_art < 1.0) cc = textureLod(u_col, uv, u_lod).rgb;
+      if (u_art > 0.0) {
+        vec2 i = floor(ap), f = clamp((fract(ap) - 0.5) / fw + 0.5, 0.0, 1.0);
+        ivec2 ii = ivec2(i);
+        ca = mix(mix(artPix(ii), artPix(ii + ivec2(1, 0)), f.x), mix(artPix(ii + ivec2(0, 1)), artPix(ii + ivec2(1, 1)), f.x), f.y);
       }
-      float day = smoothstep(-0.1, 0.3, dot(n, u_light));
-      float shade = mix((0.06 + 0.94 * day) * (0.8 + 0.2 * n.z), 1.0, u_flat);
-      vec3 c = albedo * shade + u_night * emis * (1.0 - day) * (1.0 - u_flat * 0.8);
-      outc = vec4(c * edge, edge);
-      if (u_atmo.a > 0.0) {                              // haze at the rim
-        float rim = pow(1.0 - n.z, 3.0) * u_atmo.a * 0.8 * (1.0 - u_flat);
-        outc.rgb += u_atmo.rgb * rim * mix(day, 1.0, 0.25) * edge;
-      }
+      c = mix(cc, ca, u_art) * mix(limb, 1.0, u_art * 0.7);
     }
+    outc = vec4(c * edge, edge);
   }
   o = outc * u_alpha;
 }`;
 
-// ---------- sprites standing on a planet: settlement pins, walkers ----------
-export const ONSPHERE_VS = `#version 300 es
-in vec2 a_pos; in vec4 a_s;     // lon, lat, atlas slot, phase
-uniform vec2 u_res; uniform vec2 u_center; uniform float u_R; uniform float u_lon, u_lat;
+// ---------- sprites standing on a planet's disk: settlement pins, walkers ----------
+export const ONDISK_VS = `#version 300 es
+in vec2 a_pos; in vec4 a_s;     // u, v (disk position, -1..1), atlas slot, phase
+uniform vec2 u_res; uniform vec2 u_center; uniform float u_R;
 uniform float u_size; uniform float u_time; uniform float u_walk;
 out vec2 v_uv; flat out int v_slot; out float v_a;
 ${CLIP}
 void main() {
-  float lon = a_s.x, lat = a_s.y, slot = a_s.z;
+  vec2 p = a_s.xy; float slot = a_s.z;
   if (u_walk > 0.0) {
     float ang = u_time * (0.4 + fract(a_s.w * 7.0) * 0.5) + a_s.w * 6.2831;
-    lon += cos(ang) * u_walk / max(cos(lat), 0.2); lat += sin(ang) * u_walk;
+    p += vec2(cos(ang), sin(ang)) * u_walk;
     slot += mod(floor(u_time * 5.0 + a_s.w * 8.0), 2.0);
   }
-  float cl = cos(lat);
-  vec3 q = vec3(cl * sin(lon - u_lon), sin(lat), cl * cos(lon - u_lon));
-  float c = cos(u_lat), s = sin(u_lat);
-  vec3 n = vec3(q.x, q.y * c - q.z * s, q.y * s + q.z * c);
-  v_a = smoothstep(0.02, 0.2, n.z);
-  vec2 sc = u_center + vec2(n.x, -n.y) * u_R + a_pos * u_size * 0.5;
-  if (n.z <= 0.0) sc = vec2(-1e5);
+  v_a = 1.0 - smoothstep(0.97, 1.0, length(p));
   v_uv = a_pos * 0.5 + 0.5; v_slot = int(slot + 0.5);
-  gl_Position = clip(sc, u_res);
+  gl_Position = clip(u_center + p * u_R + a_pos * u_size * 0.5, u_res);
 }`;
-export const ONSPHERE_FS = `#version 300 es
+export const ONDISK_FS = `#version 300 es
 precision highp float;
 in vec2 v_uv; flat in int v_slot; in float v_a;
 uniform sampler2D u_atlas; uniform float u_alpha;

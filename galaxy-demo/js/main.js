@@ -97,11 +97,10 @@ function place(b) {
   b._y = par._y + Math.sin(a) * b.orbit * SU;
   b._f = frameNo;
 }
-const spinLon = b => b.spinOffset + simT * TAU / b.spin;
 
 // ---------- camera ----------
 // focus = the body the camera rides along with; ox/oy = offset from it (gu); logZ = log2(css px per gu)
-const cam = { focus: null, ox: 0, oy: 0, logZ: 0, tz: 0, ax: 0, ay: 0, lon: 0, lat: 0, surface: false, fly: null, vx: 0, vy: 0 };
+const cam = { focus: null, ox: 0, oy: 0, logZ: 0, tz: 0, ax: 0, ay: 0, fly: null, vx: 0, vy: 0 };
 const minDim = () => Math.min(cw, ch);
 const zoom = () => 2 ** cam.logZ;
 function centerWorld() {
@@ -115,28 +114,14 @@ function maxLogZ(f) {
   if (!f) return Math.log2(3000);
   if (f.kind === 'star') return Math.log2(1.4 * big / (f.r * SU));
   if (f.giant) return Math.log2(1.5 * big / (f.r * SU));
-  return Math.log2(56 / (TAU * f.r * SU / f.surface.W));     // a tile 56 px wide at most
+  return Math.log2(56 / (2 * f.r * SU / f.surface.W));     // a tile 56 px wide at most
 }
 const bodyRpx = (b, z = zoom()) => b.r * SU * z;
-const displayLon = b => (b === cam.focus && cam.surface) ? cam.lon : spinLon(b);
-const displayLat = b => b === cam.focus ? cam.lat : 0;
 
 function refocus(b) {
   const [cx, cy] = centerWorld();
-  if (cam.surface && cam.focus) leaveSurface();
-  if (b !== cam.focus) cam.lat = 0;
   cam.focus = b;
   if (b) { place(b); cam.ox = cx - b._x; cam.oy = cy - b._y; } else { cam.ox = cx; cam.oy = cy; }
-}
-function enterSurface() {
-  const f = cam.focus;
-  cam.lon = spinLon(f);
-  cam.surface = true;
-}
-function leaveSurface() {
-  const f = cam.focus;
-  f.spinOffset = cam.lon - simT * TAU / f.spin;
-  cam.surface = false;
 }
 function isAncestor(a, b) { for (let p = b; p; p = p.parent) if (p === a) return true; return false; }
 
@@ -144,22 +129,10 @@ function applyZoom(nz, ax, ay) {
   nz = clamp(nz, minLogZ(), maxLogZ(cam.focus));
   const z0 = zoom(), z1 = 2 ** nz;
   const dx = ax - cw / 2, dy = ay - ch / 2;
-  if (cam.surface) {
-    const R0 = bodyRpx(cam.focus, z0), R1 = bodyRpx(cam.focus, z1);
-    cam.lon += (dx / R0 - dx / R1) / Math.max(0.2, Math.cos(cam.lat));
-    cam.lat = clamp(cam.lat - (dy / R0 - dy / R1), -1.25, 1.25);
-  } else {
-    cam.ox += dx / z0 - dx / z1; cam.oy += dy / z0 - dy / z1;
-  }
+  cam.ox += dx / z0 - dx / z1; cam.oy += dy / z0 - dy / z1;
   cam.logZ = nz;
 }
-function panBy(dx, dy) {
-  if (cam.surface) {
-    const Rp = bodyRpx(cam.focus);
-    cam.lon -= dx / (Rp * Math.max(0.2, Math.cos(cam.lat)));
-    cam.lat = clamp(cam.lat + dy / Rp, -1.25, 1.25);
-  } else { const z = zoom(); cam.ox -= dx / z; cam.oy -= dy / z; }
-}
+function panBy(dx, dy) { const z = zoom(); cam.ox -= dx / z; cam.oy -= dy / z; }
 // zooming in toward something grabs it, so the camera rides along with that planet or star
 function autoFocus(x, y) {
   const b = pickAt(x, y);
@@ -169,26 +142,18 @@ function autoFocus(x, y) {
   const span = b.kind === 'star' ? b.outer * SU * z : b.orbit * SU * z;
   if (span >= (b.kind === 'star' ? 8 : 30)) refocus(b);
 }
-function updateFocus(dt) {
+// zooming or panning away from the focus hands the camera back to its parent (planet -> star -> galaxy)
+function updateFocus() {
   const f = cam.focus;
   if (!f || cam.fly) return;
   const z = zoom(), [cx, cy] = centerWorld();
   place(f);
-  const sx = (f._x - cx) * z, sy = (f._y - cy) * z;
-  let out = Math.abs(sx) > cw * 1.2 || Math.abs(sy) > ch * 1.2;
+  const away = Math.hypot((f._x - cx) * z, (f._y - cy) * z) - bodyRpx(f) * (f.rings ? f.rings.outer : 1);
+  let out = away > Math.max(cw, ch) * 0.9;                    // the body has left the screen
   if (f.kind === 'moon') out = out || f.orbit * SU * z < 22;
   else if (f.kind === 'planet') out = out || f.orbit * SU * z < 26;
   else out = out || f.outer * SU * z < 6;
-  if (out && !(cam.surface)) { refocus(f.parent || null); return; }
-  const Rp = bodyRpx(f), md = minDim();
-  if (f.surface) {
-    if (!cam.surface && Rp > 0.45 * md) enterSurface();
-    else if (cam.surface && Rp < 0.36 * md) leaveSurface();
-  }
-  // a gentle pull that centres the body once it fills much of the screen
-  const pull = cam.surface ? 8 : 6 * smooth(0.12, 0.42, Rp / md);
-  if (pull > 0) { const k = Math.exp(-dt * pull); cam.ox *= k; cam.oy *= k; }
-  if (!cam.surface && f.surface) cam.lat *= Math.exp(-dt * 3);
+  if (out) refocus(f.parent || null);
 }
 
 // van Wijk & Nuij smooth zoom-and-pan path (the same maths as d3.interpolateZoom)
@@ -224,7 +189,6 @@ function fitWidth(b) {
 }
 function flyTo(b) {
   cam.vx = cam.vy = 0;
-  if (cam.surface) leaveSurface();
   refocus(b);
   const w0 = cw / zoom(), w1 = fitWidth(b);
   const f = interpolateZoom([cam.ox, cam.oy, w0], [0, 0, w1]);
@@ -237,7 +201,6 @@ function stepFly(now) {
   const t = clamp((now - F.t0) / F.dur, 0, 1), e = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
   const [x, y, w] = F.f(e);
   cam.ox = x; cam.oy = y; cam.logZ = cam.tz = Math.log2(cw / w);
-  cam.lat *= 0.9;
   if (t >= 1) cam.fly = null;
 }
 
@@ -381,8 +344,8 @@ const NO_ATMO = [0, 0, 0, 0], WHITE = [255, 255, 255];
 const starDark = c => [c[0] * 0.78, c[1] * 0.62, c[2] * 0.55];
 const STAR_GLOW = { red: 2.2, yellow: 3, blue: 4.4 };
 
-// ---------- on-planet sprites: settlement pins and walkers (stress test) ----------
-const pinLayer = R.makeOnSphereLayer(), walkLayer = R.makeOnSphereLayer();
+// ---------- sprites on a planet's disk: settlement pins and walkers (stress test) ----------
+const pinLayer = R.makeOnDiskLayer(), walkLayer = R.makeOnDiskLayer();
 let pinBuf = new Float32Array(4 * 64);
 let walkBuf = new Float32Array(0), walkN = 0, walkersDirty = true, walkFor = null;
 const STRESS = [0, 1000, 5000, 20000, 50000];
@@ -393,46 +356,27 @@ function buildWalkers(b) {
   if (!n || !b || !b.surface) return;
   if (walkBuf.length < n * 4) walkBuf = new Float32Array(n * 4);
   const r = mulberry32(hash32(b.seed, n));
-  const W = b.surface.W, H = b.surface.H, cpu = b.cpu, sets = b.settlements || [];
+  const W = b.surface.W, tile = 2 / W, cpu = b.cpu, sets = b.settlements || [];
   for (let tries = 0; walkN < n && tries < n * 6; tries++) {
-    let lon, lat;
+    let u, v;
     if (sets.length && r() < 0.75) {
-      const s = sets[(r() * sets.length) | 0], rad = (s.radius + 3) * TAU / W * Math.sqrt(r()), a = r() * TAU;
-      lon = s.lon + Math.cos(a) * rad / Math.max(0.2, Math.cos(s.lat)); lat = s.lat + Math.sin(a) * rad;
-    } else { lon = r() * TAU; lat = Math.asin((r() * 2 - 1) * 0.9); }
-    lon = ((lon % TAU) + TAU) % TAU;
+      const s = sets[(r() * sets.length) | 0], rad = (s.radius + 3) * tile * Math.sqrt(r()), a = r() * TAU;
+      u = s.u + Math.cos(a) * rad; v = s.v + Math.sin(a) * rad;
+    } else { const a = r() * TAU, d = Math.sqrt(r()) * 0.97; u = Math.cos(a) * d; v = Math.sin(a) * d; }
+    if (u * u + v * v > 0.95) continue;
     if (cpu) {
-      const tx = Math.floor(lon / TAU * W) % W, ty = clamp(Math.floor((0.5 - lat / Math.PI) * H), 0, H - 1);
+      const tx = clamp(Math.floor((u * 0.5 + 0.5) * W), 0, W - 1), ty = clamp(Math.floor((v * 0.5 + 0.5) * W), 0, W - 1);
       if (WATER.has(cpu[(ty * W + tx) * 2])) continue;
     }
     const o = walkN * 4;
-    walkBuf[o] = lon; walkBuf[o + 1] = lat; walkBuf[o + 2] = SLOT_WALKER; walkBuf[o + 3] = r();
+    walkBuf[o] = u; walkBuf[o + 1] = v; walkBuf[o + 2] = SLOT_WALKER; walkBuf[o + 3] = r();
     walkN++;
   }
   walkUploaded = false;
 }
 let walkUploaded = false;
 
-// screen position of a point on a body's surface (css px), or null if it's on the far side
-function projectOnBody(b, sx, sy, Rp, lon, lat, out) {
-  const lon0 = displayLon(b), lat0 = displayLat(b);
-  const cl = Math.cos(lat), qx = cl * Math.sin(lon - lon0), qy = Math.sin(lat), qz = cl * Math.cos(lon - lon0);
-  const c = Math.cos(lat0), s = Math.sin(lat0);
-  const ny = qy * c - qz * s, nz = qy * s + qz * c;
-  out[0] = sx + qx * Rp; out[1] = sy - ny * Rp; out[2] = nz;
-  return out;
-}
-// what's under a screen point on a body: [lon, lat] or null
-function unproject(b, sx, sy, Rp, x, y) {
-  const dx = (x - sx) / Rp, dy = (y - sy) / Rp, r2 = dx * dx + dy * dy;
-  if (r2 > 1) return null;
-  const nx = dx, ny = -dy, nz = Math.sqrt(1 - r2), lat0 = displayLat(b), c = Math.cos(lat0), s = Math.sin(lat0);
-  const px = nx, py = ny * c + nz * s, pz = -ny * s + nz * c;
-  return [Math.atan2(px, pz) + displayLon(b), Math.asin(clamp(py, -1, 1))];
-}
-
 // ---------- the frame ----------
-const tmp3 = [0, 0, 0];
 let lastNow = performance.now(), lastCpu = 0;
 const parts = new Float64Array(5), partsAvg = new Float64Array(5);   // stars+systems, GPU calls, spheres, labels, ui
 const perf = { frames: 0, acc: 0, max: 0, fps: 0, avg: 0, worst: 0, cpu: 0, cpuAcc: 0, t0: performance.now(), ema: 16.7, slowFor: 0, fastFor: 0 };
@@ -456,7 +400,7 @@ function frame(now) {
       if (Math.abs(cam.vx) + Math.abs(cam.vy) < 2) cam.vx = cam.vy = 0;
     }
   }
-  updateFocus(dt);
+  updateFocus();
 
   render(now, dt);
   evictMaps();
@@ -590,22 +534,19 @@ function drawBody(d, s, md, now) {
   bodiesDrawn++;
   bp.x0 = x0; bp.y0 = y0; bp.x1 = x1; bp.y1 = y1; bp.cx = cx; bp.cy = cy; bp.R = Rd;
   bp.time = simT; bp.seed = (b.seed % 997) / 9.7; bp.alpha = 1; bp.map = null; bp.art = 0; bp.lod = 0;
-  bp.ringIn = 0; bp.ringOut = 0; bp.ringA = 0; bp.ringGap = 0; bp.atmo = NO_ATMO; bp.flat = 0;
+  bp.ringIn = 0; bp.ringOut = 0; bp.ringA = 0; bp.ringGap = 0; bp.atmo = NO_ATMO;
   if (star) {
     bp.mode = 2; bp.pix = Math.max(2, Math.min(5, d.R / 120)) * s;
     bp.c1 = b.color; bp.c2 = starDark(b.color); bp.c3 = WHITE;
-    bp.lon = simT * 0.02; bp.lat = 0; bp.lx = 0; bp.ly = 0; bp.lz = 1;
+    bp.lx = 0; bp.ly = 0; bp.lz = 1;
     R.body(bp);
     return;
   }
   b._seen = frameNo;
-  bp.lon = displayLon(b); bp.lat = displayLat(b);
-  // light comes from this body's star
+  // light comes from this body's star (used for the shadow a giant casts on its rings)
   const st = b.star, z = zoom(), [wcx, wcy] = centerWorld();
   const lx = (st.x - wcx) * z + cw / 2 - d.x, ly = (st.y - wcy) * z + ch / 2 - d.y, ll = Math.hypot(lx, ly) || 1;
-  const vx = lx / ll, vy = -ly / ll, vz = 0.35, vl = Math.hypot(vx, vy, vz);
-  bp.lx = vx / vl; bp.ly = vy / vl; bp.lz = vz / vl;
-  bp.flat = smooth(0.55, 1.6, d.R / md);
+  bp.lx = lx / ll; bp.ly = -ly / ll; bp.lz = 0;
   if (b.giant) {
     bp.mode = 1; bp.pix = Math.max(2, Math.min(5, d.R / 120)) * s;
     bp.c1 = b.palette[0]; bp.c2 = b.palette[1]; bp.c3 = b.palette[2];
@@ -621,10 +562,9 @@ function drawBody(d, s, md, now) {
   bp.pix = 2 * s;
   if (map) {
     bp.map = map;
-    const texPerPx = map.W / (TAU * Rd);
+    const texPerPx = map.W / (2 * Rd);                // tiles per device pixel
     if (map.cpu) {
-      const artPerPx = 8 * texPerPx;
-      bp.art = clamp((1.15 - artPerPx) / 0.45, 0, 1);
+      bp.art = clamp((1.15 - 8 * texPerPx) / 0.45, 0, 1);
       if (bp.art > 0) bp.pix = 1;
     }
     bp.lod = Math.log2(Math.max(1, texPerPx * bp.pix));
@@ -638,14 +578,14 @@ function drawOnPlanet(s, md) {
   let d = null;
   for (let i = 0; i < drawN; i++) if (drawList[i].b === f) { d = drawList[i]; break; }
   if (!d) return;
-  const Rp = d.R, W = f.surface.W, tilePx = TAU * Rp / W;
-  const q = { cx: d.x * s, cy: d.y * s, R: Rp * s, lon: displayLon(f), lat: displayLat(f), size: 0, time: simT, walk: 0, alpha: 1 };
+  const Rp = d.R, W = f.surface.W, tilePx = 2 * Rp / W;
+  const q = { cx: d.x * s, cy: d.y * s, R: Rp * s, size: 0, time: simT, walk: 0, alpha: 1 };
   // walkers (stress test): world-sized, so they vanish when tiles get too small to see
   if (walkersDirty || walkFor !== f) buildWalkers(f);
   const wa = smooth(1.2, 3.5, tilePx);
   if (walkN && wa > 0) {
-    q.size = Math.max(2, tilePx * 0.9) * s; q.walk = 1.5 * TAU / W; q.alpha = wa;
-    R.onSphere(walkLayer, walkBuf, walkN, !walkUploaded, q); walkUploaded = true;
+    q.size = Math.max(2, tilePx * 0.9) * s; q.walk = 1.5 * 2 / W; q.alpha = wa;
+    R.onDisk(walkLayer, walkBuf, walkN, !walkUploaded, q); walkUploaded = true;
   }
   // settlement pins: shown while settlements are too small to see, then they fade into the real buildings
   const sets = f.settlements;
@@ -654,15 +594,14 @@ function drawOnPlanet(s, md) {
   const pa = smooth(40, 110, Rp) * (1 - smooth(10, 22, cityPx));
   if (pa > 0.01) {
     if (pinBuf.length < sets.length * 4) pinBuf = new Float32Array(sets.length * 4);
-    sets.forEach((st, i) => { pinBuf[i * 4] = st.lon; pinBuf[i * 4 + 1] = st.lat; pinBuf[i * 4 + 2] = SLOT_PIN + st.level; pinBuf[i * 4 + 3] = 0; });
-    q.size = (11 + 0) * s; q.walk = 0; q.alpha = pa;
-    R.onSphere(pinLayer, pinBuf, sets.length, true, q);
+    sets.forEach((st, i) => { pinBuf[i * 4] = st.u; pinBuf[i * 4 + 1] = st.v; pinBuf[i * 4 + 2] = SLOT_PIN + st.level; pinBuf[i * 4 + 3] = 0; });
+    q.size = 11 * s; q.walk = 0; q.alpha = pa;
+    R.onDisk(pinLayer, pinBuf, sets.length, true, q);
   }
   const la = smooth(150, 300, Rp);
   if (la > 0.01) for (const st of sets) {
-    projectOnBody(f, d.x, d.y, Rp, st.lon, st.lat, tmp3);
-    if (tmp3[2] < 0.15) continue;
-    labels.add(f.uid + '/' + st.name, `${st.name} · ${st.levelName}`, tmp3[0], tmp3[1], pa > 0.3 ? 8 : Math.max(6, st.radius * tilePx * 0.8), 100 + st.level * 15, la, 'small');
+    labels.add(f.uid + '/' + st.name, `${st.name} · ${st.levelName}`, d.x + st.u * Rp, d.y + st.v * Rp,
+      pa > 0.3 ? 8 : Math.max(6, st.radius * tilePx * 0.8), 100 + st.level * 15, la, 'small');
   }
 }
 
@@ -804,10 +743,10 @@ function updateUI(force) {
     if (f && f.surface && f.cpu) {
       const d = drawList.slice(0, drawN).find(x => x.b === f);
       if (d) {
-        const ll = unproject(f, d.x, d.y, d.R, hover.x, hover.y);
-        if (ll) {
-          const { W, H } = f.surface;
-          const tx = ((Math.floor((ll[0] / TAU) * W) % W) + W) % W, ty = clamp(Math.floor((0.5 - ll[1] / Math.PI) * H), 0, H - 1);
+        const u = (hover.x - d.x) / d.R, v = (hover.y - d.y) / d.R;
+        if (u * u + v * v <= 1) {
+          const W = f.surface.W;
+          const tx = clamp(Math.floor((u * 0.5 + 0.5) * W), 0, W - 1), ty = clamp(Math.floor((v * 0.5 + 0.5) * W), 0, W - 1);
           const i = (ty * W + tx) * 2, base = f.cpu[i], ov = f.cpu[i + 1];
           txt = `<b>${f.name}</b> · ${BASE_NAME[BASE[base]]}${ov ? ' · ' + (RESOURCE_NAME[OVER[ov]] ? RESOURCE_NAME[OVER[ov]] + ' deposit' : 'buildings') : ''} <span class="dim">tile ${tx}, ${ty}</span>`;
         }
@@ -817,6 +756,7 @@ function updateUI(force) {
     if (txt) { tipEl.innerHTML = txt; tipEl.style.left = (hover.x + 14) + 'px'; tipEl.style.top = (hover.y + 16) + 'px'; }
   } else tipEl.hidden = true;
   // info panel
+  infoEl.hidden = coarse && !selected;
   if (frameNo % 30 === 0 || force) infoEl.innerHTML = infoHTML(selected);
   const fly = infoEl.querySelector('[data-fly]');
   if (fly && !fly.onclick) fly.onclick = () => flyTo(selected);
@@ -859,7 +799,7 @@ function infoHTML(b) {
   }
   return `<div class="t">${b.name}<button class="x" data-close>×</button></div>
     <div class="s">${b.typeName} · ${where}${b.home ? ' · <b class="home">your home world</b>' : ''}</div>
-    <div class="row">${heatWord(b.heat)} · ${b.surface ? `${b.surface.W}×${b.surface.H} tiles` : 'no solid surface'}${b.moons.length ? ` · ${b.moons.length} moon${b.moons.length > 1 ? 's' : ''}` : ''}${b.rings ? ' · rings' : ''}</div>
+    <div class="row">${heatWord(b.heat)} · ${b.surface ? `${b.surface.W} tiles across` : 'no solid surface'}${b.moons.length ? ` · ${b.moons.length} moon${b.moons.length > 1 ? 's' : ''}` : ''}${b.rings ? ' · rings' : ''}</div>
     ${res}<button class="go" data-fly>Fly here</button>`;
 }
 
@@ -867,7 +807,7 @@ function infoHTML(b) {
 cam.focus = HOME;
 place(HOME);
 cam.logZ = cam.tz = Math.log2(0.32 * minDim() / (HOME.r * SU));   // Home about two-thirds of the screen across
-select(HOME);
+select(coarse ? null : HOME);      // on phones the info card waits for a tap, so it doesn't cover the planet
 updateUI(true);
 requestAnimationFrame(frame);
 window.__demo = { G, cam, maps, flyTo, R, centerWorld, zoom };

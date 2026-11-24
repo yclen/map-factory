@@ -32,7 +32,7 @@ export class Renderer {
     this.progTex = compile(gl, S.RECT_VS, S.TEX_FS, ['a_pos']);
     this.progBody = compile(gl, S.RECT_VS, S.BODY_FS, ['a_pos']);
     this.progSprite = compile(gl, S.SPRITE_VS, S.SPRITE_FS, ['a_pos', 'a_i0', 'a_col']);
-    this.progOn = compile(gl, S.ONSPHERE_VS, S.ONSPHERE_FS, ['a_pos', 'a_s']);
+    this.progOn = compile(gl, S.ONDISK_VS, S.ONDISK_FS, ['a_pos', 'a_s']);
 
     const buf = data => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); return b; };
     const q01 = buf(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]));
@@ -159,8 +159,7 @@ export class Renderer {
     gl.uniform4f(u.u_rect, b.x0, b.y0, b.x1, b.y1); gl.uniform2f(u.u_res, this.w, this.h);
     gl.uniform2f(u.u_center, b.cx, b.cy); gl.uniform1f(u.u_R, b.R);
     gl.uniform1i(u.u_mode, b.mode); gl.uniform1f(u.u_pix, b.pix);
-    gl.uniform1f(u.u_lon, b.lon); gl.uniform1f(u.u_lat, b.lat);
-    gl.uniform3f(u.u_light, b.lx, b.ly, b.lz); gl.uniform1f(u.u_flat, b.flat);
+    gl.uniform3f(u.u_light, b.lx, b.ly, b.lz);
     gl.uniform1i(u.u_hasMap, b.map ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.ids : this.dummyIds); gl.uniform1i(u.u_ids, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.col : this.dummyCol); gl.uniform1i(u.u_col, 1);
@@ -173,12 +172,11 @@ export class Renderer {
     gl.uniform1f(u.u_seed, b.seed); gl.uniform1f(u.u_time, b.time);
     gl.uniform4f(u.u_ring, b.ringIn, b.ringOut, b.ringA, b.ringGap);
     gl.uniform4f(u.u_atmo, b.atmo[0] / 255, b.atmo[1] / 255, b.atmo[2] / 255, b.atmo[3]);
-    gl.uniform3f(u.u_night, b.night[0] / 255, b.night[1] / 255, b.night[2] / 255);
     gl.uniform1f(u.u_alpha, b.alpha);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.draws++;
   }
-  // a layer of sprites standing on a sphere (own buffer, so static layers upload once)
-  makeOnSphereLayer() {
+  // a layer of sprites standing on a planet's disk (own buffer, so static layers upload once)
+  makeOnDiskLayer() {
     const gl = this.gl, L = { buf: gl.createBuffer(), vao: gl.createVertexArray(), cap: 0 };
     gl.bindVertexArray(L.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.qm); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -187,7 +185,7 @@ export class Renderer {
     gl.bindVertexArray(null);
     return L;
   }
-  onSphere(L, f32, count, upload, q) {
+  onDisk(L, f32, count, upload, q) {
     if (!count) return;
     const gl = this.gl, { p, u } = this.progOn;
     gl.useProgram(p); gl.bindVertexArray(L.vao);
@@ -197,7 +195,7 @@ export class Renderer {
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, f32, 0, count * 4);
     }
     gl.uniform2f(u.u_res, this.w, this.h); gl.uniform2f(u.u_center, q.cx, q.cy); gl.uniform1f(u.u_R, q.R);
-    gl.uniform1f(u.u_lon, q.lon); gl.uniform1f(u.u_lat, q.lat); gl.uniform1f(u.u_size, q.size);
+    gl.uniform1f(u.u_size, q.size);
     gl.uniform1f(u.u_time, q.time); gl.uniform1f(u.u_walk, q.walk); gl.uniform1f(u.u_alpha, q.alpha);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlas); gl.uniform1i(u.u_atlas, 0);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count); this.draws++;

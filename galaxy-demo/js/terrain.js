@@ -1,6 +1,7 @@
 // Planet surface generation. Pure function of (planet descriptor, RULES): the same planet always gets the
-// same map. Every tile samples 3D noise on the sphere, so a low-res map (for far views) and the full map
-// (for close-ups) show the same continents.
+// same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
+// the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
+// low-res map (for far views) and the full map (for close-ups) show the same continents.
 import { T, O, BASE, RESOURCES, WATER } from './ids.js';
 import { RULES } from './rules.js';
 import { makeNoise } from './noise.js';
@@ -27,13 +28,13 @@ export function makeSampler(desc) {
   const craterF = 5 + desc.r * 6;
   const octE = desc.W >= 512 ? 5 : desc.W >= 256 ? 4 : 3;
 
-  // returns the ground id at a point on the unit sphere (x, y, z); y is the north axis
-  function classify(x, y, z) {
+  // ground id at disk position (x, y) (each -1..1; z is just a fixed slice of the 3D noise)
+  function classify(x, y, z = 0) {
     const wx = N.simplex3(x * 2 + oW[0], y * 2 + oW[1], z * 2 + oW[2]) * 0.18;
     let e = N.fbm((x + wx) * fC + oE[0], (y + wx) * fC + oE[1], (z - wx) * fC + oE[2], octE) * 0.5 + 0.5;
     const m = N.fbm(x * 2.2 + oM[0], y * 2.2 + oM[1], z * 2.2 + oM[2], 2) * 0.5 + 0.5;
     const n = N.simplex3(x * 9 + oN[0], y * 9 + oN[1], z * 9 + oN[2]) * 0.5 + 0.5;
-    const lat = Math.asin(Math.min(1, Math.abs(y))) / (Math.PI / 2);   // 0 at the equator, 1 at the poles
+    const lat = Math.min(1, x * x + y * y);   // distance from the centre, squared: 0 = warm middle, 1 = icy rim
     switch (type) {
       case 'terran': case 'ocean': {
         const sea = tr.sea;
@@ -113,7 +114,7 @@ export function makeSampler(desc) {
   const res = Object.entries(P.resources || {});
   let total = 0;
   for (const [, a] of res) total += a;
-  const resFreq = (RULES.tilesPerSu * desc.r) / (TAU * RULES.resourceBlob);
+  const resFreq = (desc.W / 2) / RULES.resourceBlob;      // tiles per disk unit / deposit size
   const presence = Math.min(0.5, total * 0.17);            // rough share of land inside a patch
   const thr = 0.62 - presence * 0.9;
   const oR = [o(), o(), o()];
@@ -143,57 +144,54 @@ export function placeSettlements(desc, sampler) {
   const S = RULES.settlements;
   const r = mulberry32(hash32(desc.seed, 77));
   const out = [];
-  const minSep = (TAU / desc.W) * 14;
+  const minSep = (2 / desc.W) * 14;                       // 14 tiles, in disk units
   const weights = Object.fromEntries(S.levelWeights.map((w, i) => [i, w]));
   for (let tries = 0; out.length < n && tries < n * 120; tries++) {
-    const lon = r() * TAU, lat = Math.asin((r() * 2 - 1) * 0.86);
-    const cl = Math.cos(lat);
-    const base = sampler.classify(cl * Math.sin(lon), Math.sin(lat), cl * Math.cos(lon));
-    if (!SETTLE_GROUND.has(base)) continue;
+    const a = r() * TAU, d = Math.sqrt(r()) * 0.9;
+    const u = Math.cos(a) * d, v = Math.sin(a) * d;
+    if (!SETTLE_GROUND.has(sampler.classify(u, v))) continue;
     let ok = true;
-    for (const s of out) {
-      let dl = Math.abs(s.lon - lon); if (dl > Math.PI) dl = TAU - dl;
-      if (Math.hypot(dl * Math.cos((lat + s.lat) / 2), lat - s.lat) < minSep) { ok = false; break; }
-    }
+    for (const s of out) if (Math.hypot(s.u - u, s.v - v) < minSep) { ok = false; break; }
     if (!ok) continue;
     const level = desc.home && out.length === 0 ? 4 : +pickWeighted(r, weights);
-    out.push({ lon, lat, level, name: makeName(r), radius: S.radius[level], levelName: S.levels[level] });
+    out.push({ u, v, level, name: makeName(r), radius: S.radius[level], levelName: S.levels[level] });
   }
   return out;
 }
 
-// build a W x H map. Returns tile ids (2 bytes per tile: ground, overlay), the colour map
-// (RGBA: average tile colour + glow in alpha), counts per id, and the settlement list.
+// build a W x W map of the disk (rows y0..y1 of it). Tiles outside the disk get the rim's ground so edges
+// blend cleanly, but aren't counted. Returns tile ids (2 bytes per tile: ground, overlay), the colour map
+// (RGBA: average tile colour + glow), counts per id, and the settlement list.
 export function generateMap(desc, W, H, art, y0 = 0, y1 = H) {
   const t0 = performance.now();
   const sampler = makeSampler(desc);
   const rows = y1 - y0;
   const ids = new Uint8Array(W * rows * 2);
+  // the ground just inside the rim, all the way round: tiles outside the disk copy it (cheap, clean edges)
+  const RIM = W * 2, rim = new Uint8Array(RIM);
+  for (let k = 0; k < RIM; k++) { const a = (k + 0.5) / RIM * TAU; rim[k] = sampler.classify(Math.cos(a) * 0.995, Math.sin(a) * 0.995); }
   for (let y = y0; y < y1; y++) {
-    const lat = (0.5 - (y + 0.5) / H) * Math.PI, cl = Math.cos(lat), sy = Math.sin(lat);
+    const v = ((y + 0.5) / H) * 2 - 1;
     for (let x = 0; x < W; x++) {
-      const lon = ((x + 0.5) / W) * TAU, sx = cl * Math.sin(lon), sz = cl * Math.cos(lon);
-      const base = sampler.classify(sx, sy, sz);
+      const u = ((x + 0.5) / W) * 2 - 1, d = Math.hypot(u, v);
       const i = ((y - y0) * W + x) * 2;
+      if (d > 1) { ids[i] = rim[Math.floor(((Math.atan2(v, u) + TAU) % TAU) / TAU * RIM) % RIM]; ids[i + 1] = 0; continue; }
+      const base = sampler.classify(u, v);
       ids[i] = base;
-      ids[i + 1] = sampler.deposit(sx, sy, sz, base);
+      ids[i + 1] = sampler.deposit(u, v, 0, base);
     }
   }
   // settlements: paint buildings in a disc around each centre, denser in the middle
   const settlements = placeSettlements(desc, sampler);
   for (const s of settlements) {
-    const ar = s.radius * TAU / desc.W;                 // angular radius (fixed by the full-size map)
-    const rt = ar * W / TAU;                             // ...in this map's tiles
-    const cx = (s.lon / TAU) * W, cy = (0.5 - s.lat / Math.PI) * H;
-    const span = Math.ceil(rt / Math.max(0.2, Math.cos(s.lat))) + 1;
+    const rt = s.radius * W / desc.W;                     // radius in this map's tiles
+    const cx = (s.u * 0.5 + 0.5) * W, cy = (s.v * 0.5 + 0.5) * H;
     for (let ty = Math.floor(cy - rt) - 1; ty <= cy + rt + 1; ty++) {
       if (ty < y0 || ty >= y1) continue;
-      const tlat = (0.5 - (ty + 0.5) / H) * Math.PI;
-      for (let tx0 = Math.floor(cx) - span; tx0 <= Math.floor(cx) + span; tx0++) {
-        const tx = ((tx0 % W) + W) % W;
-        let dl = Math.abs((tx + 0.5) / W * TAU - s.lon); if (dl > Math.PI) dl = TAU - dl;
-        const d = Math.hypot(dl * Math.cos(tlat), tlat - s.lat) / ar;
-        const center = tx0 === Math.floor(cx) && ty === Math.floor(cy);
+      for (let tx = Math.floor(cx - rt) - 1; tx <= cx + rt + 1; tx++) {
+        if (tx < 0 || tx >= W) continue;
+        const d = Math.hypot(tx + 0.5 - cx, ty + 0.5 - cy) / Math.max(rt, 0.5);
+        const center = tx === Math.floor(cx) && ty === Math.floor(cy);
         if (d > 1 && !center) continue;
         const i = ((ty - y0) * W + tx) * 2;
         if (WATER.has(ids[i]) && !center) continue;
@@ -204,13 +202,14 @@ export function generateMap(desc, W, H, art, y0 = 0, y1 = H) {
       }
     }
   }
-  // counts and colour map
+  // counts (inside the disk only) and colour map
   const counts = new Uint32Array(64);
   const col = new Uint8Array(W * rows * 4);
   for (let y = y0; y < y1; y++) for (let x = 0; x < W; x++) {
     const t = (y - y0) * W + x, base = ids[t * 2], ov = ids[t * 2 + 1];
-    counts[base]++; if (ov) counts[32 + ov]++;
-    const v = tileHash(x, y) & 3, bi = (base * 4 + v) * 3;
+    const u = ((x + 0.5) / W) * 2 - 1, v = ((y + 0.5) / H) * 2 - 1;
+    if (u * u + v * v <= 1) { counts[base]++; if (ov) counts[32 + ov]++; }
+    const vv = tileHash(x, y) & 3, bi = (base * 4 + vv) * 3;
     let r = art.baseAvg[bi], g = art.baseAvg[bi + 1], b = art.baseAvg[bi + 2], e = art.baseEmis[base];
     if (ov) {
       const a = art.overAvg[ov * 4 + 3];
