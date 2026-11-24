@@ -8,6 +8,7 @@ import { Renderer } from './renderer.js';
 import { Labels } from './labels.js';
 import { mulberry32, hash32 } from './rng.js';
 import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js';
+import { makeRocket, stepRocket, predictPath, orbitAround } from './rocket.js';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -158,6 +159,7 @@ const minLogZ = () => Math.log2(minDim() / (2.5 * RULES.galaxy.radius));
 function maxLogZ(f) {
   const big = Math.max(cw, ch);
   if (!f) return Math.log2(1e7);
+  if (f.kind === 'rocket') return maxLogZ(HOME);
   if (f.kind === 'star') return Math.log2(1.4 * big / (f.r * SU));
   if (f.giant) return Math.log2(1.5 * big / (f.r * SU));
   return Math.log2(56 / (2 * f.r * SU / f.surface.W));     // a tile 56 px wide at most
@@ -191,7 +193,7 @@ function autoFocus(x, y) {
 // zooming or panning away from the focus hands the camera back to its parent (planet -> star -> galaxy)
 function updateFocus() {
   const f = cam.focus;
-  if (!f || cam.fly) return;
+  if (!f || cam.fly || f.kind === 'rocket') return;
   const z = zoom(), [cx, cy] = centerWorld();
   place(f);
   const away = Math.hypot((f._x - cx) * z, (f._y - cy) * z) - bodyRpx(f) * (f.rings ? f.rings.outer : 1);
@@ -229,6 +231,7 @@ function fitWidth(b) {
   const k = cw / minDim();
   if (!b) return 2.3 * RULES.galaxy.radius * k;
   if (b.kind === 'star') return b.outer * SU * 2.3 * k;
+  if (b.kind === 'rocket') return 260 * tileSu() * SU * k;      // about 260 tiles across
   let reach = b.r * (b.rings ? b.rings.outer : 1) / 0.42;
   for (const m of b.moons) reach = Math.max(reach, (m.orbit + m.r) * 1.15);
   if (b.moons.length === 0) reach = b.r / 0.42;
@@ -440,6 +443,7 @@ function frame(now) {
   const dt = dtMs / 1000;
   const c0 = performance.now();
   frameNo++; simT += dt;
+  stepRockets(dt);
 
   // camera
   stepFly(now);
@@ -478,6 +482,7 @@ function frame(now) {
   }
   const tu = performance.now();
   if (frameNo % 15 === 0) updateUI();
+  if (frameNo % 5 === 0) updateRocketHud();
   parts[4] += performance.now() - tu;
 }
 
@@ -534,6 +539,7 @@ function render(now, dt) {
   drawOnPlanet(s, md);
   t2 = performance.now(); parts[2] += t2 - tm; tm = t2;
   labels.end(now, dt, labelDpr, cw, ch);
+  drawRocketLayer(labels.g);
   parts[3] += performance.now() - tm;
 }
 
@@ -775,7 +781,14 @@ addEventListener('keydown', e => {
   else if (k === 'p') togglePerf();
   else if (k === 's') cycleStress();
   else if (k === 'escape') select(null);
+  else if (k === ' ') { e.preventDefault(); toggleEngine(); }
+  else if (k === 'r') switchRocket();
+  else if (k === 'f') toggleFollow();
+  if ('qead'.includes(k) && k.length === 1) held.add(k);
 });
+const held = new Set();
+addEventListener('keyup', e => held.delete(e.key.toLowerCase()));
+addEventListener('blur', () => held.clear());
 
 // ---------- UI ----------
 let selected = null;
@@ -986,6 +999,229 @@ function toggleScale(on = scaleEl.hidden) {
   if (on) buildScalePanel();
 }
 $('btnScale').onclick = () => toggleScale();
+
+// ---------- rocket demo: a launch pad at Home's North Pole ----------
+// Physics lives in rocket.js, in system units relative to Home's centre (North Pole = (0, -R)).
+const RK = RULES.rocket, MOON = HOME.moons[0];
+const tileSu = () => 2 * HOME.r / HOME.surface.W;
+const rockets = [];
+let rocketSeq = 0, padRocket = null, active = null, follow = false, rocketMode = false;
+const envBodies = [{ x: 0, y: 0, r: 1, gm: 0, vx: 0, vy: 0 }, { x: 0, y: 0, r: 1, gm: 0, vx: 0, vy: 0 }];
+const rocketEnv = {
+  len: 0,
+  bodiesAt(t) {                     // Home (at the origin) and the Moon (where it is at time t)
+    const H = envBodies[0]; H.r = HOME.r; H.gm = RK.gravity * HOME.r * HOME.r;
+    const M = envBodies[1], w = TAU / MOON.period, a = MOON.phase + t * w;
+    M.x = Math.cos(a) * MOON.orbit; M.y = Math.sin(a) * MOON.orbit;
+    M.vx = -Math.sin(a) * MOON.orbit * w; M.vy = Math.cos(a) * MOON.orbit * w;
+    M.r = MOON.r; M.gm = RK.gravity * MOON.r * MOON.r * (MOON.r / HOME.r);
+    return envBodies;
+  },
+};
+function newPadRocket(ready) {
+  const rk = makeRocket(++rocketSeq);
+  rk.parent = HOME; rk.on = 0; rk.offX = 0; rk.offY = -(HOME.r + RK.length * tileSu() / 2);
+  if (ready) { rk.state = 'ready'; rk.built = 1; }
+  rockets.push(rk); padRocket = rk;
+  return rk;
+}
+newPadRocket(true);
+active = padRocket;
+function stepRockets(dt) {
+  place(HOME);
+  rocketEnv.len = RK.length * tileSu();
+  const n = Math.max(1, Math.ceil(dt * 120)), h = dt / n;
+  const input = { turn: (held.has('d') ? 1 : 0) - (held.has('a') ? 1 : 0), throttle: (held.has('e') ? 1 : 0) - (held.has('q') ? 1 : 0) };
+  for (let i = 0; i < n; i++) {
+    const t = simT - dt + (i + 1) * h;
+    for (const rk of rockets) stepRocket(rk, h, t, rocketEnv, rk === active ? input : null);
+  }
+  // the pad rocket lifted off: start building the next one, and ride along with the launch
+  if (padRocket.state === 'flying' || padRocket.state === 'crashed') {
+    const launched = padRocket;
+    newPadRocket(false);
+    if (launched === active) { follow = true; rocketMode = true; if (cam.focus !== launched) { cam.fly = null; refocus(launched); } }
+  }
+  // wreckage clears after a couple of seconds
+  for (let i = rockets.length - 1; i >= 0; i--) {
+    const rk = rockets[i];
+    if (rk.state === 'crashed' && rk.crashT > 2.2) {
+      rockets.splice(i, 1);
+      if (cam.focus === rk) refocus(HOME);
+      if (active === rk) active = rockets.find(r => r.state === 'flying') || padRocket;
+    }
+  }
+  for (const rk of rockets) { rk._x = HOME._x + rk.x * SU; rk._y = HOME._y + rk.y * SU; rk._f = frameNo; rk.r = rocketEnv.len / 2; }
+}
+function toggleEngine() {
+  if (!active || active.state === 'building' || active.state === 'crashed') return;
+  if (!active.engine && active.fuel <= 0) return;
+  active.engine = !active.engine;
+  rocketMode = true;
+}
+function switchRocket() {
+  const list = rockets.filter(r => r.state !== 'building' && r.state !== 'crashed');
+  if (!list.length) return;
+  active = list[(list.indexOf(active) + 1) % list.length];
+  rocketMode = true;
+  if (follow) { cam.fly = null; refocus(active); }
+}
+function toggleFollow() {
+  follow = !follow;
+  cam.fly = null;
+  if (follow && active) refocus(active); else if (cam.focus && cam.focus.kind === 'rocket') refocus(HOME);
+}
+$('btnRocket').onclick = () => {
+  rocketMode = !rocketMode;
+  $('btnRocket').classList.toggle('on', rocketMode);
+  if (rocketMode) { active = rockets.find(r => r === active && r.state !== 'crashed') || padRocket; follow = true; flyTo(active); }
+};
+
+// pixel-art sprites for the pad, the tower and the rocket (drawn on the overlay canvas, crisp)
+function pixelSprite(w, h, paint) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'), put = (x, y, col) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
+  paint(put, g);
+  return c;
+}
+const SPR_ROCKET = pixelSprite(8, 20, put => {
+  for (let y = 0; y < 20; y++) for (let x = 0; x < 8; x++) {
+    const body = x >= 2 && x <= 5 && y >= 3 && y <= 16, nose = y < 3 && x >= 3 - (y > 0 ? 1 : 0) && x <= 4 + (y > 0 ? 1 : 0) && (y > 0 || (x === 3 || x === 4));
+    const fin = y >= 13 && y <= 17 && (x === 1 || x === 6) || (y >= 15 && y <= 17 && (x === 0 || x === 7));
+    const nozzle = y >= 17 && x >= 3 && x <= 4;
+    if (nose) put(x, y, '#d8483a');
+    else if (body) put(x, y, x === 2 ? '#c9ced8' : x === 5 ? '#9aa1ad' : (y === 7 || y === 8) && (x === 3 || x === 4) ? '#5bb6e8' : y === 11 ? '#d8483a' : '#eef1f5');
+    else if (fin) put(x, y, '#b33a30');
+    else if (nozzle) put(x, y, '#4a4f58');
+  }
+});
+const SPR_PAD = pixelSprite(18, 6, put => {
+  for (let y = 0; y < 6; y++) for (let x = 0; x < 18; x++) {
+    if (y === 0) put(x, y, (x >> 1) % 2 ? '#f2c14e' : '#2a2a2e');
+    else put(x, y, y === 5 ? '#55585f' : (x + y) % 5 === 0 ? '#80848c' : '#9a9ea6');
+  }
+});
+const SPR_TOWER = pixelSprite(4, 22, put => {
+  for (let y = 0; y < 22; y++) for (let x = 0; x < 4; x++) {
+    if (x === 0 || x === 3) put(x, y, '#c0392b');
+    else if ((y + x) % 4 === 0) put(x, y, '#e05a48');
+    if (y === 0) put(x, y, '#ffd34a');
+  }
+});
+const pathBuf = new Float32Array(4000);
+let pathN = 0;
+
+function drawRocketLayer(g) {
+  if (!rockets.length) return;
+  const z = zoom(), [wcx, wcy] = centerWorld();
+  place(HOME);
+  const hx = (HOME._x - wcx) * z + cw / 2, hy = (HOME._y - wcy) * z + ch / 2, k = SU * z;   // css px per su
+  const R0 = HOME.r * k, tile = tileSu() * k;
+  if (Math.hypot(hx - cw / 2, hy - ch / 2) - R0 > Math.max(cw, ch) * 3 && !(cam.focus && cam.focus.kind === 'rocket')) return;
+  g.save();
+  g.imageSmoothingEnabled = false;
+  // the top of the atmosphere (drag stops beyond this line)
+  if (rocketMode && R0 > 40) {
+    g.strokeStyle = 'rgba(140,190,255,0.25)'; g.setLineDash([4, 8]); g.lineWidth = 1;
+    g.beginPath(); g.arc(hx, hy, (HOME.r + RK.atmosphere) * k, 0, TAU); g.stroke(); g.setLineDash([]);
+  }
+  // launch pad and tower at the North Pole (only once they're big enough to see)
+  if (tile * 9 > 5) {
+    const px = hx, py = hy - R0;
+    g.drawImage(SPR_PAD, px - 4.5 * tile, py, 9 * tile, 3 * tile);
+    g.drawImage(SPR_TOWER, px + 2.2 * tile, py - 11 * tile, 2 * tile, 11 * tile);
+  }
+  // predicted coast path of the rocket you're flying
+  if (active && active.state === 'flying') {
+    if (frameNo % 4 === 0 || !pathN) pathN = predictPath(active, simT, rocketEnv, pathBuf, 1800, 0.35);
+    if (pathN > 1) {
+      g.strokeStyle = 'rgba(120,220,255,0.75)'; g.lineWidth = 1.5; g.setLineDash([6, 5]);
+      g.beginPath();
+      let lo = Infinity, hi = -Infinity, li = 0, hiI = 0;
+      for (let i = 0; i < pathN; i++) {
+        const x = hx + pathBuf[i * 2] * k, y = hy + pathBuf[i * 2 + 1] * k;
+        if (i) g.lineTo(x, y); else g.moveTo(x, y);
+        const r = Math.hypot(pathBuf[i * 2], pathBuf[i * 2 + 1]);
+        if (r < lo) { lo = r; li = i; } if (r > hi) { hi = r; hiI = i; }
+      }
+      g.stroke(); g.setLineDash([]);
+      const mark = (i, label, col) => {
+        const x = hx + pathBuf[i * 2] * k, y = hy + pathBuf[i * 2 + 1] * k;
+        g.fillStyle = col; g.beginPath(); g.arc(x, y, 3.5, 0, TAU); g.fill();
+        g.font = '600 11px "Segoe UI", system-ui, sans-serif'; g.fillText(label, x + 6, y - 6);
+      };
+      if (hiI > 0 && hiI < pathN - 1) mark(hiI, 'Highest', '#ffd36e');
+      if (li > 0 && li < pathN - 1) mark(li, 'Lowest', '#8fe3ff');
+    }
+  } else pathN = 0;
+  // rockets
+  for (const rk of rockets) {
+    const x = hx + rk.x * k, y = hy + rk.y * k;
+    if (x < -200 || y < -200 || x > cw + 200 || y > ch + 200) continue;
+    const hgt = Math.max(16, RK.length * tile), wid = hgt * 0.4;
+    if (rk.state === 'crashed') {
+      const t = rk.crashT, a = Math.max(0, 1 - t / 2.2);
+      for (let j = 0; j < 3; j++) {
+        g.fillStyle = `rgba(${255},${150 - j * 40},${40},${a * (0.7 - j * 0.2)})`;
+        g.beginPath(); g.arc(x, y, (6 + t * 26) * (1 - j * 0.25), 0, TAU); g.fill();
+      }
+      continue;
+    }
+    g.save();
+    g.translate(x, y); g.rotate(rk.angle);
+    const thrusting = rk.engine && rk.fuel > 0 && rk.throttle > 0 && rk.state !== 'building';
+    if (thrusting) {                                         // flickering flame out of the nozzle
+      const fl = hgt * (0.3 + 0.6 * rk.throttle) * (0.85 + Math.random() * 0.3);
+      g.fillStyle = 'rgba(255,140,40,0.85)';
+      g.beginPath(); g.moveTo(-wid * 0.22, hgt / 2); g.lineTo(wid * 0.22, hgt / 2); g.lineTo(0, hgt / 2 + fl); g.fill();
+      g.fillStyle = 'rgba(255,240,170,0.95)';
+      g.beginPath(); g.moveTo(-wid * 0.12, hgt / 2); g.lineTo(wid * 0.12, hgt / 2); g.lineTo(0, hgt / 2 + fl * 0.55); g.fill();
+    }
+    if (rk.state === 'building') {                           // rising out of its scaffolding, bottom first
+      const shown = Math.max(0.02, rk.built);
+      g.globalAlpha = 0.55;
+      g.drawImage(SPR_ROCKET, 0, 20 * (1 - shown), 8, 20 * shown, -wid / 2, hgt / 2 - hgt * shown, wid, hgt * shown);
+      g.globalAlpha = 1;
+      g.strokeStyle = 'rgba(242,193,78,0.7)'; g.lineWidth = 1;
+      g.strokeRect(-wid / 2 - 2, -hgt / 2, wid + 4, hgt);
+    } else g.drawImage(SPR_ROCKET, -wid / 2, -hgt / 2, wid, hgt);
+    if (rk === active && rocketMode) { g.strokeStyle = 'rgba(120,220,255,0.6)'; g.lineWidth = 1; g.strokeRect(-wid / 2 - 4, -hgt / 2 - 4, wid + 8, hgt + 8); }
+    g.restore();
+    if (rk.state === 'building' && tile * 9 > 5) {
+      g.font = '600 11px "Segoe UI", system-ui, sans-serif'; g.fillStyle = '#ffe6a6';
+      g.fillText(`Building ${Math.floor(rk.built * 100)}%`, x + wid, y);
+    }
+  }
+  g.restore();
+}
+
+// the readout: fuel, throttle, height, speed, orbit
+const hudEl = $('rocketHud');
+function updateRocketHud() {
+  const show = rocketMode || rockets.some(r => r.state === 'flying');
+  hudEl.hidden = !show;
+  if (!show || !active) return;
+  const rk = active, home = rocketEnv.bodiesAt(simT)[0], tl = tileSu();
+  const alt = Math.max(0, Math.hypot(rk.x, rk.y) - HOME.r - rocketEnv.len / 2), spd = Math.hypot(rk.vx, rk.vy);
+  const status = { building: 'Being built', ready: 'On the pad', flying: alt < RK.atmosphere ? 'Flying · in the atmosphere (drag)' : 'Flying · in space (no drag)',
+    landed: rk.on === 1 ? 'Landed on the Moon' : 'Landed', crashed: 'Crashed' }[rk.state];
+  let orbit = '';
+  if (rk.state === 'flying') {
+    const o = orbitAround(rk, home);
+    orbit = o.escaping ? 'Escaping Home’s pull' :
+      o.peri > RK.atmosphere ? `In orbit · lowest ${fmt(Math.round(o.peri / tl))} · highest ${fmt(Math.round(o.apo / tl))} tiles` :
+      `Highest point ${fmt(Math.round(o.apo / tl))} tiles · not in orbit yet`;
+  }
+  const pad = padRocket.state === 'ready' ? 'ready' : `building ${Math.floor(padRocket.built * 100)}%`;
+  const bar = (v, col) => `<i><b style="width:${(v * 100).toFixed(1)}%;background:${col}"></b></i>`;
+  hudEl.innerHTML = `<div class="t">${rk.name}<span class="st">${status}</span></div>
+    <div class="g"><span>Fuel</span>${bar(rk.fuel / RK.fuel, rk.fuel / RK.fuel < 0.2 ? '#e0604e' : '#f2c14e')}<em>${Math.round(rk.fuel / RK.fuel * 100)}%</em></div>
+    <div class="g"><span>Throttle</span>${bar(rk.throttle, '#7fd6ff')}<em>${Math.round(rk.throttle * 100)}%</em></div>
+    <div class="row">Engine <b class="${rk.engine && rk.fuel > 0 ? 'on' : ''}">${rk.engine ? (rk.fuel > 0 ? 'ON' : 'OUT OF FUEL') : 'off'}</b> · height ${fmt(Math.round(alt / tl))} tiles · speed ${fmt(Math.round(spd / tl))} tiles/s</div>
+    ${orbit ? `<div class="row">${orbit}</div>` : ''}
+    <div class="row dim">Next rocket: ${pad}${rockets.filter(r => r.state === 'flying').length > 1 ? ` · ${rockets.filter(r => r.state === 'flying').length} in flight` : ''}</div>
+    <div class="keys">Space engine · Q/E throttle · A/D turn · R switch rocket · F follow ${follow ? '(on)' : '(off)'}</div>`;
+}
 
 // ---------- start: on Home, then let the player zoom out ----------
 cam.focus = HOME;

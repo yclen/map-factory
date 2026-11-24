@@ -111,6 +111,20 @@ export const RULES = {
     gas: { name: 'Gas giant', giant: true, size: [3.4, 5.8], rings: 0.35 },
     icegiant: { name: 'Ice giant', giant: true, size: [2.4, 3.4], rings: 0.25 },
   },
+  // the rocket demo on Home. Distances in Home radii, times in seconds. With these numbers a low orbit takes
+  // about 100 s and a full tank holds roughly 3x the push needed to reach orbit
+  rocket: {
+    buildTime: 10,        // seconds to build the next rocket on the pad after a launch
+    gravity: 0.005,       // pull at Home's surface (Home radii / s^2); the Moon pulls in proportion to its size
+    thrust: 0.018,        // push at full throttle (about 1.5x the full rocket's weight at liftoff)
+    dryMass: 1, fuel: 1.4, fuelRate: 0.05,   // empty mass, full tank, fuel burned per second at full throttle
+    turnRate: 1.6,        // radians per second with A / D held
+    atmosphere: 0.06,     // atmosphere height (Home radii); air drag only below it, fading to nothing at the top
+    drag: 6,
+    length: 8,            // rocket height, in tiles
+    landSpeed: 0.004, landTilt: 0.5,         // touch down slower than this (Home radii / s) and within ~30 degrees of upright
+  },
+
   // polar ice: cold comes only from latitude (how far north or south, i.e. towards the top or bottom of the disk),
   // so worlds get ice caps at the poles and ordinary terrain at the east and west edges. cap = roughly how deep
   // each cap reaches in from its pole, as a share of the radius (noise and mountains make the edges ragged)

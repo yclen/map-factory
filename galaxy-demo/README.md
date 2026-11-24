@@ -44,8 +44,26 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
 | `js/skin.js` | How every tile, deposit and building looks (colours and pixel patterns); swap it to reskin everything |
 | `js/terrain.js` | How each planet type turns noise into biomes and deposits |
 | `js/galaxy.js` | Galaxy shape and system layout (uses the rules) |
-| `js/main.js` | Camera, zoom levels, input, map cache, stats panel |
+| `js/main.js` | Camera, zoom levels, input, map cache, stats panel, rocket pad and readout |
+| `js/rocket.js` | Rocket physics: gravity, thrust, fuel, drag, landing and the predicted path |
 | `js/renderer.js`, `js/shaders.js` | WebGL2 drawing |
+
+## Rocket demo
+
+**Rocket** in the bottom bar takes you to a launch pad at Home's North Pole.
+
+- **Controls:** Space starts or stops the engine, Q/E lower or raise the throttle, A/D turn, R switches between
+  rockets, and F makes the camera follow the rocket.
+- **Physics** (`js/rocket.js`):
+  - gravity from Home and the Moon;
+  - fuel that burns with throttle, so the rocket gets lighter;
+  - air drag that fades to nothing at the top of the atmosphere (the dashed circle);
+  - gentle, upright touchdowns land, and anything else crashes.
+- **Orbit path:** the dashed line is where the rocket will coast with the engine off, with its highest and lowest
+  points marked.
+- **Rebuilds:** a new rocket is built on the pad 10 s after each launch.
+- **Tuning:** all the numbers are in `rules.js` under `rocket`. With the defaults, a low orbit takes about 100 s and
+  reaching it uses roughly 40% of the fuel.
 
 ## The distance ladder
 
