@@ -127,11 +127,15 @@ void main() {
   vec2 d = (fc - u_center) / u_R;                    // -1..1 across the disk, y down
   float rr = length(d);
   vec2 uv = d * 0.5 + 0.5;                           // 0..1 across the disk's square map
-  vec2 lp = (uv - u_page.xy) / u_page.zw;            // 0..1 across this chunk
+  // 0..1 across this chunk. A detail chunk only covers its own square on screen; a far-view pixel block that
+  // hangs over the chunk's edge takes the chunk's edge colour rather than leaving a gap (that gap was a visible
+  // seam along every chunk border at middle distances)
+  vec2 lp = (uv - u_page.xy) / u_page.zw;
+  if (u_detail == 1) lp = clamp(lp, vec2(0.0), vec2(1.0));
   vec2 ap = lp * u_map * 8.0 - 0.5;                  // art-pixel coordinate within the chunk
   vec2 fw = clamp(fwidth(ap), vec2(1e-3), vec2(2.0));
   float edgeW = max(u_pix, 1.0) / u_R;
-  if (u_detail == 1 && (rr > 1.0 || lp.x < 0.0 || lp.y < 0.0 || lp.x > 1.0 || lp.y > 1.0)) discard;
+  if (u_detail == 1 && rr > 1.0) discard;
 
   vec4 outc = vec4(0.0);
   if (rr > 1.0) {

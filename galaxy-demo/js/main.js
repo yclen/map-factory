@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261124014431';
-import { SKIN } from './skin.js?v=20261124014431';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124014431';
-import { buildAtlas } from './art.js?v=20261124014431';
-import { Renderer } from './renderer.js?v=20261124014431';
-import { Labels } from './labels.js?v=20261124014431';
-import { mulberry32, hash32 } from './rng.js?v=20261124014431';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124014431';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124014431';
+import { RULES } from './rules.js?v=20261124015931';
+import { SKIN } from './skin.js?v=20261124015931';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124015931';
+import { buildAtlas } from './art.js?v=20261124015931';
+import { Renderer } from './renderer.js?v=20261124015931';
+import { Labels } from './labels.js?v=20261124015931';
+import { mulberry32, hash32 } from './rng.js?v=20261124015931';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124015931';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124015931';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -284,7 +284,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261124014431', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261124015931', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -658,7 +658,8 @@ function drawBody(d, s, md, now) {
     const pxA = Math.max(0, Math.floor(-sx0 / k / PAGE)), pxB = Math.min(Math.ceil(N / PAGE) - 1, Math.floor((R.w - sx0) / k / PAGE));
     const pyA = Math.max(0, Math.floor(-sy0 / k / PAGE)), pyB = Math.min(Math.ceil(N / PAGE) - 1, Math.floor((R.h - sy0) / k / PAGE));
     for (let py = pyA; py <= pyB; py++) for (let px = pxA; px <= pxB; px++) {
-      const rx0 = sx0 + px * PAGE * k, ry0 = sy0 + py * PAGE * k, rx1 = rx0 + PAGE * k, ry1 = ry0 + PAGE * k;
+      // neighbouring chunks share edges computed the same way, so there's never a hairline gap between them
+      const rx0 = sx0 + px * PAGE * k, ry0 = sy0 + py * PAGE * k, rx1 = sx0 + (px + 1) * PAGE * k, ry1 = sy0 + (py + 1) * PAGE * k;
       const nx = clamp(cx, rx0, rx1) - cx, ny = clamp(cy, ry0, ry1) - cy;
       if (nx * nx + ny * ny > Rd * Rd) continue;                // a corner chunk entirely outside the disk
       let p = pages.get(`${b.uid}/${N}/${L}/${px}/${py}`);
@@ -1387,4 +1388,4 @@ cam.logZ = cam.tz = Math.log2(0.32 * minDim() / (HOME.r * SU));   // Home about 
 select(coarse ? null : HOME);      // on phones the info card waits for a tap, so it doesn't cover the planet
 updateUI(true);
 requestAnimationFrame(frame);
-window.__demo = { G, cam, pages, flyTo, R, centerWorld, zoom, levelsOf, rockets, get active() { return active; }, padHit };
+window.__demo = { G, cam, pages, flyTo, R, centerWorld, zoom, levelsOf, rockets, get active() { return active; }, padHit, get SU() { return SU; }, get scale() { return scale; } };

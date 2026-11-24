@@ -1,8 +1,8 @@
 // Placeholder pixel art, drawn from the skin's colours and patterns into one 256x128 atlas of 8x8 tiles.
 // Runs on the main thread (for the GPU) and in the map worker (for each tile's average colour).
 // Hand-drawn art can replace any slot later without touching the generator.
-import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN } from './ids.js?v=20261124014431';
-import { mulberry32, hash32 } from './rng.js?v=20261124014431';
+import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN } from './ids.js?v=20261124015931';
+import { mulberry32, hash32 } from './rng.js?v=20261124015931';
 
 export const ATLAS_W = 256, ATLAS_H = 128;
 
