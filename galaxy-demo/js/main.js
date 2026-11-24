@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261123211956';
-import { SKIN } from './skin.js?v=20261123211956';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123211956';
-import { buildAtlas } from './art.js?v=20261123211956';
-import { Renderer } from './renderer.js?v=20261123211956';
-import { Labels } from './labels.js?v=20261123211956';
-import { mulberry32, hash32 } from './rng.js?v=20261123211956';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123211956';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261123211956';
+import { RULES } from './rules.js?v=20261123212214';
+import { SKIN } from './skin.js?v=20261123212214';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261123212214';
+import { buildAtlas } from './art.js?v=20261123212214';
+import { Renderer } from './renderer.js?v=20261123212214';
+import { Labels } from './labels.js?v=20261123212214';
+import { mulberry32, hash32 } from './rng.js?v=20261123212214';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261123212214';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261123212214';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -20,6 +20,22 @@ const params = new URLSearchParams(location.search);
 const SEED = (+params.get('seed') | 0) || RULES.galaxy.seed;
 
 // ---------- setup ----------
+// A browser can keep an old copy of index.html for a few minutes after a release while version.txt hands it the
+// new code. If the page is missing anything this code needs, reload once to fetch the current page.
+{
+  const NEEDED = ['gl', 'labels', 'crumbs', 'perf', 'info', 'tip', 'bar', 'help', 'fatal', 'scale', 'rocketHud', 'touch',
+    'btnHome', 'btnGalaxy', 'btnStress', 'btnPerf', 'btnHelp', 'btnScale', 'btnRocket'];
+  let tried = false;
+  try { tried = sessionStorage.getItem('galaxyDemo.reloadForPage') === '1'; } catch (e) { /* no storage */ }
+  if (NEEDED.some(id => !document.getElementById(id))) {
+    if (!tried) {
+      try { sessionStorage.setItem('galaxyDemo.reloadForPage', '1'); } catch (e) { /* no storage */ }
+      location.reload();
+    }
+    throw new Error('This page is an older copy than the code; reloading to get the current one.');
+  }
+  try { sessionStorage.removeItem('galaxyDemo.reloadForPage'); } catch (e) { /* no storage */ }
+}
 const glCanvas = $('gl'), lblCanvas = $('labels');
 let R;
 try { R = new Renderer(glCanvas); }
@@ -266,7 +282,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261123211956', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261123212214', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
