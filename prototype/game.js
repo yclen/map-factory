@@ -2684,7 +2684,10 @@ function checkUnlocks(quiet = false) {
   // this runs every time the population sets a new record (most ticks while it grows), so only
   // rebuild the bar when something was actually unlocked
   if (changed) { refreshBuildBar(); renderNewBadges(); if (techOpen) renderTechTree(); }
-  if (menuOpen) renderBuildMenu();
+  // rebuild the open menu only when something unlocked: rebuilding it every new population record (most ticks)
+  // swapped the cards out from under the pointer, so hover blinked and clicks were lost. The numbers on it
+  // update in place (updateBuildMenu, with the HUD).
+  if (menuOpen && changed) renderBuildMenu();
 }
 
 // ---------- route finding ----------
@@ -5648,10 +5651,10 @@ function render() {
     }
     for (const b of game.buildings) {
       const x = b.i % W, y = (b.i / W) | 0;
-      if (b.type === 'settlement' || x < x0 || x > x1 || y < y0 || y > y1) continue;
+      if (b.type === 'settlement' || b.type === 'nuclear' || x < x0 || x > x1 || y < y0 || y > y1) continue;
       const k = popScale(b);
       if (DEFENCE_TOPS[b.type]) { drawDefence(b, z * k); continue; }
-      drawSprite(b.type, x + 0.5, y + 0.5 + (DRILL_ANIM[b.type] ? drillJolt(b, z) : 0), z * k * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : b.type === 'nuclear' ? 1.7 : 1.25));
+      drawSprite(b.type, x + 0.5, y + 0.5 + (DRILL_ANIM[b.type] ? drillJolt(b, z) : 0), z * k * (b.type === 'solar' ? 1.15 : b.type === 'pad' ? 1.7 : 1.25));
     }
     for (const b of game.buildings) {               // workers out on the tiles, then smoke on top of everything
       const x = b.i % W, y = (b.i / W) | 0;
@@ -5663,6 +5666,12 @@ function render() {
       if (x < x0 || x > x1 || y < y0 - 2 || y > y1) continue;
       if (b.type === 'burner') drawBurnerSmoke(b, z * 1.25);
       else if (DRILL_ANIM[b.type]) drawDrill(b, z);
+    }
+    for (const b of game.buildings) {               // nuclear plants last: big, and their steam goes over everything
+      if (b.type !== 'nuclear') continue;
+      const x = b.i % W, y = (b.i / W) | 0;
+      if (x < x0 - 6 || x > x1 + 6 || y < y0 - 6 || y > y1 + 8) continue;
+      drawNuclear(b, z, popScale(b));
     }
     drawRockets(z, x0, y0, x1, y1);
   } else {
@@ -5937,6 +5946,216 @@ function drawBurnerSmoke(b, size) {
     ctx.beginPath(); ctx.ellipse(cx + size * 0.45, cy - size * 1.05, size * 0.75, size * 0.28, 0, 0, Math.PI * 2); ctx.fill();
   }
 }
+// ---------- the nuclear plant: a landmark, drawn by code in its own sprite pixels ----------
+// Like a city, it stands on one tile but looks far bigger. On a concrete pad set back from the shore: two cooling
+// towers, a turbine hall with big wall fans, the reactor dome and a striped vent stack. The plant's own tile holds
+// the pump house, which pipes sea water in (blue) and warm water back out (orange). The harder it works, the more
+// steam rolls off the towers, the faster the fans spin and the water runs, and the brighter the reactor's band
+// glows. Idle, it stands still and quiet. Drawing only: none of this is saved, and none of it changes the game.
+const NUKE = { W: 112, H: 90, ox: 56, oy: 80, px: 1.5 / 32 };   // body canvas, its ground centre in it, tiles per body pixel
+let nukeBody = null;
+function paintNukeBody() {
+  const c = document.createElement('canvas'); c.width = NUKE.W; c.height = NUKE.H;
+  const g = c.getContext('2d');
+  const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(Math.round(x) + NUKE.ox, Math.round(y) + NUKE.oy, Math.round(w), Math.round(h)); };
+  const span = (l, r, y, col) => { l = Math.round(l); r = Math.round(r); if (r > l) R(l, y, r - l, 1, col); };
+  // one scanline across a round shape: dark edges, lit on the left, shaded on the right
+  const row = (cx, y, hw, cols) => {
+    const l = Math.round(cx - hw), r = Math.round(cx + hw), w = r - l;
+    if (w <= 0) return;
+    R(l, y, w, 1, cols[3]);
+    if (w <= 2) return;
+    R(l + 1, y, w - 2, 1, cols[1]);
+    R(l + 1, y, Math.max(1, Math.round((w - 2) * 0.28)), 1, cols[0]);
+    const b = Math.max(1, Math.round((w - 2) * 0.3)); R(r - 1 - b, y, b, 1, cols[2]);
+  };
+  const oval = (cx, cy, rx, ry, col) => {
+    for (let dy = -ry; dy <= ry; dy++) { const hw = rx * Math.sqrt(Math.max(0, 1 - (dy / (ry + 0.5)) ** 2)); span(cx - hw, cx + hw, cy + dy, col); }
+  };
+  const SHADOW = 'rgba(16,20,26,0.32)';
+  // the concrete pad, seen at a slant: a lit back edge, a dark front edge, painted lines
+  for (let y = -16; y <= 7; y++) { const hw = 44 + (y + 16) * 0.35; span(-hw, hw, y, y >= 5 ? '#454b52' : y === -16 ? '#a3aab1' : '#7c838a'); }
+  for (let x = -40; x <= 36; x += 9) R(x, 2, 4, 1, '#c9a43a');
+  // a cooling tower: a waisted shell, open legs at its foot, weathered bands and a dark mouth up top
+  const tower = (cx, by, h, wb, wt, ww) => {
+    const hwAt = t => t < 0.72 ? ww + (wb - ww) * ((0.72 - t) / 0.72) ** 2 : ww + (wt - ww) * ((t - 0.72) / 0.28) ** 2;
+    oval(cx + 7, by, wb + 3, 3, SHADOW);
+    for (let r = 0; r <= h; r++) row(cx, by - r, hwAt(r / h), ['#f1f3f5', '#d5dade', '#9ba4ad', '#59626b']);
+    for (const t of [0.8, 0.86]) row(cx, by - Math.round(h * t), hwAt(t), ['#d3d8dd', '#b7bec5', '#868f98', '#59626b']);
+    span(cx - wb, cx + wb, by - 2, '#3a4047'); span(cx - wb, cx + wb, by - 1, '#3a4047'); span(cx - wb, cx + wb, by, '#3a4047');
+    for (let x = cx - wb + 2; x < cx + wb - 2; x += 4) R(x, by - 2, 2, 3, '#8a939c');
+    oval(cx, by - h, wt, 2, '#59626b'); oval(cx, by - h, wt - 1.5, 1, '#262b31');
+  };
+  tower(-8, -6, 50, 15, 10, 9);                    // the back tower
+  // the vent stack, red and white, behind the reactor
+  R(42, -3, 8, 3, '#5f666d');
+  for (let y = -66; y < -2; y++) { const red = Math.floor(-y / 6) % 2 === 0; R(44, y, 4, 1, red ? '#c8453a' : '#e9ecef'); R(47, y, 1, 1, red ? '#8e2c24' : '#a9b0b7'); }
+  R(43, -68, 6, 2, '#3b424a');
+  tower(-32, 2, 54, 16, 11, 10);                   // the front tower
+  // the turbine hall: a long shed with a row of lit windows and two big fans in its wall
+  oval(4, 5, 19, 2, SHADOW);
+  R(-16, -11, 30, 16, '#3a4450'); R(-15, -10, 28, 15, '#7d8b9a'); R(-15, -10, 28, 2, '#97a5b3'); R(9, -10, 4, 15, '#64717f');
+  for (let x = -13; x < 8; x += 4) R(x, -7, 2, 2, '#ffd977');
+  R(-17, -13, 32, 3, '#4c5664'); R(-17, -13, 32, 1, '#6a7584');
+  for (const fx of [-9, 1]) { oval(fx, 0, 4, 4, '#5a6573'); oval(fx, 0, 3, 3, '#1d232a'); }
+  R(13, -6, 3, 3, '#59626b');                      // the steam line from the reactor
+  // the reactor: a round building under a dome, a glowing band round it (lit in the animation), a door
+  oval(34, 5, 17, 3, SHADOW);
+  for (let y = 0; y <= 18; y++) row(28, 5 - y, 14, ['#eef1f4', '#c9cfd5', '#929ba4', '#545d66']);
+  for (let dy = 1; dy <= 12; dy++) row(28, -13 - dy, 14 * Math.sqrt(Math.max(0, 1 - (dy / 12.5) ** 2)), ['#ffffff', '#e2e7eb', '#aab3bb', '#545d66']);
+  R(15, -8, 27, 2, '#2c5b63');
+  R(25, 0, 6, 5, '#353c44'); R(26, 1, 4, 4, '#4a525b');
+  oval(28, -4, 1, 1, '#f2c14e');
+  return c;
+}
+const nukeSea = new WeakMap();   // per plant: which way the open sea is, and the nearest water tile
+function nukeSeaOf(b) {
+  let s = nukeSea.get(b);
+  if (s) return s;
+  const x = b.i % W, y = (b.i / W) | 0;
+  let vx = 0, vy = 0, best = 1e9, wx = x + 1, wy = y;
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+    if ((!dx && !dy) || !inb(x + dx, y + dy) || biome[idx(x + dx, y + dy)] !== OCEAN) continue;
+    const d = Math.hypot(dx, dy); vx += dx / (d * d); vy += dy / (d * d);
+    if (d < best) { best = d; wx = x + dx; wy = y + dy; }
+  }
+  const L = Math.hypot(vx, vy);
+  s = L ? { vx: vx / L, vy: vy / L, wx, wy } : { vx: 1, vy: 0, wx, wy };
+  nukeSea.set(b, s);
+  return s;
+}
+// how hard it's working, 0..1 (an AI nation's plant just always runs)
+function nukeLoad(b) {
+  if (!owner[b.i]) return 1;
+  const c = game.countries[countryOf[b.i]];
+  return c && c.mw && c.pw && c.pw.nukes ? clamp((c.mw.nuke || 0) / (c.pw.nukes * CFG.buildings.nuclear.gen), 0, 1) : 0;
+}
+// where it all goes on screen: the plant's tile (pump house), the sea's way, the mirror, body pixel size, and the
+// body's ground centre, placed so the reactor's front sits a little inland of the pump house (further when the sea
+// is up the screen, so the dome doesn't hide the pump house)
+function nukeGeom(b, z) {
+  const S = nukeSeaOf(b), x = b.i % W + 0.5, y = ((b.i / W) | 0) + 0.5;
+  const [tx, ty] = toScreen(x, y), [ax, ay] = toScreen(x + S.vx, y + S.vy);
+  const L = Math.hypot(ax - tx, ay - ty) || 1, dx = (ax - tx) / L, dy = (ay - ty) / L;
+  const flip = dx < -0.2 ? -1 : 1, p = z * NUKE.px, gap = (0.7 + 0.9 * Math.max(0, -dy)) * z;
+  return { S, tx, ty, dx, dy, flip, p, bx: tx - dx * gap - 38 * flip * p, by: ty - dy * gap - 4 * p };
+}
+// is screen point (x, y) on the plant as drawn?
+function onNuke(b, z, x, y) {
+  const G = nukeGeom(b, z), p = G.p;
+  return Math.abs(x - G.bx) < 48 * p && y > G.by - 62 * p && y < G.by + 8 * p || Math.hypot(x - G.tx, y - G.ty) < Math.max(8, 8 * p);
+}
+function drawNuclear(b, z, k) {
+  if (!nukeBody) nukeBody = paintNukeBody();
+  const G = nukeGeom(b, z), { S, tx, ty, dx, dy, flip, bx, by } = G, p = G.p * k;
+  const load = nukeLoad(b), t = game.time, v = hash2(b.i % 9973, 3, 91), on = load > 0.01;
+  const [mx, my] = toScreen(S.wx + 0.5, S.wy + 0.5);   // the pipe mouth, out in the water
+  const R = (x, y, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(x, y, w, h); };
+  const body = () => {
+    const smooth = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = p < 1;
+    ctx.save(); ctx.translate(bx, by); ctx.scale(p * flip, p);
+    ctx.drawImage(nukeBody, -NUKE.ox, -NUKE.oy);
+    ctx.imageSmoothingEnabled = smooth;
+    // the reactor's band: a cold teal at rest, a bright pulsing glow at work
+    if (on) {
+      const a = (0.35 + 0.6 * load) * (0.75 + 0.25 * Math.sin(t * 2.6 + v * 6));
+      ctx.fillStyle = `rgba(111,243,255,${0.16 * a})`;
+      ctx.beginPath(); ctx.ellipse(28, -7, 19, 6, 0, 0, Math.PI * 2); ctx.fill();
+      R(15, -8, 27, 2, `rgba(140,248,255,${a})`);
+    }
+    // the wall fans, spinning with the turbines
+    const spin = t * (0.6 + 9 * load) + v * 6;
+    for (const [fx, ph] of [[-9, 0], [1, 1.1]]) {
+      for (let j = 0; j < 3; j++) {
+        const a = (on ? spin : v * 6) + ph + j * Math.PI * 2 / 3;
+        for (let s = 1; s <= 3; s++) R(fx + Math.cos(a) * s - 0.6, Math.sin(a) * s - 0.6, 1.2, 1.2, '#aab3bb');
+      }
+      R(fx - 0.5, -0.5, 1, 1, '#e2e7eb');
+    }
+    // warning lamps on the dome and the stack, blinking out of step
+    for (const [lx, ly, ph] of [[28, -26, 0], [45.5, -69, 0.5]]) {
+      if ((t * 0.9 + v + ph) % 1 < 0.5) {
+        ctx.fillStyle = 'rgba(255,74,58,0.3)'; ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fill();
+        R(lx - 1, ly - 1, 2, 2, '#ff4a3a');
+      } else R(lx - 1, ly - 1, 2, 2, '#5a1a14');
+    }
+    ctx.restore();
+  };
+  // two pipes from the reactor to the pump house and on into the sea: cold water in, warm water out
+  const pipes = () => {
+    const sx = bx + 41 * flip * p, sy = by + 3 * p, pts = [[sx, sy], [tx, ty], [mx, my]];
+    for (const [off, col, dir] of [[-1.6, '#7fd6ff', 1], [1.6, '#ffb36b', -1]]) {
+      const nx = -dy * off * p, ny = dx * off * p;
+      ctx.beginPath();
+      pts.forEach(([px, py], j) => j ? ctx.lineTo(px + nx, py + ny) : ctx.moveTo(px + nx, py + ny));
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.lineWidth = 3.2 * p; ctx.strokeStyle = '#2b3038'; ctx.stroke();
+      ctx.lineWidth = 2 * p; ctx.strokeStyle = '#8d96a0'; ctx.stroke();
+      if (on) {
+        ctx.setLineDash([1.6 * p, 3.4 * p]); ctx.lineDashOffset = dir * t * 10 * p * (0.3 + load);
+        ctx.lineWidth = 1.1 * p; ctx.strokeStyle = col; ctx.stroke();
+        ctx.setLineDash([]); ctx.lineDashOffset = 0;
+      }
+      ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+    }
+  };
+  // at the mouth: an intake grate, ripples rolling out, pale streaks of warm water drifting off to sea
+  const water = () => {
+    ctx.save(); ctx.translate(mx, my); ctx.scale(p, p);
+    if (on) {
+      for (let j = 0; j < 3; j++) {
+        const f = (t * 0.5 + j / 3 + v) % 1, r = 3 + f * 12;
+        ctx.strokeStyle = `rgba(210,238,255,${0.5 * (1 - f) * (0.4 + 0.6 * load)})`; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+      for (let j = 0; j < 7; j++) {
+        const f = (t * 0.3 + j / 7 + v * 3) % 1, d = 4 + f * 24, side = (hash2(j, 7, 92) - 0.5) * 12 * (0.3 + f), s = 1.5 + f * 2.5;
+        R(dx * d - dy * side - s / 2, dy * d + dx * side - s * 0.3, s, s * 0.6, `rgba(190,240,255,${0.55 * (1 - f) * load})`);
+      }
+    }
+    R(-3, -2, 6, 4, '#1d232a'); R(-2, -1, 1, 2, '#6b747d'); R(0, -1, 1, 2, '#6b747d'); R(2, -1, 1, 2, '#6b747d');
+    ctx.restore();
+  };
+  const pump = () => {
+    ctx.save(); ctx.translate(tx, ty); ctx.scale(p, p);
+    R(-7, -6, 14, 10, '#2b3038'); R(-6, -5, 12, 8, '#b8c0c8'); R(-6, -5, 12, 2, '#d5dade');
+    R(-7, -8, 14, 3, '#2f6fa8'); R(-7, -8, 14, 1, '#5b9bd0'); R(-2, -1, 4, 4, '#353c44');
+    ctx.restore();
+  };
+  // steam off the towers: fat white billows that swell, grey and drift off downwind. A cloud hangs over a busy plant.
+  const steam = () => {
+    if (!on) return;
+    ctx.save(); ctx.translate(bx, by); ctx.scale(p, p);
+    const n = 5 + Math.round(load * 8), a0 = 0.45 + 0.45 * load;
+    if (load > 0.4) {
+      ctx.fillStyle = `rgba(232,236,240,${0.16 * load})`;
+      ctx.beginPath(); ctx.ellipse(-6 * flip + 22, -96, 38, 11, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    for (const [cx0, top, w0, sd] of [[-8, -56, 9, 1], [-32, -52, 10, 2]]) {
+      const cx = cx0 * flip;
+      for (let j = 0; j < n; j++) {
+        const f = (t * 0.16 + v * 5 + sd * 0.37 + j / n) % 1, s = w0 * (1.1 + f * 2.2) * (0.6 + 0.4 * load);
+        const px = cx + Math.sin(f * 4 + j * 1.7 + sd) * 2.5 + f * f * 34, py = top - 2 - f * 46;
+        const a = a0 * Math.pow(1 - f, 0.9) * Math.min(1, f * 7), sh = Math.round(246 - f * 44);
+        ctx.fillStyle = `rgba(${sh},${sh + 2},${sh + 6},${a})`;
+        ctx.fillRect(px - s / 2, py - s / 2, s, s * 0.8);
+        ctx.fillStyle = `rgba(${sh},${sh + 2},${sh + 6},${a * 0.75})`;
+        ctx.fillRect(px - s * 0.95, py - s * 0.05, s * 0.6, s * 0.55);
+        ctx.fillRect(px + s * 0.25, py - s * 0.7, s * 0.6, s * 0.55);
+      }
+    }
+    for (let j = 0; j < 3; j++) {                  // the turbine hall's roof vents breathe a little too
+      const f = (t * 0.4 + v * 2 + j / 3) % 1, s = 2 + f * 4;
+      ctx.fillStyle = `rgba(240,242,245,${0.5 * (1 - f) * load})`;
+      ctx.fillRect(4 * flip + Math.sin(f * 5 + j) - s / 2 + f * 6, -15 - f * 14 - s / 2, s, s);
+    }
+    ctx.restore();
+  };
+  if (dy < -0.3) { water(); pipes(); pump(); body(); }   // the sea behind the plant (up the screen): pipes first
+  else { body(); water(); pipes(); pump(); }
+  steam();
+}
 // Mining rigs and ice drills at work, drawn over their sprite in its own 32x32 pixels: a steel hammer block hauled
 // up the derrick and dropped onto the drill string. Each blow jolts the machine, throws sparks and a ring of dust
 // off the base and kicks chunks out onto the pile, while a diesel stack on the side puffs sooty exhaust and
@@ -6057,6 +6276,7 @@ function paintFar(g, z, m, tier) {
       if (b.type === 'settlement') continue;
       const [sx, sy] = toScreen(b.i % W, (b.i / W) | 0);
       if (off(sx, sy, z)) continue;
+      if (b.type === 'nuclear') { (sq.nuclear || (sq.nuclear = new Path2D())).rect(sx - z * 0.6, sy - z * 0.6, z * 2.2, z * 2.2); continue; }   // a landmark: bigger
       (sq[b.type] || (sq[b.type] = new Path2D())).rect(sx + z * 0.12, sy + z * 0.12, z * 0.76, z * 0.76);
     }
     for (const t in sq) { g.fillStyle = BLD_COLOR[t]; g.fill(sq[t]); }
@@ -6263,6 +6483,8 @@ function pickAt(x, y) {
       if (b && (z >= CFG.cityZoom || b.type === 'station' || b.type === 'port' || b.type === 'pad')) return b;
     }
   }
+  // a nuclear plant: anywhere on it as drawn (its towers and dome stand inland of the tile it's on)
+  if (z >= CFG.detailZoom) for (const b of game.buildings) if (b.type === 'nuclear' && onNuke(b, z, x, y)) return b;
   // a bridge: anywhere on its deck as drawn (a straight span from shore to shore), not only the stair of water
   // tiles it was traced through, which a diagonal deck only half covers
   if (z >= 0.5) for (const br of game.bridges) {
@@ -6314,6 +6536,7 @@ function ringGeom(o, z) {
     }
   }
   const [cx, cy] = tileCenter(o.i);
+  if (o.type === 'nuclear' && z >= CFG.detailZoom) { const G = nukeGeom(o, z); return [...toWorld(G.bx, G.by - 24 * G.p), 52 * G.p]; }
   if (o.type !== 'settlement') return [cx, cy, Math.max(0.8 * z, 12)];
   const lvl = settlementLevel(o);
   return [cx, cy - 0.15, z >= CFG.cityZoom ? Math.max((1.3 + lvl * 0.22) * z, 16) : 15 + lvl * 3];
@@ -7452,9 +7675,21 @@ function renderNewBadges() {
   const n = newCount(Object.keys(CFG.buildings));
   for (const el of document.querySelectorAll('.newn')) el.textContent = !n ? '' : el.closest('#tbar') ? String(n) : `${n} new`;   // the phone's button row is tight
 }
+const bmSub = C => `Your empire: ${fmtNum(game.population)} people (peak ${fmtNum(game.peakPop)}) · building in ${C ? C.short : '-'}`;
+const bmToGo = b => `🔒 at ${fmtNum(b.unlock)} people · ${fmtNum(Math.max(1, Math.ceil((b.unlock || 0) - game.peakPop)))} to go`;
+// the open menu's live numbers, changed in place (no rebuild, so hover and clicks aren't disturbed)
+function updateBuildMenu() {
+  const C = activeCountry(), sub = $('bm-sub'), t = bmSub(C);
+  if (sub.textContent !== t) sub.textContent = t;
+  for (const el of document.querySelectorAll('#bm-grid .bm-card')) {
+    const b = CFG.buildings[el.dataset.type];
+    for (const c of el.querySelectorAll('.cost span[data-r]')) c.classList.toggle('no', !!C && C.res[c.dataset.r] < +c.dataset.n);
+    if (el.classList.contains('locked')) { const st = el.querySelector('.bm-status'), tt = bmToGo(b); if (st.textContent !== tt) st.textContent = tt; }
+  }
+}
 function renderBuildMenu() {
   const C = activeCountry();
-  $('bm-sub').textContent = `Your empire: ${fmtNum(game.population)} people (peak ${fmtNum(game.peakPop)}) · building in ${C ? C.short : '-'}`;
+  $('bm-sub').textContent = bmSub(C);
   const tabs = $('bm-tabs');
   tabs.innerHTML = '';
   for (const t of BUILD_TABS) {
@@ -7478,14 +7713,14 @@ function renderBuildMenu() {
     const b = CFG.buildings[type], open = isUnlocked(type), slot = game.hotbar.indexOf(type);
     const el = document.createElement('div');
     el.className = 'bm-card' + (open ? '' : ' locked') + (game.tool === type ? ' sel' : '') + (isNewTech(type) ? ' new' : '');
+    el.dataset.type = type;
     const cost = Object.entries(b.cost).map(([r, n]) =>
-      `<span class="${C && C.res[r] < n ? 'no' : ''}">${SVG[RES_ICON[r]]}${n}</span>`).join('');
-    const togo = Math.max(1, Math.ceil((b.unlock || 0) - game.peakPop));
+      `<span data-r="${r}" data-n="${n}" class="${C && C.res[r] < n ? 'no' : ''}">${SVG[RES_ICON[r]]}${n}</span>`).join('');
     el.innerHTML = `<div class="tile">${SVG[type]}</div>
       <div class="bm-body"><div class="bm-name">${b.name}${isNewTech(type) ? ' <span class="tag-new">NEW</span>' : ''}${slot >= 0 ? ` <span class="bm-key" title="on your bar">${SLOT_KEYS[slot]}</span>` : ''}</div>
       <div class="bm-desc">${TOUCH ? (b.desc || '').replace('Press F, then click', 'Tap Fire, then tap') : b.desc || ''}</div>
       <div class="bm-foot"><div class="cost">${cost}</div>
-      <div class="bm-status">${open ? (type === 'settlement' ? `capacity from land · ${b.people} people` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : `🔒 at ${fmtNum(b.unlock)} people · ${fmtNum(togo)} to go`}</div></div></div>`;
+      <div class="bm-status">${open ? (type === 'settlement' ? `capacity from land · ${b.people} people` : b.gen ? `+${b.gen} MW` : b.workers ? `${b.workers} workers` : 'Unlocked') : bmToGo(b)}</div></div></div>`;
     if (open) el.addEventListener('click', () => { setTool(type); toggleBuildMenu(false); });
     el.addEventListener('mouseenter', () => { menuHover = type; });
     el.addEventListener('mouseleave', () => { if (menuHover === type) menuHover = null; });
@@ -7499,6 +7734,8 @@ function renderBuildMenu() {
     });
     sub.appendChild(el);
   }
+  const h = grid.querySelector('.bm-card:hover');   // still pointing at a card after a rebuild: it stays the hovered one
+  if (h) menuHover = h.dataset.type;
 }
 
 // ---------- the tech tree (T): every building, by the population that unlocks it ----------
@@ -7677,6 +7914,7 @@ function shownRes(C, r) {
 function updateHud() {
   const C = activeCountry();
   if (!C) return;                                  // game over: nothing left to show
+  if (menuOpen) updateBuildMenu();
   const alive = game.countries.filter(c => c.alive).length;
   $('val-country').textContent = C.full;
   $('country-count').textContent = alive > 1 ? `${game.countries.filter(c => c.alive).indexOf(C) + 1} of ${alive}` : '';
