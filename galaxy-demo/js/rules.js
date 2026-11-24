@@ -23,9 +23,10 @@ export const RULES = {
   },
 
   scale: {
-    // one system unit, in galaxy units. Tiny on purpose: the Sun's whole system is about 1/5000 of the gap to
-    // its nearest neighbour (the biggest blue systems about 1/130), so no orbits show while other stars are on screen
-    guPerSu: 0.00001,
+    // one system unit, in galaxy units. Tiny on purpose: the Sun's whole system is about 1/50,000 of the gap
+    // to its nearest neighbour (the biggest blue systems about 1/1,300). Zooming out, a system shrinks to one
+    // bright star long before any other star comes into view
+    guPerSu: 0.000001,
     homeOrbit: 60,         // su: a planet this far from a yellow star is "temperate" (heat 1.0)
     yearAtHome: 480,       // seconds for one orbit at homeOrbit around a yellow star
   },

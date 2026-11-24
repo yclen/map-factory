@@ -28,7 +28,9 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
   - Settlements appear on Home and on worlds a civilisation has settled.
 - **Zoom:**
   - Each thing switches from a dot to a sphere to tile art based on how big it is on screen.
-  - Labels fade so only the important ones show.
+  - Stars are tiny next to the gaps between them: zooming out, a system shrinks to one bright star long
+    before any other star comes into view.
+  - Star names only show when you hover over or select a star, or once its system is open.
   - Zooming toward a body locks onto it. Dragging pans across it.
 
 ## Where to change things

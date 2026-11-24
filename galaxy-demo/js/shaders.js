@@ -65,6 +65,13 @@ void main() {
     float x = d / max(v_size, 0.5);
     float core = exp(-x * x * 18.0), halo = pow(max(0.0, 1.0 - x), 2.2) * 0.45;
     o = vec4(v_col.rgb * (core + halo) * v_col.a, 0.0);
+  } else if (v_kind == 3) {                // a nearby star: big white-hot core, wide halo and light spikes
+    float x = d / max(v_size, 0.5);
+    float core = exp(-x * x * 26.0) * 1.8, inner = exp(-x * x * 7.0) * 0.9, halo = pow(max(0.0, 1.0 - x), 1.5) * 0.55;
+    vec2 q = abs(v_p) / max(v_size, 0.5);
+    float spikes = (exp(-q.y * 38.0) * pow(max(0.0, 1.0 - q.x), 1.6) + exp(-q.x * 38.0) * pow(max(0.0, 1.0 - q.y), 1.6)) * 1.1;
+    vec3 c = mix(v_col.rgb, vec3(1.0), core * 0.6);
+    o = vec4(c * (core + inner + halo + spikes) * v_col.a, 0.0);
   } else if (v_kind == 1) {                // solid dot
     float a = clamp(v_size + 0.5 - d, 0.0, 1.0) * v_col.a;
     o = vec4(v_col.rgb * a, a);

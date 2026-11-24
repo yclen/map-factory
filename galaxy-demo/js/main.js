@@ -111,7 +111,7 @@ function centerWorld() {
 const minLogZ = () => Math.log2(minDim() / (2.5 * RULES.galaxy.radius));
 function maxLogZ(f) {
   const big = Math.max(cw, ch);
-  if (!f) return Math.log2(4e5);
+  if (!f) return Math.log2(1e7);
   if (f.kind === 'star') return Math.log2(1.4 * big / (f.r * SU));
   if (f.giant) return Math.log2(1.5 * big / (f.r * SU));
   return Math.log2(56 / (2 * f.r * SU / f.surface.W));     // a tile 56 px wide at most
@@ -447,23 +447,28 @@ function render(now, dt) {
 
   const lz = Math.log2(z);
   let tm = performance.now();
+  const hov = hover && !ptrs.size ? pickAt(hover.x, hover.y) : null;   // (picks from the last frame)
   for (const st of G.stars) {
     const sx = toX(st.x), sy = toY(st.y);
     const outerPx = st.outer * SU * z, margin = Math.max(40, outerPx);
     if (sx < -margin || sy < -margin || sx > cw + margin || sy > ch + margin) continue;
     const Rp = st.r * SU * z;
-    // from afar a whole system is one point of light; once its orbits open up (sys -> 1) the point
-    // dims and shrinks to a halo round the star's own disk
-    const sys = smooth(6, 30, outerPx);
+    // from afar a whole system is one point of light. Coming closer (near -> 1) it becomes a big bright
+    // star with light spikes; once its orbits open up (sys -> 1) it settles into a halo round the star's disk
+    const near = smooth(0.05, 3, outerPx), sys = smooth(6, 30, outerPx);
     const point = STAR_GLOW[st.type] * (1 + 0.22 * clamp(lz + 1.5, 0, 7));
-    const glow = point * (1 - sys) + Math.max(point * 0.6, Rp * 4.2) * sys;
     const c = st.color;
-    pushSprite(sx * s, sy * s, glow * s, 0, c[0] / 255, c[1] / 255, c[2] / 255, 1 - 0.45 * sys);
+    if (near < 0.98) pushSprite(sx * s, sy * s, point * s, 0, c[0] / 255, c[1] / 255, c[2] / 255, 1 - near);
+    if (near > 0.02) {
+      const big = point * 5 * (1 - sys) + Math.max(point * 1.5, Rp * 5) * sys;
+      pushSprite(sx * s, sy * s, big * s, 3, c[0] / 255, c[1] / 255, c[2] / 255, near * (1 - 0.55 * sys));
+    }
+    const glow = point * (1 + 1.5 * near) * (1 - sys) + Math.max(point, Rp * 4.2) * sys;
     addPick(st, sx, sy, Math.max(Rp, 5));
     const pri = (st.isSun ? 2000 : 0) + (st === selected ? 1500 : 0) + (st.type === 'blue' ? 40 : st.type === 'yellow' ? 25 : 10);
-    // star names only once stars are spread out enough to read: the Sun (and a selected star) always
-    const sa = st.isSun || st === selected ? 1 : st.type === 'blue' ? smooth(0.9, 2.2, z) : smooth(1.6, 4, z);
-    labels.add(st.uid, st.name, sx, sy, Math.max(glow * 0.35, Rp * 1.15) + 3, pri, sa, st.isSun ? 'home' : 'star');
+    // star names stay hidden (just dots) unless the star is hovered or selected, or its system is open
+    const sa = st === hov || st === selected ? 1 : sys;
+    labels.add(st.uid, st.name, sx, sy, Math.max(glow * 0.35, point * 1.6 * near * (1 - sys), Rp * 1.15) + 3, pri, sa, st.isSun ? 'home' : 'star');
     if (Rp > 1.4) addDraw(st, sx, sy, Rp);
     if (outerPx > 3) drawSystem(st, sx, sy, z, md, s);
   }
@@ -674,7 +679,7 @@ glCanvas.addEventListener('wheel', e => {
   e.preventDefault();
   cam.fly = null;
   const px = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
-  const dz = -e.deltaY * px * (e.ctrlKey ? 0.014 : 0.003);
+  const dz = -e.deltaY * px * (e.ctrlKey ? 0.016 : 0.0035);
   cam.tz = clamp(cam.tz + clamp(dz, -1.5, 1.5), minLogZ(), maxLogZ(cam.focus) + 1);
   cam.ax = e.clientX; cam.ay = e.clientY;
   if (dz > 0) autoFocus(e.clientX, e.clientY);
@@ -743,6 +748,7 @@ function updateUI(force) {
   if (hover && !ptrs.size) {
     const b = pickAt(hover.x, hover.y);
     let txt = b ? `<b>${b.name}</b> · ${b.kind === 'star' ? RULES.stars[b.type].name : b.typeName}` : '';
+    if (b && b.kind === 'star') txt = '';          // a hovered star shows its name label instead
     const f = cam.focus;
     if (f && f.surface && f.cpu) {
       const d = drawList.slice(0, drawN).find(x => x.b === f);
