@@ -36,3 +36,4 @@ export const SLOT_WALKER = 448;    // two walking frames
 export const SLOT_PIN = 456;       // settlement pins, one per level
 export const SLOT_FLOOR = 128;     // plain forest floor under scattered trees: base tile i, variant v -> 128+i*4+v
 export const SLOT_DECO = 312;      // scattered decoration kind k, variant v -> 312+k*4+v (up to 34 kinds)
+export const SLOT_ORE = 512;       // deposit o at richness level L (0..3), variant v -> 512+o*16+L*4+v

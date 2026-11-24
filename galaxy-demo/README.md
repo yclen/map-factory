@@ -86,7 +86,7 @@ memory. The **Walkers** button adds 1k–50k animated people to the planet you'r
 ## Terrain look
 
 The **Terrain** button (or **T**) switches between the new planet-surface look and the old flat one, to compare.
-The new look adds five things, all drawn in the planet shader (`BODY_FS` in `shaders.js`):
+The new look adds these, all drawn in the planet shader (`BODY_FS` in `shaders.js`):
 
 - **Hill shading:** each map chunk carries a small field map (`fld`, built in `terrain.js` next to the tile ids)
   with the ground's slope. Slopes are lit from the top left, so mountains and hills look raised, from orbit and
@@ -102,9 +102,18 @@ The new look adds five things, all drawn in the planet shader (`BODY_FS` in `sha
   the wind. Which ones appear, and how densely, is set per ground type in `skin.js` (`decor`, `decorFor`). Forest,
   jungle and pine-forest tiles switch to plain forest floor so the trees aren't painted twice. Nothing is placed on
   water, ore or buildings. Decorations only appear at close zoom, where the pixel art shows.
+- **Ore fields:** each deposit tile knows how rich it is (0 at a patch's edge, rising toward the middle), and
+  draws 1 to 4 levels of ore lumps to match. The soil under a patch is stained (rusty for iron, orange for copper,
+  black for coal, green for uranium...), so patches show from mid zoom and from orbit. Metal ores and crystals
+  glint, and uranium glows. Colours, stains, glint and glow are set per deposit in `skin.js` (`over`).
+- **Mountains and cliffs:** high ground gets sharp ridgelines in its shading. The land's height is cut into steps,
+  and where a step drops toward the viewer a rock wall is drawn with a lit lip and a shadow at its foot. Cliffs
+  form on mountains, peaks, mesas, highlands and canyons, and in scattered bands elsewhere, never on water or
+  settlements. They are visual only and don't block anything yet.
 
-The field map costs 4 bytes per tile on the GPU. It makes chunk building about 35% slower in the background
-workers. The shader skips its extra work wherever the look is switched off.
+Tile ids are now 4 bytes per tile (ground, overlay, richness, cliff mask), and the field map adds 4 more on the GPU.
+Chunk building takes about 20–35% longer in the background workers. On a desktop GPU, a full-screen close-up costs
+about 1.3–1.8× the old look's draw time; surf, cliffs and decorations are worked out once per screen pixel. The shader skips its extra work wherever the look is switched off.
 
 ## Releasing
 

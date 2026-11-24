@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261124123321';
-import { SKIN } from './skin.js?v=20261124123321';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124123321';
-import { buildAtlas, decorTables } from './art.js?v=20261124123321';
-import { Renderer } from './renderer.js?v=20261124123321';
-import { Labels } from './labels.js?v=20261124123321';
-import { mulberry32, hash32 } from './rng.js?v=20261124123321';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124123321';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124123321';
+import { RULES } from './rules.js?v=20261124130357';
+import { SKIN } from './skin.js?v=20261124130357';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124130357';
+import { buildAtlas, decorTables } from './art.js?v=20261124130357';
+import { Renderer } from './renderer.js?v=20261124130357';
+import { Labels } from './labels.js?v=20261124130357';
+import { mulberry32, hash32 } from './rng.js?v=20261124130357';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124130357';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124130357';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -289,7 +289,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261124123321', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261124130357', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -345,7 +345,7 @@ function onPage(d) {
   R.mipmap(p.col, p.fld);
   p.ready = true;
   if (p.L === 0 || p.L === levelsOf(b).Lmax) p.cpu = d.ids;         // for hover info and placing walkers
-  p.bytes = p.sx * p.sy * (2 + 8 * 1.34) + (p.cpu ? p.sx * p.sy * 2 : 0);
+  p.bytes = p.sx * p.sy * (4 + 8 * 1.34) + (p.cpu ? p.sx * p.sy * 4 : 0);
   if (p.L === 0) { b.counts = d.counts; b.settlements = d.settlements; b.base = p; if (b === cam.focus) walkersDirty = true; }
 }
 function freePage(p) {
@@ -376,11 +376,11 @@ function tileAt(b, u, v) {
   const lv = levelsOf(b), W = lv.W;
   const tx = clamp(Math.floor((u * 0.5 + 0.5) * W), 0, W - 1), ty = clamp(Math.floor((v * 0.5 + 0.5) * W), 0, W - 1);
   const top = pages.get(`${b.uid}/${lv.N[lv.Lmax]}/${lv.Lmax}/${Math.floor(tx / PAGE)}/${Math.floor(ty / PAGE)}`);
-  if (top && top.cpu) { const i = ((ty - top.y0) * top.sx + (tx - top.x0)) * 2; return { tx, ty, base: top.cpu[i], ov: top.cpu[i + 1], exact: true }; }
+  if (top && top.cpu) { const i = ((ty - top.y0) * top.sx + (tx - top.x0)) * 4; return { tx, ty, base: top.cpu[i], ov: top.cpu[i + 1], exact: true }; }
   const p = b.base;
   if (!p || !p.cpu) return null;
   const N = p.N, x = clamp(Math.floor((u * 0.5 + 0.5) * N), 0, N - 1), y = clamp(Math.floor((v * 0.5 + 0.5) * N), 0, N - 1);
-  const i = (y * p.sx + x) * 2;
+  const i = (y * p.sx + x) * 4;
   return { tx, ty, base: p.cpu[i], ov: p.cpu[i + 1], exact: false };
 }
 

@@ -1,10 +1,10 @@
 // Placeholder pixel art, drawn from the skin's colours and patterns into one 256x128 atlas of 8x8 tiles.
 // Runs on the main thread (for the GPU) and in the map worker (for each tile's average colour).
 // Hand-drawn art can replace any slot later without touching the generator.
-import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN, SLOT_FLOOR, SLOT_DECO } from './ids.js?v=20261124123321';
-import { mulberry32, hash32 } from './rng.js?v=20261124123321';
+import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN, SLOT_FLOOR, SLOT_DECO, SLOT_ORE, RESOURCES } from './ids.js?v=20261124130357';
+import { mulberry32, hash32 } from './rng.js?v=20261124130357';
 
-export const ATLAS_W = 256, ATLAS_H = 128;
+export const ATLAS_W = 256, ATLAS_H = 256;
 
 export function buildAtlas(skin) {
   const data = new Uint8ClampedArray(ATLAS_W * ATLAS_H * 4);
@@ -276,6 +276,59 @@ export function buildAtlas(skin) {
     }
   });
 
+  // ---------- deposits by richness (the new terrain look): sparse at a patch's edge, packed in its middle ----------
+  for (const name of RESOURCES) {
+    const id = OVER.indexOf(name), s = skin.over[name], c = s.c, c2 = s.c2 || s.c, c3 = s.c3 || c, c4 = s.c4;
+    for (let L = 0; L < 4; L++) for (let v = 0; v < 4; v++) {
+      const slot = SLOT_ORE + id * 16 + L * 4 + v, r = mulberry32(hash32(id, L * 4 + v, 113));
+      const P = (x, y, col) => put(slot, x, y, col);
+      // a lump of ore: lit corner top left, shadowed bottom and right edges
+      const lump = (x, y, w, h) => {
+        const patina = c4 && r() < 0.5;
+        for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
+          const edge = dy === h - 1 || dx === w - 1;
+          P(x + dx, y + dy, dx + dy === 0 ? c3 : edge ? c2 : patina && r() < 0.4 ? c4 : c);
+        }
+      };
+      switch (s.style) {
+        case 'ore': {
+          const n = [2, 3, 5, 7][L];
+          for (let k = 0; k < n; k++) lump((r() * 6) | 0, (r() * 6) | 0, 2 + (r() < 0.3 ? 1 : 0), 2);
+          if (L === 3) lump(2 + ((r() * 3) | 0), 2 + ((r() * 3) | 0), 3, 3);
+          break;
+        }
+        case 'boulder': {
+          const n = [1, 2, 3, 4][L];
+          for (let k = 0; k < n; k++) {
+            const w = 2 + (r() < 0.5 ? 1 : 0), x = (r() * (8 - w)) | 0, y = 1 + ((r() * 5) | 0);
+            lump(x, y, w, 2); if (w === 3) P(x + 1, y - 1, c3);
+          }
+          break;
+        }
+        case 'puddle': {
+          const rx = [1.6, 2.3, 3.0, 3.6][L], ry = rx * 0.6, cx = 3.5 + (r() - 0.5), cy = 4 + (r() - 0.5);
+          for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+            const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry, d = dx * dx + dy * dy;
+            if (d > 1) continue;
+            P(x, y, d > 0.6 && dx + dy < 0 ? c2 : c);
+          }
+          P(Math.round(cx - rx * 0.4), Math.round(cy - ry * 0.3), c3);
+          break;
+        }
+        case 'crystal': {
+          const n = [1, 2, 3, 4][L];
+          for (let k = 0; k < n; k++) {
+            const x = (r() * 6) | 0, y = 1 + ((r() * 4) | 0), h = 2 + ((r() * 2) | 0);
+            P(x, y, c3);
+            for (let dy = 1; dy <= h; dy++) { P(x, y + dy, c3); P(x + 1, y + dy, c); }
+            P(x, y + h + 1, c2); P(x + 1, y + h + 1, c2);
+          }
+          break;
+        }
+      }
+    }
+  }
+
   // ---------- sprites: a little walking person (2 frames) and settlement pins ----------
   const skinTone = [236, 196, 160], shirt = [70, 150, 230], legs = [50, 50, 70];
   for (let f = 0; f < 2; f++) {
@@ -321,14 +374,25 @@ export function buildAtlas(skin) {
     for (let v = 0; v < 4; v++) { const q = avg(SLOT_OVER + id * 4 + v); r += q[0]; g += q[1]; b += q[2]; a += q[3]; }
     overAvg.set([r / 4, g / 4, b / 4, Math.min(1, a / 4 * 1.6)], id * 4);
   });
-  return { data, baseAvg, baseEmis, overAvg, overEmis };
+  // soil stain under each deposit type [r, g, b, strength], for the colour map (and the shader)
+  const overStain = new Float32Array(OVER.length * 4);
+  OVER.forEach((n, id) => { const st = id && skin.over[n].stain; if (st) overStain.set(st, id * 4); });
+  return { data, baseAvg, baseEmis, overAvg, overEmis, overStain };
 }
 
-// what the shader needs to scatter decorations, per ground type: D = share of spots with something, K = 4 atlas
-// slots to pick from (-1 = none; +4096 = sways in the wind), F = 1 where trees stand on plain forest floor
+// what the shader needs for the new terrain look. Per ground type: D = share of spots with a decoration, K = 4
+// atlas slots to pick from (-1 = none; +4096 = sways in the wind), F = 1 where trees stand on plain forest floor.
+// Per overlay: S = soil stain (r, g, b 0..1, strength), X = (glint, pulse)
 export function decorTables(skin) {
   const kinds = Object.keys(skin.decor || {});
   const D = new Float32Array(32), K = new Int32Array(128).fill(-1), F = new Int32Array(32);
+  const S = new Float32Array(64), X = new Float32Array(32);
+  OVER.forEach((n, id) => {
+    const o = id && skin.over[n];
+    if (!o) return;
+    if (o.stain) S.set([o.stain[0] / 255, o.stain[1] / 255, o.stain[2] / 255, o.stain[3]], id * 4);
+    X[id * 2] = o.glint || 0; X[id * 2 + 1] = o.pulse || 0;
+  });
   BASE.forEach((name, id) => {
     const t = (skin.decorFor || {})[name];
     if (t) {
@@ -337,5 +401,5 @@ export function decorTables(skin) {
     }
     if ((skin.floor || []).includes(name)) F[id] = 1;
   });
-  return { D, K, F };
+  return { D, K, F, S, X };
 }

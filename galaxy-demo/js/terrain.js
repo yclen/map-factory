@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261124123321';
-import { RULES } from './rules.js?v=20261124123321';
-import { makeNoise } from './noise.js?v=20261124123321';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261124123321';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261124130357';
+import { RULES } from './rules.js?v=20261124130357';
+import { makeNoise } from './noise.js?v=20261124130357';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261124130357';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -122,6 +122,7 @@ export function makeSampler(desc) {
 
   // resource deposits: round patches, like ore fields. A cheap "is there a patch here" field first;
   // only inside patches, a cellular lookup decides which resource the patch holds (by abundance).
+  // deposit.rich = how far inside the patch this spot is (0 at the edge, 1 in the rich middle)
   const res = Object.entries(P.resources || {});
   let total = 0;
   for (const [, a] of res) total += a;
@@ -133,6 +134,7 @@ export function makeSampler(desc) {
     if (!res.length || base === T.DEEP || base === T.LAVA) return 0;
     const v = N.fbm(x * resFreq + oR[0], y * resFreq + oR[1], z * resFreq + oR[2], 2);
     if (v < thr) return 0;
+    deposit.rich = clamp01((v - thr) / 0.25);
     N.worley(x * resFreq * 0.5 + oR[1], y * resFreq * 0.5 + oR[2], z * resFreq * 0.5 + oR[0]);
     let pick = ((N.lastCell >>> 8) % 10000) / 10000 * total;
     for (const [name, a] of res) {
@@ -152,16 +154,22 @@ export function makeSampler(desc) {
   const oD = [o(), o(), o()];
   // the elevation noise already carries bumps down to ~60 tiles across on the biggest planets: one finer octave
   // (24 tiles) is enough on top
-  let kTps = -1, k1 = 0, k3 = 0;
-  const f1 = tileF / 24, f3 = tileF / 48;
+  // High ground also gets sharp ridgelines (ridged noise, ~70 tiles between crests), so mountain ranges show crests
+  // and valleys instead of soft bumps
+  let kTps = -1, k1 = 0, k3 = 0, kR = 0;
+  const f1 = tileF / 24, f3 = tileF / 48, fR = tileF / 140;
   function detail(x, y, e, tps) {
-    if (tps !== kTps) { kTps = tps; k1 = clamp01((24 / tps - 3) / 3) * 0.008; k3 = clamp01((48 / tps - 2) / 2) * 0.8; }
+    if (tps !== kTps) { kTps = tps; k1 = clamp01((24 / tps - 3) / 3) * 0.008; k3 = clamp01((48 / tps - 2) / 2) * 0.8; kR = clamp01((70 / tps - 3) / 3) * 0.1; }
     const rough = e < sea ? 0.35 : 0.6 + (e - sea) * 6;    // mountains are rugged, plains gentle, sea floors smooth
     detail.rel = k1 > 0 ? N.simplex3(x * f1 + oD[0], y * f1 + oD[1], oD[2]) * k1 * rough : 0;
+    const mtn = clamp01((e - sea - 0.08) / 0.14);
+    if (mtn > 0 && kR > 0) detail.rel += (N.ridged(x * fR + oD[1], y * fR + oD[0], oD[2] + 7, 2) - 0.6) * kR * mtn;
     detail.vari = k3 > 0 ? N.simplex3(x * f3 + oD[2], y * f3 + oD[0], oD[1]) * k3 : 0;
   }
   return { classify, deposit, elev, detail, sea };
 }
+// ground where cliffs always may form (elsewhere only in scattered bands)
+const CLIFF_GROUND = new Set([T.MOUNTAIN, T.PEAK, T.MESA, T.HIGHLAND, T.CANYON]);
 const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
 // slopes are stored squeezed into a byte: t = slope * SLOPE_K (elevation per tile), byte = 0.5 + 0.5 * t / (1 + |t|)
 export const SLOPE_K = 60;
@@ -192,13 +200,13 @@ export function placeSettlements(desc, sampler) {
 // at the finest detail level, fewer at coarser levels); this builds the sx x sy block starting at (x0, y0).
 // Every sample reads the same noise, so coarse and fine levels show the same continents. Samples outside the
 // disk copy the ground just inside the rim (clean edges) and aren't counted.
-// Returns tile ids (2 bytes each: ground, overlay), the colour map (RGBA: average tile colour + glow),
+// Returns tile ids (4 bytes each: ground, overlay, deposit richness 0..255, cliff mask 0/255), the colour map (RGBA: average tile colour + glow),
 // counts per id, and the planet's settlement list.
 const settleMemo = new Map();
 export function generatePage(desc, art, N, x0, y0, sx, sy) {
   const t0 = performance.now();
   const sampler = makeSampler(desc);
-  const ids = new Uint8Array(sx * sy * 2);
+  const ids = new Uint8Array(sx * sy * 4);
   // elevation (and shading relief) on the chunk plus a 1-sample border, so slopes at the edges match the neighbours
   const GW = sx + 2, GH = sy + 2, tps = desc.W / N;
   const E = new Float32Array(GW * GH), Hs = new Float32Array(GW * GH), Vr = new Float32Array(GW * GH);
@@ -216,7 +224,7 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     const v = ((y0 + y + 0.5) / N) * 2 - 1;
     for (let x = 0; x < sx; x++) {
       const u = ((x0 + x + 0.5) / N) * 2 - 1, d = Math.hypot(u, v);
-      const i = (y * sx + x) * 2;
+      const i = (y * sx + x) * 4;
       if (d > 1) {
         if (!rim) {                       // the ground just inside the rim, all the way round (only if needed)
           RIM = Math.min(4096, N * 2); rim = new Uint8Array(RIM);
@@ -227,7 +235,8 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
       }
       const base = sampler.classify(u, v, 0, E[(y + 1) * GW + x + 1]);
       ids[i] = base;
-      ids[i + 1] = sampler.deposit(u, v, 0, base);
+      const ov = sampler.deposit(u, v, 0, base);
+      ids[i + 1] = ov; ids[i + 2] = ov ? Math.round(sampler.deposit.rich * 255) : 0;
     }
   }
   // settlements (worked out once per planet): paint buildings in a disc around each centre, denser in the middle
@@ -243,10 +252,11 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
         const d = Math.hypot(tx + 0.5 - cx, ty + 0.5 - cy) / Math.max(rt, 0.5);
         const center = tx === Math.floor(cx) && ty === Math.floor(cy);
         if (d > 1 && !center) continue;
-        const i = ((ty - y0) * sx + (tx - x0)) * 2;
+        const i = ((ty - y0) * sx + (tx - x0)) * 4;
         if (WATER.has(ids[i]) && !center) continue;
         const h = (tileHash(tx, ty) % 1000) / 1000;
         if (!center && h > 1 - 0.55 * d) continue;
+        ids[i + 2] = 0;
         ids[i + 1] = d < 0.3 && s.level >= 3 ? O.TOWER : d < 0.55 && s.level >= 2 ? O.BLOCK : s.level >= 1 ? O.HOUSE : O.HUT;
         if (WATER.has(ids[i])) ids[i] = T.BEACH;
       }
@@ -256,31 +266,41 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
   const counts = new Uint32Array(64);
   const col = new Uint8Array(sx * sy * 4);
   for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) {
-    const t = y * sx + x, base = ids[t * 2], ov = ids[t * 2 + 1];
+    const t = y * sx + x, base = ids[t * 4], ov = ids[t * 4 + 1], rich = ids[t * 4 + 2] / 255;
     const u = ((x0 + x + 0.5) / N) * 2 - 1, v = ((y0 + y + 0.5) / N) * 2 - 1;
     if (u * u + v * v <= 1) { counts[base]++; if (ov) counts[32 + ov]++; }
     const vv = tileHash(x0 + x, y0 + y) & 3, bi = (base * 4 + vv) * 3;
     let r = art.baseAvg[bi], g = art.baseAvg[bi + 1], b = art.baseAvg[bi + 2], e = art.baseEmis[base];
+    if (ov && art.overStain[ov * 4 + 3] > 0) {
+      const k = art.overStain[ov * 4 + 3] * (0.35 + 0.65 * rich);
+      r += (art.overStain[ov * 4] - r) * k; g += (art.overStain[ov * 4 + 1] - g) * k; b += (art.overStain[ov * 4 + 2] - b) * k;
+    }
     if (ov) {
-      const a = art.overAvg[ov * 4 + 3];
+      const a = art.overAvg[ov * 4 + 3] * (art.overStain[ov * 4 + 3] > 0 ? 0.4 + 0.6 * rich : 1);
       r += (art.overAvg[ov * 4] - r) * a; g += (art.overAvg[ov * 4 + 1] - g) * a; b += (art.overAvg[ov * 4 + 2] - b) * a;
       e = Math.max(e, art.overEmis[ov]);
     }
     col[t * 4] = r; col[t * 4 + 1] = g; col[t * 4 + 2] = b; col[t * 4 + 3] = e * 255;
   }
   // field map for the terrain shading (RGBA, filtered smoothly on the GPU):
-  // R, G = east-west and north-south slope (per tile, squeezed into -1..1 by t / (1 + |t|)); B = height relative to the sea, 0.5 at
-  // the shore and below it only under open water (frozen seas and salt flats count as shore); A = a slow
-  // colour variation (lusher or drier patches inside one biome)
+  // R, G = east-west and north-south slope (per tile, squeezed into -1..1 by t / (1 + |t|)); B = height relative to
+  // the sea, 0.5 at the shore: below it only under open water (frozen seas and salt flats count as shore), 600 per
+  // unit of depth; above it the land's relief, 300 per unit (cliffs step along its contours); A = a slow colour
+  // variation (lusher or drier patches inside one biome).
+  // Cliff mask (ids byte 3): cliffs on mountainous ground, and in scattered bands where the colour variation runs high,
+  // never on water, lava or settlements
   const fld = new Uint8Array(sx * sy * 4), sq = s => { const t = s * SLOPE_K; return 127.5 + 127.5 * t / (1 + Math.abs(t)); }, inv = 1 / (2 * tps);
   for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) {
-    const t = y * sx + x, g = (y + 1) * GW + x + 1, base = ids[t * 2];
+    const t = y * sx + x, g = (y + 1) * GW + x + 1, base = ids[t * 4];
     const dx = (Hs[g + 1] - Hs[g - 1]) * inv, dy = (Hs[g + GW] - Hs[g - GW]) * inv;
     let rel = E[g] - sampler.sea;
     if (rel < 0 && base !== T.DEEP && base !== T.SHALLOW) rel = 0;
     if (rel > 0 && (base === T.DEEP || base === T.SHALLOW)) rel = -0.001;
     fld[t * 4] = sq(dx); fld[t * 4 + 1] = sq(dy);
-    fld[t * 4 + 2] = Math.max(0, Math.min(255, 127.5 + rel * 600));
+    const land = Math.max(0, Hs[g] - sampler.sea);
+    fld[t * 4 + 2] = rel < 0 ? Math.max(0, 127.5 + rel * 600) : Math.min(255, 127.5 + land * 300);
+    const ov = ids[t * 4 + 1];
+    ids[t * 4 + 3] = rel >= 0 && !WATER.has(base) && base !== T.SEA_ICE && !(ov >= O.HUT) && (CLIFF_GROUND.has(base) || Vr[g] > 0.42) ? 255 : 0;
     fld[t * 4 + 3] = Math.max(0, Math.min(255, 127.5 + Vr[g] * 127.5));
   }
   return { ids, col, fld, counts, settlements, ms: performance.now() - t0 };

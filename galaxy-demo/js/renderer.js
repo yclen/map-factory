@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261124123321';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261124123321';
+import * as S from './shaders.js?v=20261124130357';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261124130357';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -79,6 +79,7 @@ export class Renderer {
     const gl = this.gl, { p, u } = this.progBody;
     gl.useProgram(p);
     gl.uniform1fv(u['u_decoD[0]'], t.D); gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform1iv(u['u_floor[0]'], t.F);
+    gl.uniform4fv(u['u_oreStain[0]'], t.S); gl.uniform2fv(u['u_oreFx[0]'], t.X);
   }
   makeAtlas(data) {
     const gl = this.gl, t = gl.createTexture();
@@ -92,10 +93,10 @@ export class Renderer {
   makeIdTexture(W, H) {
     const gl = this.gl, t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RG8UI, W, H);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8UI, W, H);   // ground, overlay, richness, cliff mask
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    this.texBytes += W * H * 2;
+    this.texBytes += W * H * 4;
     return t;
   }
   // smooth = filter between samples when magnified (the field map); the colour map stays crisp
@@ -114,7 +115,7 @@ export class Renderer {
   uploadBand(idTex, colTex, W, y0, rows, ids, col, fldTex, fld) {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, idTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, rows, gl.RG_INTEGER, gl.UNSIGNED_BYTE, ids);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, rows, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, ids);
     gl.bindTexture(gl.TEXTURE_2D, colTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, rows, gl.RGBA, gl.UNSIGNED_BYTE, col);
     gl.bindTexture(gl.TEXTURE_2D, fldTex);
@@ -123,7 +124,7 @@ export class Renderer {
   mipmap(...texs) { const gl = this.gl; for (const t of texs) { gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); } }
   freeMap(idTex, colTex, fldTex, W, H) {
     this.gl.deleteTexture(idTex); this.gl.deleteTexture(colTex); this.gl.deleteTexture(fldTex);
-    this.texBytes -= W * H * 2 + W * H * 8 * 1.34;
+    this.texBytes -= W * H * 4 + W * H * 8 * 1.34;
   }
   makeGlowTexture(rgba, size) {
     const gl = this.gl, t = gl.createTexture();
