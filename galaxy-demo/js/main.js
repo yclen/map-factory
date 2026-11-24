@@ -39,6 +39,14 @@ const BASE_MOON = 6, BASE_SUN = RULES.scale.homeOrbit / BASE_MOON;   // the yard
 const SCALE = {};
 for (const k of LADDER_KEYS) SCALE[k] = RULES.scale[k];
 try { Object.assign(SCALE, JSON.parse(localStorage.getItem('galaxyDemo.scale') || '{}')); } catch (e) { /* no storage */ }
+// a shared link carries its own ladder (?ladder=homeTiles,moon,sun,star), which wins over this browser's settings
+if (params.has('ladder')) {
+  const v = params.get('ladder').split(',').map(Number);
+  LADDER_KEYS.forEach((k, i) => { if (v[i] > 0) SCALE[k] = v[i]; });
+  // adopt them as this browser's settings and tidy the address bar, so later slider moves stick on reload
+  try { localStorage.setItem('galaxyDemo.scale', JSON.stringify(SCALE)); } catch (e) { /* no storage */ }
+  const u = new URL(location.href); u.searchParams.delete('ladder'); history.replaceState(null, '', u);
+}
 const SUN_GAP = (() => {          // the Sun's nearest neighbour, in galaxy units
   let d = Infinity;
   for (const s of G.stars) if (s !== G.sun) d = Math.min(d, Math.hypot(s.x - G.sun.x, s.y - G.sun.y));
@@ -871,15 +879,26 @@ const toSlider = (k, v) => k.log ? Math.round(1000 * Math.log(v / k.min) / Math.
 const fromSlider = (k, t) => k.log ? +nice(k.min * (k.max / k.min) ** (t / 1000)).replace(/,/g, '') : +t;
 function saveScale() { try { localStorage.setItem('galaxyDemo.scale', JSON.stringify(SCALE)); } catch (e) { /* no storage */ } }
 // re-scale while keeping the focused body the same size on screen (orbits and gaps change around it)
-function rescale() {
+// keepSize: keep the focused body the same size on screen, so orbits visibly move around it. The star-gap
+// slider doesn't (it would cancel out): the zoom stays put and the whole system grows or shrinks instead.
+function rescale(keepSize = true) {
   const oldSU = SU;
   applyScale();
   if (cam.focus) {
     const k = SU / oldSU;
     cam.ox *= k; cam.oy *= k;
-    cam.logZ -= Math.log2(k); cam.tz = cam.logZ;
+    if (keepSize) { cam.logZ -= Math.log2(k); cam.tz = cam.logZ; }
   }
   cam.fly = null;
+}
+const ladderText = () => LADDER_KEYS.map(k => SCALE[k]).join(',');
+// copy to the clipboard, and also show the text in the panel (selected) in case the browser blocks the clipboard
+function copyText(text, btn, done) {
+  const out = scaleEl.querySelector('[data-out]');
+  out.hidden = false; out.value = text; out.focus(); out.select();
+  const say = msg => { const t = btn.dataset.label || (btn.dataset.label = btn.textContent); btn.textContent = msg; setTimeout(() => { btn.textContent = t; }, 1800); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => say(done), () => say('Select & copy below'));
+  else say('Select & copy below');
 }
 function resizeMaps() {
   applyHomeTiles();
@@ -898,8 +917,11 @@ function buildScalePanel() {
     '<div class="s">Each distance is measured in the one above it.</div>' +
     KNOBS.map(k => `<label><span>${k.label}</span><b data-v="${k.key}"></b>
       <input type="range" data-k="${k.key}" min="${k.log ? 0 : k.min}" max="${k.log ? 1000 : k.max}" step="${k.log ? 1 : k.step}"></label>`).join('') +
-    '<button class="go" data-reset>Reset to rules.js</button>' +
-    '<div class="hint">Saved in this browser only. To make a value everyone\'s default, put it in js/rules.js.</div>';
+    '<div class="row2"><button data-link>Copy link</button><button data-rules>Copy for rules.js</button></div>' +
+    '<textarea data-out readonly rows="3" hidden></textarea>' +
+    '<button class="go" data-reset>Reset to defaults</button>' +
+    '<div class="hint">Saved automatically in this browser. <b>Copy link</b> shares these distances with anyone. ' +
+    'To make them everyone&rsquo;s default, use <b>Copy for rules.js</b> and paste it to Claude.</div>';
   const sync = () => KNOBS.forEach(k => {
     scaleEl.querySelector(`[data-k="${k.key}"]`).value = toSlider(k, SCALE[k.key]);
     scaleEl.querySelector(`[data-v="${k.key}"]`).textContent = k.text(SCALE[k.key]);
@@ -909,10 +931,18 @@ function buildScalePanel() {
     input.addEventListener('input', () => {
       SCALE[k.key] = fromSlider(k, input.value);
       scaleEl.querySelector(`[data-v="${k.key}"]`).textContent = k.text(SCALE[k.key]);
-      if (k.key !== 'homeTiles') rescale();
+      if (k.key !== 'homeTiles') rescale(k.key !== 'starDistance');
     });
     input.addEventListener('change', () => { if (k.key === 'homeTiles') { rescale(); resizeMaps(); } saveScale(); });
   });
+  scaleEl.querySelector('[data-link]').onclick = e => {
+    const u = new URL(location.href); u.searchParams.set('ladder', ladderText());
+    copyText(u.toString(), e.currentTarget, 'Link copied');
+  };
+  scaleEl.querySelector('[data-rules]').onclick = e => {
+    const txt = `scale: { homeTiles: ${SCALE.homeTiles}, moonDistance: ${SCALE.moonDistance}, sunDistance: ${SCALE.sunDistance}, starDistance: ${SCALE.starDistance} }`;
+    copyText(txt, e.currentTarget, 'Copied');
+  };
   scaleEl.querySelector('[data-reset]').onclick = () => {
     const tilesChanged = SCALE.homeTiles !== RULES.scale.homeTiles;
     for (const k of LADDER_KEYS) SCALE[k] = RULES.scale[k];

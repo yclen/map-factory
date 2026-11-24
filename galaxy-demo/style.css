@@ -51,6 +51,11 @@ button.on { border-color: var(--gold); color: #ffe6a6; }
 #scale input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: #f2c14e; }
 #scale .x { padding: 0 9px; font-size: 16px; line-height: 22px; }
 #scale .go { margin-top: 8px; width: 100%; border-color: rgba(242, 193, 78, 0.45); }
+#scale .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+#scale .row2 button { padding: 6px 8px; font-size: 12px; }
+#scale .hint b { color: var(--fg); font-weight: 600; }
+#scale textarea { width: 100%; margin-top: 6px; resize: none; background: rgba(0, 0, 0, 0.35); color: #ffe6a6; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: 11px/1.4 ui-monospace, Consolas, monospace; }
+#scale textarea[hidden] { display: none; }
 #tip { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; pointer-events: none; font-size: 12px; white-space: nowrap; }
 
 #bar { position: fixed; left: 0; right: 0; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; pointer-events: none; padding: 0 12px; }
