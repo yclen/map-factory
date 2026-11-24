@@ -322,18 +322,23 @@ function evictMaps() {
     if (m.full && m.full.ready) full.push([uid, m]);
     if (m.low && m.low.ready) low.push([uid, m]);
   }
-  const drop = (list, level, keep) => {
-    if (list.length <= keep) return;
+  // full maps are kept within a memory budget (they can be millions of tiles), far maps by count
+  const bytes = L => L.W * L.H * 7.4;
+  const drop = (list, level, keep, budget = Infinity) => {
+    let total = 0;
+    for (const [, m] of list) total += bytes(m[level]);
+    if (list.length <= keep && total <= budget) return;
     list.sort((a, b) => a[1][level].used - b[1][level].used);
-    for (let i = 0; i < list.length - keep; i++) {
+    for (let i = 0; i < list.length && (list.length - i > keep || total > budget); i++) {
       const [uid, m] = list[i], L = m[level];
       if (frameNo - L.used < 20) continue;
+      total -= bytes(L);
       R.freeMap(L.ids, L.col, L.W, L.H);
       m[level] = null;
       if (level === 'full') { const b = bodyByUid.get(uid); b.cpu = null; }
     }
   };
-  drop(full, 'full', 8); drop(low, 'low', 160);
+  drop(full, 'full', 8, (coarse ? 48 : 160) * 1048576); drop(low, 'low', 160);
   // forget queued work for bodies nobody has looked at for a while
   for (let i = jobs.length - 1; i >= 0; i--) {
     const j = jobs[i];
@@ -865,18 +870,23 @@ function infoHTML(b) {
 }
 
 // ---------- Scale panel: live knobs for the distance ladder ----------
+// each slider runs from default / spread to default * spread, so the rules.js default sits in the middle
 const KNOBS = [
-  { key: 'homeTiles', label: 'Home size', min: 96, max: 1024, log: false, step: 32, text: v => `${v} tiles across` },
-  { key: 'moonDistance', label: 'Home → Moon', min: 1.5, max: 120, log: true, text: v => `${nice(v)} Home radii` },
-  { key: 'sunDistance', label: 'Home → Sun', min: 2, max: 800, log: true, text: v => `${nice(v)} Moon distances` },
-  { key: 'starDistance', label: 'Sun → nearest star', min: 1e3, max: 1e7, log: true, text: v => `${nice(v)} Sun distances` },
+  { key: 'homeTiles', label: 'Home size', spread: 2, text: v => `${v} tiles across` },
+  { key: 'moonDistance', label: 'Home → Moon', spread: 8, text: v => `${nice(v)} Home radii` },
+  { key: 'sunDistance', label: 'Home → Sun', spread: 8, text: v => `${nice(v)} Moon distances` },
+  { key: 'starDistance', label: 'Sun → nearest star', spread: 100, text: v => `${nice(v)} Sun distances` },
 ];
+for (const k of KNOBS) { k.log = true; k.min = RULES.scale[k.key] / k.spread; k.max = RULES.scale[k.key] * k.spread; }
 function nice(v) {
   if (v >= 1000) { const p = 10 ** (Math.floor(Math.log10(v)) - 1); return (Math.round(v / p) * p).toLocaleString('en-US'); }
   return v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
 }
 const toSlider = (k, v) => k.log ? Math.round(1000 * Math.log(v / k.min) / Math.log(k.max / k.min)) : v;
-const fromSlider = (k, t) => k.log ? +nice(k.min * (k.max / k.min) ** (t / 1000)).replace(/,/g, '') : +t;
+const fromSlider = (k, t) => {
+  const v = k.min * (k.max / k.min) ** (t / 1000);
+  return k.key === 'homeTiles' ? Math.round(v / 32) * 32 : +nice(v).replace(/,/g, '');
+};
 function saveScale() { try { localStorage.setItem('galaxyDemo.scale', JSON.stringify(SCALE)); } catch (e) { /* no storage */ } }
 // re-scale while keeping the focused body the same size on screen (orbits and gaps change around it)
 // keepSize: keep the focused body the same size on screen, so orbits visibly move around it. The star-gap

@@ -25,10 +25,10 @@ export const RULES = {
   // THE DISTANCE LADDER: each rung is measured in the rung below it, so changing one rung stretches
   // everything above it. Real-world values in [brackets]. The demo's Scale panel changes these live.
   scale: {
-    homeTiles: 480,        // Home is this many tiles across; every planet's map is sized relative to Home
-    moonDistance: 6,       // Home to the Moon, in Home radii; every moon orbit scales with it          [~60]
-    sunDistance: 10,       // Home to the Sun, in Home-Moon distances; every planet orbit scales with it [~390]
-    starDistance: 400000,  // the Sun to its nearest star, in Home-Sun distances; spreads the stars out  [~270,000]
+    homeTiles: 1024,       // Home is this many tiles across; every planet's map is sized relative to Home
+    moonDistance: 17,      // Home to the Moon, in Home radii; every moon orbit scales with it          [~60]
+    sunDistance: 28,       // Home to the Sun, in Home-Moon distances; every planet orbit scales with it [~390]
+    starDistance: 1000,    // the Sun to its nearest star, in Home-Sun distances; spreads the stars out  [~270,000]
     // generation's own yardsticks (climate and orbit periods are worked out at these; change the ladder instead)
     homeOrbit: 60,         // su (Home radii): a planet this far from a yellow star is "temperate" (heat 1.0)
     yearAtHome: 480,       // seconds for one orbit at homeOrbit around a yellow star
