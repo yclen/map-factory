@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261124014027';
-import { SKIN } from './skin.js?v=20261124014027';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124014027';
-import { buildAtlas } from './art.js?v=20261124014027';
-import { Renderer } from './renderer.js?v=20261124014027';
-import { Labels } from './labels.js?v=20261124014027';
-import { mulberry32, hash32 } from './rng.js?v=20261124014027';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124014027';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124014027';
+import { RULES } from './rules.js?v=20261124014431';
+import { SKIN } from './skin.js?v=20261124014431';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124014431';
+import { buildAtlas } from './art.js?v=20261124014431';
+import { Renderer } from './renderer.js?v=20261124014431';
+import { Labels } from './labels.js?v=20261124014431';
+import { mulberry32, hash32 } from './rng.js?v=20261124014431';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124014431';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124014431';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -152,7 +152,8 @@ resize();
 // ---------- time and positions ----------
 let frameNo = 0, simT = 0;
 function place(b) {
-  if (b.kind === 'star' || b._f === frameNo) return;
+  // stars don't move; rockets are placed by their flight sim (they have no orbit to work out)
+  if (b.kind === 'star' || b.kind === 'rocket' || b._f === frameNo) return;
   const par = b.parent;
   place(par);
   const a = b.phase + simT * TAU / b.period;
@@ -253,10 +254,11 @@ function fitWidth(b) {
   if (b.moons.length === 0) reach = b.r / 0.42;
   return reach * 2 * SU * k;
 }
-function flyTo(b) {
+// width: how much to show when it arrives (world units across); defaults to the body and its moons
+function flyTo(b, width) {
   cam.vx = cam.vy = 0;
   refocus(b);
-  const w0 = cw / zoom(), w1 = fitWidth(b);
+  const w0 = cw / zoom(), w1 = width || fitWidth(b);
   const f = interpolateZoom([cam.ox, cam.oy, w0], [0, 0, w1]);
   cam.fly = { f, end: [0, 0, w1], t0: performance.now(), dur: clamp(f.duration * 0.42, 700, 3200) };
   if (b && b.kind !== 'rocket') select(b);
@@ -282,7 +284,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261124014027', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261124014431', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -1095,8 +1097,13 @@ function stepRockets(dt) {
     const rk = rockets[i];
     if (rk.state === 'crashed' && rk.crashT > 2.2) {
       rockets.splice(i, 1);
-      if (cam.focus === rk) refocus(HOME);
-      if (active === rk) active = rockets.find(r => r.state === 'flying') || padRocket;
+      if (active === rk) {
+        // the rocket you were flying is gone: glide back to Home and put the rocket controls away
+        active = rockets.find(r => r.state === 'flying') || padRocket;
+        rocketMode = false; follow = false;
+        $('btnRocket').classList.remove('on');
+        if (cam.focus === rk) flyTo(HOME, HOME.r / 0.4 * 2 * SU * (cw / minDim()));   // Home filling most of the view
+      } else if (cam.focus === rk) refocus(HOME);
     }
   }
   for (const rk of rockets) { rk._x = HOME._x + rk.x * SU; rk._y = HOME._y + rk.y * SU; rk._f = frameNo; rk.r = rocketEnv.len / 2; }
@@ -1333,7 +1340,7 @@ const setThrottle = e => {                                         // drag up an
 thrEl.addEventListener('pointerdown', e => { e.preventDefault(); try { thrEl.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } setThrottle(e); });
 thrEl.addEventListener('pointermove', e => { if (thrEl.hasPointerCapture && thrEl.hasPointerCapture(e.pointerId)) setThrottle(e); });
 function updateTouch() {
-  const show = touchUI && (rocketMode || rockets.some(r => r.state === 'flying'));
+  const show = touchUI && rocketMode;
   touchEl.hidden = !show;
   document.body.classList.toggle('touchfly', show);              // other panels make room for the controls
   if (!show || !active) return;
@@ -1348,7 +1355,7 @@ function updateTouch() {
 }
 
 function updateRocketHud() {
-  const show = rocketMode || rockets.some(r => r.state === 'flying');
+  const show = rocketMode;
   hudEl.hidden = !show;
   if (!show || !active) return;
   const rk = active, home = rocketEnv.bodiesAt(simT)[0], tl = tileSu();
