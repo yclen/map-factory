@@ -205,7 +205,8 @@ function interpolateZoom(p0, p1) {
   } else {
     const d1 = Math.sqrt(d2);
     const b0 = (w1 * w1 - w0 * w0 + rho4 * d2) / (2 * w0 * rho2 * d1), b1 = (w1 * w1 - w0 * w0 - rho4 * d2) / (2 * w1 * rho2 * d1);
-    const r0 = Math.log(Math.sqrt(b0 * b0 + 1) - b0), r1 = Math.log(Math.sqrt(b1 * b1 + 1) - b1);
+    // -asinh(b) = log(sqrt(b^2 + 1) - b), but stays accurate for the huge b of a planet-to-galaxy flight
+    const r0 = -Math.asinh(b0), r1 = -Math.asinh(b1);
     S = (r1 - r0) / rho;
     f = t => {
       const s = t * S, c0 = Math.cosh(r0);
@@ -230,14 +231,15 @@ function flyTo(b) {
   refocus(b);
   const w0 = cw / zoom(), w1 = fitWidth(b);
   const f = interpolateZoom([cam.ox, cam.oy, w0], [0, 0, w1]);
-  cam.fly = { f, t0: performance.now(), dur: clamp(f.duration * 0.42, 700, 3200) };
+  cam.fly = { f, end: [0, 0, w1], t0: performance.now(), dur: clamp(f.duration * 0.42, 700, 3200) };
   if (b) select(b);
 }
 function stepFly(now) {
   const F = cam.fly;
   if (!F) return;
   const t = clamp((now - F.t0) / F.dur, 0, 1), e = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
-  const [x, y, w] = F.f(e);
+  let [x, y, w] = F.f(e);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !(w > 0)) { [x, y, w] = F.end; cam.fly = null; }   // never leave the camera broken
   cam.ox = x; cam.oy = y; cam.logZ = cam.tz = Math.log2(cw / w);
   if (t >= 1) cam.fly = null;
 }
@@ -661,7 +663,7 @@ const pinchState = () => {
   return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 };
 glCanvas.addEventListener('pointerdown', e => {
-  glCanvas.setPointerCapture(e.pointerId);
+  try { glCanvas.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
   ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
   cam.fly = null; cam.vx = cam.vy = 0;
   if (ptrs.size === 1) drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), moved: false, vx: 0, vy: 0, lt: performance.now() };
@@ -700,6 +702,8 @@ const endPtr = e => {
   }
 };
 glCanvas.addEventListener('pointerup', endPtr);
+// right-drag pans like left-drag: never show the browser's "save image" menu over the map
+glCanvas.addEventListener('contextmenu', e => e.preventDefault());
 glCanvas.addEventListener('pointercancel', endPtr);
 glCanvas.addEventListener('pointerleave', () => { hover = null; });
 function tap(x, y) {
