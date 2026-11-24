@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261124015931';
-import { SKIN } from './skin.js?v=20261124015931';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124015931';
-import { buildAtlas } from './art.js?v=20261124015931';
-import { Renderer } from './renderer.js?v=20261124015931';
-import { Labels } from './labels.js?v=20261124015931';
-import { mulberry32, hash32 } from './rng.js?v=20261124015931';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124015931';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124015931';
+import { RULES } from './rules.js?v=20261124123321';
+import { SKIN } from './skin.js?v=20261124123321';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124123321';
+import { buildAtlas, decorTables } from './art.js?v=20261124123321';
+import { Renderer } from './renderer.js?v=20261124123321';
+import { Labels } from './labels.js?v=20261124123321';
+import { mulberry32, hash32 } from './rng.js?v=20261124123321';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124123321';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124123321';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -24,7 +24,7 @@ const SEED = (+params.get('seed') | 0) || RULES.galaxy.seed;
 // new code. If the page is missing anything this code needs, reload once to fetch the current page.
 {
   const NEEDED = ['gl', 'labels', 'crumbs', 'perf', 'info', 'tip', 'bar', 'help', 'fatal', 'scale', 'rocketHud', 'touch',
-    'btnHome', 'btnGalaxy', 'btnStress', 'btnPerf', 'btnHelp', 'btnScale', 'btnRocket'];
+    'btnHome', 'btnGalaxy', 'btnStress', 'btnPerf', 'btnHelp', 'btnScale', 'btnRocket', 'btnTerrain'];
   let tried = false;
   try { tried = sessionStorage.getItem('galaxyDemo.reloadForPage') === '1'; } catch (e) { /* no storage */ }
   if (NEEDED.some(id => !document.getElementById(id))) {
@@ -93,6 +93,11 @@ applyHomeTiles();
 applyScale();
 const art = buildAtlas(SKIN);
 R.makeAtlas(art.data);
+R.water = [SKIN.base.DEEP.c, SKIN.base.SHALLOW.c];
+R.setDecor(decorTables(SKIN));
+// the new terrain look (hillshading, water, organic borders, colour variation) can be switched off to compare
+let terrainFx = true;
+try { terrainFx = localStorage.getItem('galaxyDemo.terrainFx') !== '0'; } catch (e) { /* no storage */ }
 const tDust = performance.now();
 const DUST_N = 256;
 const dustTex = R.makeGlowTexture(buildDust(), DUST_N);
@@ -284,7 +289,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261124015931', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261124123321', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -311,7 +316,7 @@ function wantPage(b, L, px, py, pri) {
   if (!p) {
     const x0 = px * PAGE, y0 = py * PAGE, sx = Math.min(PAGE, N - x0), sy = Math.min(PAGE, N - y0);
     p = { key, b, L, px, py, N, x0, y0, sx, sy, W: sx, H: sy, uv: [x0 / N, y0 / N, sx / N, sy / N],
-      ids: null, col: null, cpu: null, ready: false, used: frameNo, pri, bytes: 0 };
+      ids: null, col: null, fld: null, cpu: null, ready: false, used: frameNo, pri, bytes: 0 };
     pages.set(key, p); jobs.push(p);
   }
   p.used = frameNo; p.pri = pri;
@@ -335,16 +340,16 @@ function onPage(d) {
   const p = pages.get(d.key);
   if (!p) return;                                           // dropped while it was being built
   const b = p.b;
-  p.ids = R.makeIdTexture(p.sx, p.sy); p.col = R.makeColorTexture(p.sx, p.sy);
-  R.uploadBand(p.ids, p.col, p.sx, 0, p.sy, d.ids, d.col);
-  R.mipmap(p.col);
+  p.ids = R.makeIdTexture(p.sx, p.sy); p.col = R.makeColorTexture(p.sx, p.sy); p.fld = R.makeColorTexture(p.sx, p.sy, true);
+  R.uploadBand(p.ids, p.col, p.sx, 0, p.sy, d.ids, d.col, p.fld, d.fld);
+  R.mipmap(p.col, p.fld);
   p.ready = true;
   if (p.L === 0 || p.L === levelsOf(b).Lmax) p.cpu = d.ids;         // for hover info and placing walkers
-  p.bytes = p.sx * p.sy * (2 + 4 * 1.34) + (p.cpu ? p.sx * p.sy * 2 : 0);
+  p.bytes = p.sx * p.sy * (2 + 8 * 1.34) + (p.cpu ? p.sx * p.sy * 2 : 0);
   if (p.L === 0) { b.counts = d.counts; b.settlements = d.settlements; b.base = p; if (b === cam.focus) walkersDirty = true; }
 }
 function freePage(p) {
-  if (p.ids) R.freeMap(p.ids, p.col, p.sx, p.sy);
+  if (p.ids) R.freeMap(p.ids, p.col, p.fld, p.sx, p.sy);
   pages.delete(p.key);
   if (p.b.base === p) p.b.base = null;
 }
@@ -621,7 +626,7 @@ function drawBody(d, s, md, now) {
   bp.x0 = x0; bp.y0 = y0; bp.x1 = x1; bp.y1 = y1; bp.cx = cx; bp.cy = cy; bp.R = Rd;
   bp.time = simT; bp.seed = (b.seed % 997) / 9.7; bp.alpha = 1; bp.map = null; bp.art = 0; bp.lod = 0;
   bp.page = FULL_PAGE; bp.detail = false;
-  bp.ringIn = 0; bp.ringOut = 0; bp.ringA = 0; bp.ringGap = 0; bp.atmo = NO_ATMO;
+  bp.ringIn = 0; bp.ringOut = 0; bp.ringA = 0; bp.ringGap = 0; bp.atmo = NO_ATMO; bp.fx = false;
   if (star) {
     bp.mode = 2; bp.pix = Math.max(2, Math.min(5, d.R / 120)) * s;
     bp.c1 = b.color; bp.c2 = starDark(b.color); bp.c3 = WHITE;
@@ -642,6 +647,7 @@ function drawBody(d, s, md, now) {
     return;
   }
   bp.mode = 0; bp.c1 = b.dot; bp.c2 = b.dot; bp.c3 = b.dot;
+  bp.fx = terrainFx; bp.tpp = b.surface.W / (2 * Rd);      // tiles per device pixel
   if (b.atmo) bp.atmo = b.atmo;
   bp.atmoH = b === HOME ? RK.atmosphere / HOME.r : 0.05;
   const lv = levelsOf(b), D = 2 * Rd, focus = b === cam.focus ? 1e6 : 0;
@@ -824,6 +830,7 @@ addEventListener('keydown', e => {
   else if (k === 'r') backToRocket();
   else if (k === 'tab') { e.preventDefault(); switchRocket(); }
   else if (k === 'f') toggleFollow();
+  else if (k === 't') toggleTerrain();
   if ('qead'.includes(k) && k.length === 1) held.add(k);
 });
 const held = new Set();
@@ -836,6 +843,12 @@ function select(b) { selected = b; if (b && b.surface) wantPage(b, 0, 0, 0, 4e6)
 const perfEl = $('perf'), infoEl = $('info'), tipEl = $('tip'), crumbsEl = $('crumbs');
 let perfOn = !coarse || params.has('perf'), autoQuality = true;
 perfEl.hidden = !perfOn;
+function toggleTerrain() {
+  terrainFx = !terrainFx;
+  try { localStorage.setItem('galaxyDemo.terrainFx', terrainFx ? '1' : '0'); } catch (e) { /* no storage */ }
+  showTerrainBtn();
+}
+function showTerrainBtn() { $('btnTerrain').textContent = terrainFx ? 'Terrain: new' : 'Terrain: old'; $('btnTerrain').classList.toggle('on', terrainFx); }
 function togglePerf() { perfOn = !perfOn; perfEl.hidden = !perfOn; $('btnPerf').classList.toggle('on', perfOn); }
 function cycleStress() {
   stressIdx = (stressIdx + 1) % STRESS.length; walkersDirty = true;
@@ -846,6 +859,8 @@ $('btnHome').onclick = () => flyTo(HOME);
 $('btnGalaxy').onclick = () => flyTo(null);
 $('btnStress').onclick = cycleStress;
 $('btnPerf').onclick = togglePerf;
+$('btnTerrain').onclick = toggleTerrain;
+showTerrainBtn();
 $('btnPerf').classList.toggle('on', perfOn);
 $('btnHelp').onclick = () => { $('help').hidden = !$('help').hidden; };
 $('help').onclick = () => { $('help').hidden = true; };

@@ -34,3 +34,5 @@ export const SLOT_BASE = 0;        // base tile i, variant v  -> slot i*4+v
 export const SLOT_OVER = 256;      // overlay o, variant v    -> slot 256+o*4+v
 export const SLOT_WALKER = 448;    // two walking frames
 export const SLOT_PIN = 456;       // settlement pins, one per level
+export const SLOT_FLOOR = 128;     // plain forest floor under scattered trees: base tile i, variant v -> 128+i*4+v
+export const SLOT_DECO = 312;      // scattered decoration kind k, variant v -> 312+k*4+v (up to 34 kinds)

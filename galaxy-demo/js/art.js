@@ -1,8 +1,8 @@
 // Placeholder pixel art, drawn from the skin's colours and patterns into one 256x128 atlas of 8x8 tiles.
 // Runs on the main thread (for the GPU) and in the map worker (for each tile's average colour).
 // Hand-drawn art can replace any slot later without touching the generator.
-import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN } from './ids.js?v=20261124015931';
-import { mulberry32, hash32 } from './rng.js?v=20261124015931';
+import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN, SLOT_FLOOR, SLOT_DECO } from './ids.js?v=20261124123321';
+import { mulberry32, hash32 } from './rng.js?v=20261124123321';
 
 export const ATLAS_W = 256, ATLAS_H = 128;
 
@@ -158,6 +158,124 @@ export function buildAtlas(skin) {
     }
   });
 
+  // ---------- forest floor: what's under the scattered trees (dark ground, leaf litter) ----------
+  for (const name of skin.floor || []) {
+    const id = BASE.indexOf(name), s = skin.base[name], c = shade(s.c, 0.78), c2 = shade(s.c2 || s.c, 0.8), c3 = s.c3 || s.c;
+    for (let v = 0; v < 4; v++) {
+      const slot = SLOT_FLOOR + id * 4 + v, r = mulberry32(hash32(id, v, 71));
+      fill(slot, c, r, 0.06);
+      for (let k = 0; k < 9; k++) put(slot, (r() * 8) | 0, (r() * 8) | 0, r() < 0.3 ? shade(c3, 0.8) : c2);
+    }
+  }
+
+  // ---------- scattered decorations: 8x8, transparent, standing on the bottom rows ----------
+  Object.values(skin.decor || {}).forEach((d, k) => {
+    for (let v = 0; v < 4; v++) {
+      const slot = SLOT_DECO + k * 4 + v, r = mulberry32(hash32(k, v, 93));
+      const c = d.c, c2 = d.c2 || d.c, c3 = d.c3 || d.c;
+      const P = (x, y, col) => put(slot, x, y, col);
+      // a shaded blob: light from the top left, dark at the bottom right
+      const blob = (cx, cy, rad, rough = 0) => {
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+          const dx = x + 0.5 - cx, dy = y + 0.5 - cy, rr = rad + (rough ? (r() - 0.5) * rough : 0);
+          if (dx * dx + dy * dy > rr * rr) continue;
+          const lit = -(dx + dy) / (rad * 1.4);
+          P(x, y, lit > 0.35 ? c3 : lit < -0.3 ? c2 : r() < 0.18 ? c2 : c);
+        }
+      };
+      const trunk = [96, 70, 50];
+      switch (d.style) {
+        case 'tuft':
+          for (let i = 0; i < 4; i++) {
+            const x = 2 + i + ((r() * 2) | 0) - 1, h = 2 + ((r() * 3) | 0);
+            for (let y = 7 - h; y < 8; y++) P(x, y, y === 7 - h ? c2 : c);
+          }
+          break;
+        case 'flowers': {
+          const petals = [c, c2, c3];
+          for (let i = 0; i < 3; i++) {
+            const x = 1 + ((r() * 6) | 0), y = 2 + ((r() * 5) | 0);
+            P(x, y + 1, [80, 140, 60]); P(x, y, petals[(v + i) % 3]);
+          }
+          break;
+        }
+        case 'bush': blob(4, 5.2, 1.9 + v * 0.35, 0.6); break;
+        case 'round':
+          P(4, 7, trunk); P(3, 7, shade(trunk, 0.7));
+          blob(4, 3.6, 3.0 + (v & 1) * 0.4, 0.8);
+          break;
+        case 'jungle':
+          P(4, 7, trunk);
+          blob(4, 3.5, 3.5, 1.4);
+          for (let i = 0; i < 3; i++) P(1 + ((r() * 6) | 0), 1 + ((r() * 4) | 0), c3);
+          break;
+        case 'pine': {
+          const tiers = v & 1 ? [0, 1, 1, 2, 2, 3, 3] : [0, 0, 1, 1, 2, 2, 3];
+          for (let y = 0; y < 7; y++) for (let x = 4 - tiers[y]; x <= 4 + tiers[y]; x++) P(x, y, x < 4 ? c : x > 4 ? c2 : c);
+          const snowy = d.c3[0] > 200;                                        // snow on the branch tips
+          P(3, 2, c3); P(2, 4, c3); P(1, 6, snowy ? c3 : c); if (snowy) { P(4, 0, c3); P(5, 4, c3); }
+          P(4, 7, trunk);
+          break;
+        }
+        case 'acacia':
+          for (let x = 0; x < 8; x++) P(x, 2, x < 4 ? c : c2);
+          for (let x = 1; x < 7; x++) { P(x, 1, x < 4 ? c3 : c); P(x, 3, c2); }
+          P(4, 4, trunk); P(3, 5, trunk); P(4, 5, trunk); P(4, 6, trunk); P(4, 7, trunk); P(5, 4, trunk);
+          break;
+        case 'dead':
+          for (let y = 2; y < 8; y++) P(4, y, y > 5 ? c2 : c);
+          P(3, 3, c); P(2, 2, c); P(5, 4, c); P(6, 3, c); P(6, 2, c2); P(3, 1, c2);
+          break;
+        case 'reeds':
+          for (let i = 0; i < 3; i++) {
+            const x = 2 + i * 2 - (v & 1), h = 4 + ((r() * 3) | 0);
+            for (let y = 8 - h; y < 8; y++) P(x, y, c);
+            P(x, 8 - h, c2); P(x, 9 - h, c2);
+          }
+          break;
+        case 'cactus':
+          for (let y = 1; y < 8; y++) { P(3, y, c3); P(4, y, c); }
+          P(1, 3, c3); P(1, 4, c3); P(2, 4, c);
+          if (v & 1) { P(6, 2, c); P(6, 3, c); P(5, 3, c2); } else { P(6, 4, c); P(6, 5, c); P(5, 5, c2); }
+          break;
+        case 'bones':
+          P(2, 5, c); P(3, 4, c); P(4, 4, c); P(5, 5, c); P(3, 6, c2); P(5, 6, c2);
+          if (v & 1) { P(1, 6, c); P(6, 6, c); }
+          break;
+        case 'shell':
+          P(3, 6, c); P(4, 6, c); P(3, 5, c2); P(4, 5, c); if (v & 1) P(5, 6, c2);
+          break;
+        case 'drift':
+          for (let x = 1; x < 7; x++) { P(x, 6, c); P(x, 5, x > 2 && x < 6 ? c3 : c); }
+          P(0, 5, c2); P(7, 6, c2);
+          break;
+        case 'pebbles':
+          for (let i = 0; i < 3; i++) { const x = 1 + ((r() * 6) | 0), y = 3 + ((r() * 4) | 0); P(x, y, c); P(x, y + 1, c2); }
+          break;
+        case 'rock': case 'snowrock': {
+          const w = 2 + (v >> 1), h = 1.6 + (v & 1) * 0.6;
+          for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+            const dx = (x + 0.5 - 4) / w, dy = (y + 0.5 - (7.5 - h)) / h;
+            if (dx * dx + dy * dy > 1 || y > 7) continue;
+            const top = dy < -0.35;
+            P(x, y, d.style === 'snowrock' && top ? c3 : dx + dy < -0.6 ? c3 : dx + dy > 0.5 ? c2 : c);
+          }
+          break;
+        }
+        case 'ice':
+          for (let y = 3; y < 8; y++) for (let x = 2 + (y > 5 ? 0 : 1); x < 6 + (y > 4 ? 1 : 0); x++) P(x, y, x - y < -1 ? c2 : c);
+          P(3, 3, c3); P(4, 4, c3);
+          break;
+        case 'spire': {
+          const top = 1 + (v & 1) * 2;
+          for (let y = top; y < 8; y++) { P(3, y, c); P(4, y, c2); }
+          P(3, top, c3); P(4, top, c3); if (v > 1) { P(5, 6, c2); P(5, 7, c2); P(5, 5, c3); }
+          break;
+        }
+      }
+    }
+  });
+
   // ---------- sprites: a little walking person (2 frames) and settlement pins ----------
   const skinTone = [236, 196, 160], shirt = [70, 150, 230], legs = [50, 50, 70];
   for (let f = 0; f < 2; f++) {
@@ -204,4 +322,20 @@ export function buildAtlas(skin) {
     overAvg.set([r / 4, g / 4, b / 4, Math.min(1, a / 4 * 1.6)], id * 4);
   });
   return { data, baseAvg, baseEmis, overAvg, overEmis };
+}
+
+// what the shader needs to scatter decorations, per ground type: D = share of spots with something, K = 4 atlas
+// slots to pick from (-1 = none; +4096 = sways in the wind), F = 1 where trees stand on plain forest floor
+export function decorTables(skin) {
+  const kinds = Object.keys(skin.decor || {});
+  const D = new Float32Array(32), K = new Int32Array(128).fill(-1), F = new Int32Array(32);
+  BASE.forEach((name, id) => {
+    const t = (skin.decorFor || {})[name];
+    if (t) {
+      D[id] = t[0];
+      t[1].forEach((k, i) => { const ki = kinds.indexOf(k); if (ki >= 0) K[id * 4 + i] = SLOT_DECO + ki * 4 + (skin.decor[k].sway ? 4096 : 0); });
+    }
+    if ((skin.floor || []).includes(name)) F[id] = 1;
+  });
+  return { D, K, F };
 }

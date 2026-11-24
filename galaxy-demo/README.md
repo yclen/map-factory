@@ -83,6 +83,29 @@ the values in `rules.js`.
 The **Stats** button shows frame time, how long each part of the frame takes, draw calls, maps in memory and GPU
 memory. The **Walkers** button adds 1k–50k animated people to the planet you're on, to stress-test.
 
+## Terrain look
+
+The **Terrain** button (or **T**) switches between the new planet-surface look and the old flat one, to compare.
+The new look adds five things, all drawn in the planet shader (`BODY_FS` in `shaders.js`):
+
+- **Hill shading:** each map chunk carries a small field map (`fld`, built in `terrain.js` next to the tile ids)
+  with the ground's slope. Slopes are lit from the top left, so mountains and hills look raised, from orbit and
+  close up. Relief is exaggerated more when zoomed out and less on small planets.
+- **Water:** smooth depth colours from the shore to open sea, a surf line along every coast, slow swells and
+  glinting pixels. Lava pulses.
+- **Natural borders:** each pixel's ground lookup is nudged by a little noise, so biome edges and coastlines curve
+  instead of following the tile grid. Deposits and buildings stay exactly on their tiles, and the game's tile
+  grid doesn't change.
+- **Colour variation:** slow patches inside one biome, a little drier and lighter or lusher and darker.
+- **Scattered decorations:** trees, bushes, flowers, grass tufts, rocks, cacti, bones, shells, reeds, ice chunks
+  and basalt spires, each with a small shadow, placed at random spots that ignore the tile grid. Trees sway in
+  the wind. Which ones appear, and how densely, is set per ground type in `skin.js` (`decor`, `decorFor`). Forest,
+  jungle and pine-forest tiles switch to plain forest floor so the trees aren't painted twice. Nothing is placed on
+  water, ore or buildings. Decorations only appear at close zoom, where the pixel art shows.
+
+The field map costs 4 bytes per tile on the GPU. It makes chunk building about 35% slower in the background
+workers. The shader skips its extra work wherever the look is switched off.
+
 ## Releasing
 
 Before committing a change, run `python tools/stamp_galaxy.py`. It writes a new `version.txt` and puts the same `?v=` stamp on every file the

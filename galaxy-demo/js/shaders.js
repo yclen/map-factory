@@ -1,3 +1,5 @@
+import { SLOPE_K } from './terrain.js?v=20261124123321';
+
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
 
@@ -93,7 +95,21 @@ uniform vec3 u_c1, u_c2, u_c3; uniform float u_seed; uniform float u_time;
 uniform vec4 u_ring; uniform vec4 u_atmo; uniform float u_alpha; uniform float u_atmoH;
 uniform vec4 u_page;     // this chunk's place in the disk's square (x, y, width, height; 0..1)
 uniform int u_detail;    // 1 = a detail chunk drawn over the whole-planet base: only its own square, inside the disk
+// the terrain look (u_fx = 1): a field map per chunk (slopes, height relative to the sea, colour variation),
+// tiles per device pixel (to exaggerate relief when zoomed out) and the skin's deep and shallow water colours
+uniform sampler2D u_fld; uniform int u_fx; uniform float u_tpp; uniform vec3 u_deep, u_shallow;
+// scattered decorations, per ground type (art.js decorTables): share of spots used, 4 atlas slots to pick from,
+// and whether the ground under them is plain forest floor
+uniform float u_decoD[32]; uniform ivec4 u_decoK[32]; uniform int u_floor[32];
 out vec4 o;
+
+const float SLOPE_K = ${SLOPE_K}.0;
+const vec3 SUN = vec3(-0.55, -0.65, 0.75);   // light from the top left, the way relief maps are lit
+// per screen pixel, shared by the art-pixel lookups below
+vec2 g_warp = vec2(0.0);  // how far this pixel's ground lookup is nudged (art px): wiggly borders between biomes
+vec3 g_land = vec3(1.0);  // hill shading x colour variation, for land
+float g_depth = 0.0;      // water depth (elevation units)
+vec2 g_off = vec2(0.0);   // this chunk's first art pixel on the whole map (so noise lines up across chunks)
 
 uint hashu(uvec2 p) { uint h = (p.x * 0x27d4eb2du) ^ (p.y * 0x165667b1u); h ^= h >> 15; h *= 0x85ebca6bu; h ^= h >> 13; return h; }
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -103,22 +119,108 @@ float vnoise(vec3 x) {
              mix(mix(h3(i + vec3(0, 0, 1)), h3(i + vec3(1, 0, 1)), f.x), mix(h3(i + vec3(0, 1, 1)), h3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
 }
 float fbm3(vec3 p) { return vnoise(p) * 0.55 + vnoise(p * 2.1) * 0.3 + vnoise(p * 4.3) * 0.15; }
+float hf(uvec2 p) { return float(hashu(p) & 65535u) / 65535.0; }
+float vn2(vec2 p, uint s) {           // 2D value noise, 0..1
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  uvec2 q = uvec2(ivec2(i)) + uvec2(s * 7919u, s * 104729u);
+  return mix(mix(hf(q), hf(q + uvec2(1, 0)), f.x), mix(hf(q + uvec2(0, 1)), hf(q + uvec2(1, 1)), f.x), f.y);
+}
+// light near the shore, quickly darkening to open sea
+vec3 waterCol(float depth) { return mix(u_shallow * 1.1, u_deep * 0.8, pow(smoothstep(0.0, 0.08, depth), 0.55)); }
+// slope (elevation per tile) from a field sample -> brightness from the sun, 1 on flat ground
+float hillShade(vec4 F) {
+  vec2 y = clamp(F.rg * 2.0 - 1.0, -0.98, 0.98), sl = y / (1.0 - abs(y)) / SLOPE_K;
+  // more relief when zoomed out, never more than a whole-planet look allows; smaller worlds have steeper slopes
+  // per tile (the same continents squeezed into fewer tiles), so they get less exaggeration
+  float W = u_tpp * 2.0 * u_R;
+  float ex = min(65.0 * sqrt(max(u_tpp, 0.125) / 0.125), 0.1 * W) * sqrt(clamp(W / 4096.0, 0.06, 1.0));
+  vec3 n = normalize(vec3(-sl * ex, 1.0)), L = normalize(SUN);
+  return clamp(dot(n, L) / L.z, 0.55, 1.35);
+}
+vec3 landTint(vec4 F) {               // drier patches a little lighter and warmer, lusher ones darker and cooler
+  float v = F.a * 2.0 - 1.0;
+  return (1.0 + v * 0.09) * vec3(1.0 + v * 0.05, 1.0, 1.0 - v * 0.06);
+}
 
-// one art pixel of the surface: ground tile + overlay, looked up through the tile-id map
+// the ground tile an art pixel shows: its own tile, or a neighbour's when the border wiggles across
+ivec2 groundTile(ivec2 a) {
+  return clamp(ivec2(floor((vec2(a) + 0.5 + g_warp) / 8.0)), ivec2(0), ivec2(u_map) - 1);
+}
+bool isWater(uint id) { return id <= 1u; }       // DEEP, SHALLOW
+vec4 atlasPix(int s, ivec2 inT) { return texelFetch(u_atlas, ivec2((s & 31) * 8 + inT.x, (s >> 5) * 8 + inT.y), 0); }
+
+// Decorations: one spot per 8x8 cell of global art pixels, nudged 0..6 px so they don't line up with tiles. Each
+// spot looks at the ground under its foot (not nudged by the border wiggle, so trees can spill a little past a
+// forest's edge) and maybe places a sprite there with a one-pixel shadow to the bottom right. An art pixel can be
+// covered by the spots of at most 2 x 2 cells; lower rows are drawn last so they overlap the ones behind
+vec3 decorate(ivec2 a, vec3 c) {
+  ivec2 ga = a + ivec2(g_off);
+  ivec2 cA = ivec2(floor(vec2(ga - 7) / 8.0)), cB = ga >> 3;
+  for (int cy = cA.y; cy <= cB.y; cy++) for (int cx = cA.x; cx <= cB.x; cx++) {
+    uint hh = hashu(uvec2(ivec2(cx, cy)) ^ uvec2(0x51edu, 0x2701u));
+    ivec2 A = ivec2(cx, cy) * 8 + ivec2(int(hh & 7u) % 7, int((hh >> 3) & 7u) % 7);
+    ivec2 foot = ((A + ivec2(4, 6)) - ivec2(g_off)) >> 3;
+    if (any(lessThan(foot, ivec2(0))) || any(greaterThanEqual(foot, ivec2(u_map)))) continue;
+    uvec2 id = texelFetch(u_ids, foot, 0).rg;
+    if (id.g != 0u || float((hh >> 8) & 1023u) / 1023.0 >= u_decoD[int(id.r)]) continue;
+    int k = u_decoK[int(id.r)][int((hh >> 18) & 3u)];
+    if (k < 0) continue;
+    int slot = (k & 4095) + int((hh >> 20) & 3u);
+    ivec2 q = ga - A;
+    if (k >= 4096 && q.y < 4) {                    // treetops lean with the wind, each tree in its own rhythm
+      float ph = float((hh >> 22) & 255u) / 40.0;
+      q.x -= int(sin(u_time * 1.7 + ph + float(A.x) * 0.05) > 0.55);
+    }
+    ivec2 qs = q - ivec2(1, 1);
+    if (all(greaterThanEqual(qs, ivec2(0))) && all(lessThan(qs, ivec2(8))) && atlasPix(slot, qs).a > 0.5) c *= 0.68;
+    if (all(greaterThanEqual(q, ivec2(0))) && all(lessThan(q, ivec2(8)))) {
+      vec4 sp = atlasPix(slot, q);
+      if (sp.a > 0.5) c = sp.rgb * g_land * (0.9 + 0.2 * float((hh >> 26) & 15u) / 15.0);
+    }
+  }
+  return c;
+}
+
+// one art pixel of the surface: ground tile + overlay, looked up through the tile-id map. Deposits and buildings
+// always sit on their own tile; only the ground under them wiggles
 vec3 artPix(ivec2 a) {
   int W8 = int(u_map.x) * 8, H8 = int(u_map.y) * 8;
   a = clamp(a, ivec2(0), ivec2(W8 - 1, H8 - 1));
-  ivec2 tile = a >> 3, inT = a & 7;
-  uvec2 id = texelFetch(u_ids, tile, 0).rg;
-  uint h = hashu(uvec2(tile));
-  int s = int(id.r) * 4 + int(h & 3u);
-  vec4 c = texelFetch(u_atlas, ivec2((s & 31) * 8 + inT.x, (s >> 5) * 8 + inT.y), 0);
-  if (id.g > 0u) {
-    int j = 256 + int(id.g) * 4 + int((h >> 2) & 3u);
-    vec4 v = texelFetch(u_atlas, ivec2((j & 31) * 8 + inT.x, (j >> 5) * 8 + inT.y), 0);
-    c.rgb = mix(c.rgb, v.rgb, v.a);
+  ivec2 tile = a >> 3, inT = a & 7, gt = groundTile(a);
+  uint gid = texelFetch(u_ids, gt, 0).r, oid = texelFetch(u_ids, tile, 0).g;
+  uint h = hashu(uvec2(gt));
+  int gslot = int(gid) * 4 + int(h & 3u);
+  if (u_fx == 1 && u_floor[int(gid)] == 1) gslot += 128;             // forest floor (SLOT_FLOOR) under scattered trees
+  vec3 c = atlasPix(gslot, inT).rgb;
+  bool water = u_fx == 1 && isWater(gid);
+  if (water) {
+    // smooth depth colour, keeping the tile art's ripples as light and dark
+    vec3 tileBase = gid == 0u ? u_deep : u_shallow;
+    float lum = dot(c, vec3(0.3, 0.5, 0.2)) / max(dot(tileBase, vec3(0.3, 0.5, 0.2)), 1e-3);
+    vec2 g = vec2(a) + g_off;
+    c = waterCol(g_depth) * clamp(lum, 0.88, 1.2);
+    c *= 1.0 + 0.035 * sin(dot(g, vec2(0.31, 0.17)) + u_time * 1.3);           // slow swell
+    // surf: a bright line where the next art pixel is land, and a softer band that washes in and out
+    bool shore = !isWater(texelFetch(u_ids, groundTile(a + ivec2(1, 0)), 0).r) || !isWater(texelFetch(u_ids, groundTile(a - ivec2(1, 0)), 0).r)
+              || !isWater(texelFetch(u_ids, groundTile(a + ivec2(0, 1)), 0).r) || !isWater(texelFetch(u_ids, groundTile(a - ivec2(0, 1)), 0).r);
+    float r = hf(uvec2(ivec2(g)) ^ uvec2(0x9e37u, 0x79b9u));
+    float wash = smoothstep(0.004, 0.0, g_depth) * (0.5 + 0.5 * sin(u_time * 1.6 + r * 1.5));
+    float foam = shore ? 0.75 + 0.25 * sin(u_time * 2.0 + r * 6.0) : wash * 0.35;
+    c = mix(c, vec3(0.93, 0.97, 1.0), foam);
+    // glints: now and then a pixel catches the light
+    float ph = fract(u_time * 0.3 + r * 17.0);
+    if (r > 0.955 && !shore) c += vec3(0.32) * smoothstep(0.0, 0.06, ph) * smoothstep(0.22, 0.06, ph);
+  } else if (u_fx == 1 && gid == 20u) {          // lava: patches glow brighter and dimmer
+    vec2 g = vec2(a) + g_off;
+    c *= 0.85 + 0.3 * (0.5 + 0.5 * sin(u_time * 0.9 + vn2(g / 9.0, 5u) * 6.283));
   }
-  return c.rgb;
+  if (oid > 0u) {
+    vec4 v = atlasPix(256 + int(oid) * 4 + int((hashu(uvec2(tile)) >> 2) & 3u), inT);
+    c = mix(c, v.rgb, v.a);
+  }
+  if (u_fx == 1 && !water && gid != 20u) c *= g_land;
+  if (u_fx == 1) c = decorate(a, c);
+  return c;
 }
 
 void main() {
@@ -176,11 +278,34 @@ void main() {
       c = u_c1 * (0.85 + 0.3 * vnoise(vec3(d * 6.0, u_seed))) * limb;
     } else {
       vec3 cc = vec3(0.0), ca = vec3(0.0);
-      if (u_art < 1.0) cc = textureLod(u_col, lp, u_lod).rgb;
+      if (u_art < 1.0) {
+        cc = textureLod(u_col, lp, u_lod).rgb;
+        if (u_fx == 1) {                             // far view: the same shading and water colours, smoothly
+          vec4 F = textureLod(u_fld, lp, u_lod);
+          float rel = (F.b * 255.0 - 127.5) / 600.0;
+          cc = mix(cc * hillShade(F) * landTint(F), waterCol(max(-rel, 0.0)), clamp(-rel / 0.0008, 0.0, 1.0));
+        }
+      }
       if (u_art > 0.0) {
         vec2 i = floor(ap), f = clamp((fract(ap) - 0.5) / fw + 0.5, 0.0, 1.0);
         ivec2 ii = ivec2(i);
-        ca = mix(mix(artPix(ii), artPix(ii + ivec2(1, 0)), f.x), mix(artPix(ii + ivec2(0, 1)), artPix(ii + ivec2(1, 1)), f.x), f.y);
+        if (u_fx == 1) {
+          // per screen pixel: the border wiggle, and shading + water depth at the nearest art pixel's centre
+          g_off = floor(u_page.xy * u_map / u_page.zw + 0.5) * 8.0;
+          vec2 g = ap + g_off;
+          g_warp = (vec2(vn2(g / 11.0, 1u), vn2(g / 11.0, 2u)) - 0.5) * 6.5
+                 + (vec2(vn2(g / 4.0, 3u), vn2(g / 4.0, 4u)) - 0.5) * 2.4;
+          vec4 F = texture(u_fld, (floor(ap + 0.5) + 0.5) / (u_map * 8.0));
+          g_land = hillShade(F) * landTint(F);
+          g_depth = max(0.0, -(F.b * 255.0 - 127.5) / 600.0);
+        }
+        // anti-aliased pixel art: blend neighbouring art pixels only across art-pixel edges, one lookup elsewhere
+        bvec2 mid = bvec2(f.x > 0.0 && f.x < 1.0, f.y > 0.0 && f.y < 1.0);
+        ivec2 jj = ii + ivec2(step(1.0, f));
+        if (!mid.x && !mid.y) ca = artPix(jj);
+        else if (!mid.y) ca = mix(artPix(ivec2(ii.x, jj.y)), artPix(ivec2(ii.x + 1, jj.y)), f.x);
+        else if (!mid.x) ca = mix(artPix(ivec2(jj.x, ii.y)), artPix(ivec2(jj.x, ii.y + 1)), f.y);
+        else ca = mix(mix(artPix(ii), artPix(ii + ivec2(1, 0)), f.x), mix(artPix(ii + ivec2(0, 1)), artPix(ii + ivec2(1, 1)), f.x), f.y);
       }
       c = mix(cc, ca, u_art) * mix(limb, 1.0, u_art * 0.7);
     }

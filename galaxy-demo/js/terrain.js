@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261124015931';
-import { RULES } from './rules.js?v=20261124015931';
-import { makeNoise } from './noise.js?v=20261124015931';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261124015931';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261124123321';
+import { RULES } from './rules.js?v=20261124123321';
+import { makeNoise } from './noise.js?v=20261124123321';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261124123321';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -30,10 +30,16 @@ export function makeSampler(desc) {
   const craterF = 5 + desc.r * 6;
   const octE = desc.W >= 512 ? 5 : desc.W >= 256 ? 4 : 3;
 
-  // ground id at disk position (x, y) (each -1..1; z is just a fixed slice of the 3D noise)
-  function classify(x, y, z = 0) {
+  // elevation at disk position (x, y), roughly 0..1
+  function elev(x, y, z = 0) {
     const wx = N.simplex3(x * 2 + oW[0], y * 2 + oW[1], z * 2 + oW[2]) * 0.18;
-    let e = N.fbm((x + wx) * fC + oE[0], (y + wx) * fC + oE[1], (z - wx) * fC + oE[2], octE) * 0.5 + 0.5;
+    return N.fbm((x + wx) * fC + oE[0], (y + wx) * fC + oE[1], (z - wx) * fC + oE[2], octE) * 0.5 + 0.5;
+  }
+  // the level liquid sits at on this planet type (for water depth; types without seas get a nominal level)
+  const sea = tr.sea ?? tr.lava ?? (type === 'ice' ? 0.34 : 0.36);
+  // ground id at disk position (x, y) (each -1..1; z is just a fixed slice of the 3D noise); e = elev(x, y, z)
+  // when the caller already has it
+  function classify(x, y, z = 0, e = elev(x, y, z)) {
     const m = N.fbm(x * 2.2 + oM[0], y * 2.2 + oM[1], z * 2.2 + oM[2], 2) * 0.5 + 0.5;
     const n = N.simplex3(x * 9 + oN[0], y * 9 + oN[1], z * 9 + oN[2]) * 0.5 + 0.5;
     // latitude: 0 along the equator (the line across the middle of the disk), about 1 at the north and south
@@ -139,8 +145,26 @@ export function makeSampler(desc) {
     }
     return 0;
   }
-  return { classify, deposit };
+  // small-scale relief, used only for shading (never for what a tile is), and a slow colour variation. `tps` =
+  // tiles per sample: bumps smaller than a few samples are left out, so coarse maps don't turn them into speckle.
+  // Writes detail.rel and detail.vari (no allocation: this runs for every sample)
+  const tileF = desc.W / 2;                                 // tiles per disk unit
+  const oD = [o(), o(), o()];
+  // the elevation noise already carries bumps down to ~60 tiles across on the biggest planets: one finer octave
+  // (24 tiles) is enough on top
+  let kTps = -1, k1 = 0, k3 = 0;
+  const f1 = tileF / 24, f3 = tileF / 48;
+  function detail(x, y, e, tps) {
+    if (tps !== kTps) { kTps = tps; k1 = clamp01((24 / tps - 3) / 3) * 0.008; k3 = clamp01((48 / tps - 2) / 2) * 0.8; }
+    const rough = e < sea ? 0.35 : 0.6 + (e - sea) * 6;    // mountains are rugged, plains gentle, sea floors smooth
+    detail.rel = k1 > 0 ? N.simplex3(x * f1 + oD[0], y * f1 + oD[1], oD[2]) * k1 * rough : 0;
+    detail.vari = k3 > 0 ? N.simplex3(x * f3 + oD[2], y * f3 + oD[0], oD[1]) * k3 : 0;
+  }
+  return { classify, deposit, elev, detail, sea };
 }
+const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
+// slopes are stored squeezed into a byte: t = slope * SLOPE_K (elevation per tile), byte = 0.5 + 0.5 * t / (1 + |t|)
+export const SLOPE_K = 60;
 
 // where the settlements go: decided from the planet seed alone, so every map resolution agrees
 export function placeSettlements(desc, sampler) {
@@ -175,6 +199,18 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
   const t0 = performance.now();
   const sampler = makeSampler(desc);
   const ids = new Uint8Array(sx * sy * 2);
+  // elevation (and shading relief) on the chunk plus a 1-sample border, so slopes at the edges match the neighbours
+  const GW = sx + 2, GH = sy + 2, tps = desc.W / N;
+  const E = new Float32Array(GW * GH), Hs = new Float32Array(GW * GH), Vr = new Float32Array(GW * GH);
+  for (let gy = 0; gy < GH; gy++) {
+    const v = ((y0 + gy - 1 + 0.5) / N) * 2 - 1;
+    for (let gx = 0; gx < GW; gx++) {
+      const u = ((x0 + gx - 1 + 0.5) / N) * 2 - 1, g = gy * GW + gx;
+      const e = sampler.elev(u, v);
+      sampler.detail(u, v, e, tps);
+      E[g] = e; Hs[g] = e + sampler.detail.rel; Vr[g] = sampler.detail.vari;
+    }
+  }
   let rim = null, RIM = 0;
   for (let y = 0; y < sy; y++) {
     const v = ((y0 + y + 0.5) / N) * 2 - 1;
@@ -189,7 +225,7 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
         ids[i] = rim[Math.floor(((Math.atan2(v, u) + TAU) % TAU) / TAU * RIM) % RIM]; ids[i + 1] = 0;
         continue;
       }
-      const base = sampler.classify(u, v);
+      const base = sampler.classify(u, v, 0, E[(y + 1) * GW + x + 1]);
       ids[i] = base;
       ids[i + 1] = sampler.deposit(u, v, 0, base);
     }
@@ -232,7 +268,22 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     }
     col[t * 4] = r; col[t * 4 + 1] = g; col[t * 4 + 2] = b; col[t * 4 + 3] = e * 255;
   }
-  return { ids, col, counts, settlements, ms: performance.now() - t0 };
+  // field map for the terrain shading (RGBA, filtered smoothly on the GPU):
+  // R, G = east-west and north-south slope (per tile, squeezed into -1..1 by t / (1 + |t|)); B = height relative to the sea, 0.5 at
+  // the shore and below it only under open water (frozen seas and salt flats count as shore); A = a slow
+  // colour variation (lusher or drier patches inside one biome)
+  const fld = new Uint8Array(sx * sy * 4), sq = s => { const t = s * SLOPE_K; return 127.5 + 127.5 * t / (1 + Math.abs(t)); }, inv = 1 / (2 * tps);
+  for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) {
+    const t = y * sx + x, g = (y + 1) * GW + x + 1, base = ids[t * 2];
+    const dx = (Hs[g + 1] - Hs[g - 1]) * inv, dy = (Hs[g + GW] - Hs[g - GW]) * inv;
+    let rel = E[g] - sampler.sea;
+    if (rel < 0 && base !== T.DEEP && base !== T.SHALLOW) rel = 0;
+    if (rel > 0 && (base === T.DEEP || base === T.SHALLOW)) rel = -0.001;
+    fld[t * 4] = sq(dx); fld[t * 4 + 1] = sq(dy);
+    fld[t * 4 + 2] = Math.max(0, Math.min(255, 127.5 + rel * 600));
+    fld[t * 4 + 3] = Math.max(0, Math.min(255, 127.5 + Vr[g] * 127.5));
+  }
+  return { ids, col, fld, counts, settlements, ms: performance.now() - t0 };
 }
 
 // the whole W x W map in one go (used by tests and tools)

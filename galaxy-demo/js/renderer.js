@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261124015931';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261124015931';
+import * as S from './shaders.js?v=20261124123321';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261124123321';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -57,6 +57,9 @@ export class Renderer {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     // tiny stand-in textures so samplers are always bound to something valid
     this.dummyIds = this.makeIdTexture(1, 1); this.dummyCol = this.makeColorTexture(1, 1);
+    this.dummyFld = this.makeColorTexture(1, 1, true);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 128]));
+    this.water = [[0, 0, 0], [0, 0, 0]];      // deep and shallow water colours (0..255), set from the skin
   }
 
   resize(w, h) {
@@ -71,6 +74,12 @@ export class Renderer {
   }
 
   // ---------- textures ----------
+  // decoration tables (art.js decorTables): uniforms keep their values, so they're set once
+  setDecor(t) {
+    const gl = this.gl, { p, u } = this.progBody;
+    gl.useProgram(p);
+    gl.uniform1fv(u['u_decoD[0]'], t.D); gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform1iv(u['u_floor[0]'], t.F);
+  }
   makeAtlas(data) {
     const gl = this.gl, t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
@@ -89,29 +98,32 @@ export class Renderer {
     this.texBytes += W * H * 2;
     return t;
   }
-  makeColorTexture(W, H) {
+  // smooth = filter between samples when magnified (the field map); the colour map stays crisp
+  makeColorTexture(W, H, smooth = false) {
     const gl = this.gl, t = gl.createTexture();
     const levels = Math.floor(Math.log2(Math.max(W, H))) + 1;
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texStorage2D(gl.TEXTURE_2D, levels, gl.RGBA8, W, H);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, smooth ? gl.LINEAR : gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.texBytes += W * H * 4 * 1.34;
     return t;
   }
-  uploadBand(idTex, colTex, W, y0, rows, ids, col) {
+  uploadBand(idTex, colTex, W, y0, rows, ids, col, fldTex, fld) {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, idTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, rows, gl.RG_INTEGER, gl.UNSIGNED_BYTE, ids);
     gl.bindTexture(gl.TEXTURE_2D, colTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, rows, gl.RGBA, gl.UNSIGNED_BYTE, col);
+    gl.bindTexture(gl.TEXTURE_2D, fldTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, rows, gl.RGBA, gl.UNSIGNED_BYTE, fld);
   }
-  mipmap(colTex) { const gl = this.gl; gl.bindTexture(gl.TEXTURE_2D, colTex); gl.generateMipmap(gl.TEXTURE_2D); }
-  freeMap(idTex, colTex, W, H) {
-    this.gl.deleteTexture(idTex); this.gl.deleteTexture(colTex);
-    this.texBytes -= W * H * 2 + W * H * 4 * 1.34;
+  mipmap(...texs) { const gl = this.gl; for (const t of texs) { gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); } }
+  freeMap(idTex, colTex, fldTex, W, H) {
+    this.gl.deleteTexture(idTex); this.gl.deleteTexture(colTex); this.gl.deleteTexture(fldTex);
+    this.texBytes -= W * H * 2 + W * H * 8 * 1.34;
   }
   makeGlowTexture(rgba, size) {
     const gl = this.gl, t = gl.createTexture();
@@ -164,6 +176,10 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.ids : this.dummyIds); gl.uniform1i(u.u_ids, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.col : this.dummyCol); gl.uniform1i(u.u_col, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.atlas); gl.uniform1i(u.u_atlas, 2);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.fld : this.dummyFld); gl.uniform1i(u.u_fld, 3);
+    gl.uniform1i(u.u_fx, b.fx ? 1 : 0); gl.uniform1f(u.u_tpp, b.tpp || 0);
+    const [wd, ws] = this.water;
+    gl.uniform3f(u.u_deep, wd[0] / 255, wd[1] / 255, wd[2] / 255); gl.uniform3f(u.u_shallow, ws[0] / 255, ws[1] / 255, ws[2] / 255);
     gl.uniform2f(u.u_map, b.map ? b.map.W : 1, b.map ? b.map.H : 1);
     gl.uniform1f(u.u_art, b.art); gl.uniform1f(u.u_lod, b.lod);
     gl.uniform4f(u.u_page, b.page[0], b.page[1], b.page[2], b.page[3]); gl.uniform1i(u.u_detail, b.detail ? 1 : 0);
