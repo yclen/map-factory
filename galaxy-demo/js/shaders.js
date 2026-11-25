@@ -1,4 +1,4 @@
-import { SLOPE_K } from './terrain.js?v=20261124231212';
+import { SLOPE_K } from './terrain.js?v=20261124234308';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -107,6 +107,9 @@ uniform vec4 u_biome[32]; uniform ivec4 u_decoK[32]; uniform ivec4 u_propK[32];
 uniform sampler2D u_hd; uniform ivec4 u_hdK[8]; uniform vec4 u_hdInfo; uniform vec2 u_hdSize;
 // deposits, per overlay id: soil stain (rgb, strength) and (glint, pulse)
 uniform vec4 u_oreStain[16]; uniform vec2 u_oreFx[16];
+// ground textures (the Biome Lab, for now): per ground type, the texture layer that replaces its tile art (-1 = tile
+// art) and how many tiles one copy of the texture covers. Sampled at every screen pixel, so they keep full detail
+uniform mediump sampler2DArray u_gtex; uniform ivec4 u_gtexK[8]; uniform vec4 u_gtexS[8];
 out vec4 o;
 
 const float SLOPE_K = ${SLOPE_K}.0;
@@ -118,6 +121,7 @@ float g_depth = 0.0;      // water depth (elevation units)
 vec2 g_off = vec2(0.0);   // this chunk's first art pixel on the whole map (so noise lines up across chunks)
 vec2 g_ap = vec2(0.0);    // this screen pixel's exact spot on the whole map, in art pixels (high-resolution props)
 float g_hdLod = 0.0;      // mip level for high-resolution props at the current zoom
+vec2 g_dx = vec2(0.0), g_dy = vec2(0.0);   // how far g_ap moves per screen pixel (texture filtering)
 
 uint hashu(uvec2 p) { uint h = (p.x * 0x27d4eb2du) ^ (p.y * 0x165667b1u); h ^= h >> 15; h *= 0x85ebca6bu; h ^= h >> 13; return h; }
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -213,7 +217,11 @@ vec4 props(ivec2 a, out float shade) {
     if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(19, 26)))) continue;   // past sprite and shadow
     ivec2 foot = clamp(((A + ivec2(8, 22)) - ivec2(g_off)) >> 3, ivec2(0), ivec2(u_map) - 1);
     uvec2 id = texelFetch(u_ids, foot, 0).rg;
-    if (id.g != 0u || float((hh >> 8) & 1023u) / 1023.0 >= u_biome[int(id.r)].z) continue;
+    // clumping (u_biome.w = clump size in tiles + strength 0..1 as its fraction; 0 = spread evenly): groves and gaps
+    vec4 bi = u_biome[int(id.r)];
+    float dens = bi.z;
+    if (bi.w > 0.0) dens *= max(0.0, 1.0 + fract(bi.w) * 2.9 * (vn2(vec2(A) / (floor(bi.w) * 8.0), 9u) * 2.0 - 1.0));
+    if (id.g != 0u || float((hh >> 8) & 1023u) / 1023.0 >= dens) continue;
     int k = u_propK[int(id.r)][int((hh >> 18) & 3u)];
     if (k < 0) continue;
     int v = int((hh >> 20) & 3u);
@@ -300,6 +308,11 @@ vec3 artPix(ivec2 a) {
   int gslot = int(gid) * 4 + int(h & 3u);
   if (u_fx == 1 && u_biome[int(gid)].y > 0.5) gslot += 128;             // forest floor (SLOT_FLOOR) under scattered trees
   vec3 c = atlasPix(gslot, inT).rgb;
+  int gtl = u_gtexK[int(gid) >> 2][int(gid) & 3];
+  if (u_fx == 1 && gtl >= 0 && !isWater(gid)) {
+    float ts = u_gtexS[int(gid) >> 2][int(gid) & 3] * 8.0;   // art px per copy of the texture
+    c = textureGrad(u_gtex, vec3(g_ap / ts, float(gtl)), g_dx / ts, g_dy / ts).rgb;
+  }
   bool water = u_fx == 1 && isWater(gid);
   if (water) {
     // smooth depth colour, keeping the tile art's ripples as light and dark
@@ -373,6 +386,7 @@ void main() {
   if (u_detail == 1) lp = clamp(lp, vec2(0.0), vec2(1.0));
   vec2 ap = lp * u_map * 8.0 - 0.5;                  // art-pixel coordinate within the chunk
   vec2 fw = clamp(fwidth(ap), vec2(1e-3), vec2(2.0));
+  g_dx = dFdx(ap); g_dy = dFdy(ap);
   float edgeW = max(u_pix, 1.0) / u_R;
   if (u_detail == 1 && rr > 1.0) discard;
 

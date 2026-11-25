@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261124231212';
-import { RULES } from './rules.js?v=20261124231212';
-import { makeNoise } from './noise.js?v=20261124231212';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261124231212';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261124234308';
+import { RULES } from './rules.js?v=20261124234308';
+import { makeNoise } from './noise.js?v=20261124234308';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261124234308';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -19,7 +19,7 @@ for (const res of RESOURCES) {
 }
 
 export function makeSampler(desc) {
-  const P = RULES.planetTypes[desc.type], tr = P.terrain || {};
+  const P = RULES.planetTypes[desc.type] || {}, tr = P.terrain || {};
   const N = makeNoise(desc.seed >>> 0);
   const r = mulberry32(hash32(desc.seed, 3));
   const o = () => (r() - 0.5) * 200;
@@ -166,7 +166,50 @@ export function makeSampler(desc) {
     if (mtn > 0 && kR > 0) detail.rel += (N.ridged(x * fR + oD[1], y * fR + oD[0], oD[2] + 7, 2) - 0.6) * kR * mtn;
     detail.vari = k3 > 0 ? N.simplex3(x * f3 + oD[2], y * f3 + oD[0], oD[1]) * k3 : 0;
   }
+  if (desc.lab) return labSampler(desc, N, r, detail, sea);
   return { classify, deposit, elev, detail, sea };
+}
+
+// The Biome Lab's planet (biome-lab/): a lake in the middle, biome regions around it, and tiles painted by hand.
+// desc.lab = { lake: lake radius (share of the disk's radius), beach (tiles), regions, warp (0..1.5), hills (0..1),
+//   biomes: [ground ids], paint: null or Uint8Array(W * W) of ground ids (255 = not painted) }
+function labSampler(desc, N, r, detail, sea) {
+  const L = desc.lab, W = desc.W;
+  const list = L.biomes.length ? L.biomes.slice() : [T.GRASS];
+  for (let i = list.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; const t = list[i]; list[i] = list[j]; list[j] = t; }
+  const K = Math.max(1, L.regions), a0 = r() * TAU, seeds = [];
+  for (let i = 0; i < K; i++) {
+    const ang = a0 + (i + (r() - 0.5) * 0.6) * TAU / K, rad = L.lake + (1.05 - L.lake) * (0.3 + 0.55 * r());
+    seeds.push(Math.cos(ang) * rad, Math.sin(ang) * rad, list[i % list.length]);
+  }
+  const beachU = L.beach * 2 / W, lake = Math.max(L.lake, 1e-4);
+  const lakeD = (x, y) => Math.hypot(x, y) + N.fbm(x * 4 + 3.1, y * 4 - 1.7, 1.3, 3) * lake * 0.45;
+  // the lake bed drops away from the shore; the land rises gently from it into hills
+  function elev(x, y) {
+    const d = lakeD(x, y);
+    if (L.lake > 0 && d < L.lake) return sea - 0.004 - (L.lake - d) / lake * 0.09;
+    const hill = (N.fbm(x * 3 + 11, y * 3 + 7, 5.5, 4) * 0.5 + 0.5) * L.hills * 0.16;
+    return sea + 0.004 + Math.min(1, (d - L.lake) / 0.15) * (0.01 + hill);
+  }
+  function classify(x, y, z = 0, e = elev(x, y)) {
+    if (L.paint) {
+      const tx = Math.min(W - 1, Math.max(0, Math.floor((x * 0.5 + 0.5) * W)));
+      const ty = Math.min(W - 1, Math.max(0, Math.floor((y * 0.5 + 0.5) * W)));
+      const p = L.paint[ty * W + tx];
+      if (p !== 255) return p;
+    }
+    if (e < sea) return e < sea - 0.03 ? T.DEEP : T.SHALLOW;
+    if (L.lake > 0 && lakeD(x, y) < L.lake + beachU) return T.BEACH;
+    const w = L.warp * 0.28;
+    const wx = x + N.fbm(x * 2.4 + 3, y * 2.4, 7.7, 3) * w, wy = y + N.fbm(x * 2.4, y * 2.4 + 3, 11.1, 3) * w;
+    let best = 1e9, id = seeds[2];
+    for (let i = 0; i < seeds.length; i += 3) {
+      const dd = (wx - seeds[i]) ** 2 + (wy - seeds[i + 1]) ** 2;
+      if (dd < best) { best = dd; id = seeds[i + 2]; }
+    }
+    return id;
+  }
+  return { classify, deposit: () => 0, elev, detail, sea };
 }
 // ground where cliffs always may form (elsewhere only in scattered bands)
 const CLIFF_GROUND = new Set([T.MOUNTAIN, T.PEAK, T.MESA, T.HIGHLAND, T.CANYON]);
@@ -271,6 +314,8 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     if (u * u + v * v <= 1) { counts[base]++; if (ov) counts[32 + ov]++; }
     const vv = tileHash(x0 + x, y0 + y) & 3, bi = (base * 4 + vv) * 3;
     let r = art.baseAvg[bi], g = art.baseAvg[bi + 1], b = art.baseAvg[bi + 2], e = art.baseEmis[base];
+    const avg = desc.avg && desc.avg[base];             // a ground drawn with a texture (Biome Lab): its own average
+    if (avg) { r = avg[0]; g = avg[1]; b = avg[2]; }
     if (ov && art.overStain[ov * 4 + 3] > 0) {
       const k = art.overStain[ov * 4 + 3] * (0.35 + 0.65 * rich);
       r += (art.overStain[ov * 4] - r) * k; g += (art.overStain[ov * 4 + 1] - g) * k; b += (art.overStain[ov * 4 + 2] - b) * k;

@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261124231212';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261124231212';
+import * as S from './shaders.js?v=20261124234308';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261124234308';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -60,6 +60,7 @@ export class Renderer {
     this.dummyFld = this.makeColorTexture(1, 1, true);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 128]));
     this.water = [[0, 0, 0], [0, 0, 0]];      // deep and shallow water colours (0..255), set from the skin
+    this.gtex = this.makeGroundTextures([], 1);   // no ground textures until setGroundTextures
   }
 
   resize(w, h) {
@@ -81,6 +82,30 @@ export class Renderer {
     gl.uniform4fv(u['u_biome[0]'], t.B); gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform4iv(u['u_propK[0]'], t.PK);
     gl.uniform4fv(u['u_oreStain[0]'], t.S); gl.uniform2fv(u['u_oreFx[0]'], t.X);
     gl.uniform4iv(u['u_hdK[0]'], new Int32Array(32).fill(-1));   // no high-resolution props until setHdProps
+    gl.uniform4iv(u['u_gtexK[0]'], new Int32Array(32).fill(-1)); // no ground textures until setGroundTextures
+  }
+  // Ground textures (Biome Lab): `layers` = square images (canvases) of `size` px, one texture-array layer each;
+  // K = per ground type, its layer or -1 (tile art); S = per ground type, tiles covered by one copy of its texture
+  makeGroundTextures(layers, size) {
+    const gl = this.gl, t = gl.createTexture(), n = Math.max(1, layers.length);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
+    const levels = Math.floor(Math.log2(size)) + 1;
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, gl.RGBA8, size, size, n);
+    layers.forEach((img, i) => gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, img));
+    if (layers.length) gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    return t;
+  }
+  setGroundTextures(layers, size, K, S) {
+    const gl = this.gl;
+    gl.deleteTexture(this.gtex);
+    this.gtex = this.makeGroundTextures(layers, size);
+    const { p, u } = this.progBody;
+    gl.useProgram(p);
+    gl.uniform4iv(u['u_gtexK[0]'], K); gl.uniform4fv(u['u_gtexS[0]'], S);
   }
   // High-resolution props (tools/pack_props.py): an image atlas of 4 variants per prop kind, drawn smoothly instead
   // of the pixel-art props. hdK = per prop kind (skin order), the atlas cell of its variant 0, or -1 = keep pixel art
@@ -202,6 +227,7 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.atlas); gl.uniform1i(u.u_atlas, 2);
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.fld : this.dummyFld); gl.uniform1i(u.u_fld, 3);
     gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.hdProps || this.dummyCol); gl.uniform1i(u.u_hd, 4);
+    gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.gtex); gl.uniform1i(u.u_gtex, 5);
     gl.uniform1i(u.u_fx, b.fx ? 1 : 0); gl.uniform1f(u.u_tpp, b.tpp || 0);
     const [wd, ws] = this.water;
     gl.uniform3f(u.u_deep, wd[0] / 255, wd[1] / 255, wd[2] / 255); gl.uniform3f(u.u_shallow, ws[0] / 255, ws[1] / 255, ws[2] / 255);

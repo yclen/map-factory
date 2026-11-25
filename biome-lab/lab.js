@@ -1,23 +1,25 @@
-// Biome Lab: a small sandbox world for designing biomes with the AI art.
+// Biome Lab: a small Earth-like planet for designing biomes with the AI art, drawn by the game's own renderer.
 // Defaults come from the game (galaxy-demo/js/skin.js, art/props/props.json); the lab stores only what you
 // change, in this browser, and Export turns your changes into lines for skin.js / props.json.
-import { SKIN } from '../galaxy-demo/js/skin.js';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js';
-import { loadAll, tilesPerPx, canvas } from './assets.js';
-import { generateTiles, makeWorld, refine, buildMasks, scatter, draw, biomeAt } from './world.js';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261124234308';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261124234308';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261124234308';
+import { loadAll, canvas, buildHdAtlas, groundLayer, GROUND_TEX } from './assets.js?v=20261124234308';
+import { createPlanetView } from './planet.js?v=20261124234308';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
-const WATER = ['DEEP', 'SHALLOW'];
 const LAND = BASE.filter(n => !['DEEP', 'SHALLOW', 'BEACH', 'LAVA', 'SEA_ICE', 'ICE_CRACK'].includes(n));
 const DEFAULT_BIOMES = ['GRASS', 'FOREST', 'TAIGA', 'SNOW', 'SAVANNA', 'DESERT', 'JUNGLE'];
+const WATER = new Set(['DEEP', 'SHALLOW']);
 
-// which ground texture names suit which biome (first one that has art wins); any texture can be picked by hand
+// which ground texture names suit which biome (first one that has art wins); any texture can be picked by hand.
+// Water keeps the game's own animated water
 const GROUND_FOR = {
   GRASS: ['grass'], FOREST: ['forestfloor', 'grass'], JUNGLE: ['junglefloor', 'grass'], SWAMP: ['mud'],
   SAVANNA: ['drygrass', 'sand'], DESERT: ['sand'], DUNES: ['dunes', 'sand'], BEACH: ['beachsand', 'sand'],
   MESA: ['redsand', 'sand'], SALT: ['salt'], TUNDRA: ['tundra'], TAIGA: ['needles', 'forestfloor'],
-  SNOW: ['snow'], ICE: ['ice', 'snow'], MOUNTAIN: ['rock'], PEAK: ['snow', 'rock'], SHALLOW: ['shallows'],
-  DEEP: ['water'], ASH: ['ash'], OBSIDIAN: ['obsidian'], BASALT: ['basalt'], SULFUR: ['sulfur'],
+  SNOW: ['snow'], ICE: ['ice', 'snow'], MOUNTAIN: ['rock'], PEAK: ['snow', 'rock'],
+  ASH: ['ash'], OBSIDIAN: ['obsidian'], BASALT: ['basalt'], SULFUR: ['sulfur'],
   REGOLITH: ['regolith'], HIGHLAND: ['rock'], CRATER: ['regolith'], RUST: ['rust'], CANYON: ['redsand'],
 };
 // suggested prompts for art that doesn't exist yet: [subject, biome theme, size]
@@ -37,8 +39,6 @@ const GROUND_IDEAS = {
   snow: ['fresh packed snow with faint wind-carved ridges', 'taiga'],
   ice: ['smooth blue-white glacier ice with faint cracks and trapped bubbles', 'taiga'],
   rock: ['bare grey mountain rock with cracks and loose gravel', 'rocks'],
-  water: ['deep clear lake water seen from above, dark blue with gentle ripples', null],
-  shallows: ['shallow clear lake water over pale sand, turquoise, with gentle ripples', null],
   ash: ['grey volcanic ash with small dark cinders', 'rocks'], obsidian: ['glossy black obsidian ground with sharp cracks', 'rocks'],
   basalt: ['dark grey basalt ground with small pits', 'rocks'], sulfur: ['yellow sulfur crust with pale cracks', 'rocks'],
   regolith: ['grey moon dust with small pebbles and tiny craters', 'rocks'], rust: ['rust-red iron-rich dust and gravel', 'rocks'],
@@ -61,13 +61,11 @@ const PROP_IDEAS = {
 
 // ---------- settings: defaults + what you changed ----------
 
-const STORE = 'biomeLab.v1';
-const WORLD_DEFAULT = { seed: 7, size: 128, lake: 0.3, beach: 2, regions: 9, warp: 0.6, wiggle: 0.8, soft: 0.6,
-  biomes: DEFAULT_BIOMES };
-const VIEW_DEFAULT = { shadow: 0.38, shadowLen: 0.6, mirror: true, props: true, decor: true, grid: false, focus: false,
-  ruler: false };
+const STORE = 'biomeLab.v2';
+const WORLD_DEFAULT = { seed: 7, size: 192, lake: 0.3, beach: 2, regions: 9, warp: 0.6, hills: 0.4, biomes: DEFAULT_BIOMES };
+const VIEW_DEFAULT = { props: true, decor: true, ruler: false };
 let over = { world: {}, view: {}, biomes: {}, kinds: {} };
-let painted = null;                      // the tile map, once you've painted on it
+let painted = null;                      // { n: planet size, t: base64 of the paint map }
 try {
   const s = JSON.parse(localStorage.getItem(STORE) || 'null');
   if (s) { over = { ...over, ...s.over }; if (s.painted) painted = s.painted; }
@@ -77,9 +75,10 @@ function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify({ over, painted: painted && painted.n === world.N ? painted : null }));
+      if (paint) painted = { n: worldP().size, t: btoa(Array.from(paint, v => String.fromCharCode(v)).join('')) };
+      localStorage.setItem(STORE, JSON.stringify({ over, painted }));
     } catch { /* full or blocked */ }
-  }, 300);
+  }, 400);
 }
 
 let A = null;                            // loaded art
@@ -96,19 +95,18 @@ function latestTexture(names) {
 const count = list => list.reduce((m, k) => (m[k] = (m[k] || 0) + 1, m), {});
 function biomeDefault(name) {
   const pf = SKIN.propsFor[name] || [0, []], df = SKIN.decorFor[name] || [0, []];
-  return { ground: latestTexture(GROUND_FOR[name]), texTiles: 8, bright: 1, sat: 1, hue: 0,
-    density: pf[0], cluster: 0, clump: 8, jitter: 0.8, size: 1, sizeVar: 0.12, kinds: count(pf[1]),
-    decor: df[0], decorKinds: count(df[1]), decorSize: 1 };
+  return { ground: WATER.has(name) ? 'pixel' : latestTexture(GROUND_FOR[name]), texTiles: 8, bright: 1, sat: 1, hue: 0,
+    density: pf[0], cluster: 0, clump: 10, kinds: count(pf[1]), decor: df[0], decorKinds: count(df[1]) };
 }
 const biomeP = name => ({ ...biomeDefault(name), ...(over.biomes[name] || {}) });
+const sheetsOf = kind => Object.values(A.sheets).filter(s => s.kind === kind).sort((a, b) => a.v - b.v);
 function kindDefault(kind) {
   const m = A.manifest.kinds[kind];
   const versions = sheetsOf(kind);
   const sheet = m && A.sheets[m.sheet] ? m.sheet : versions.length ? versions[versions.length - 1].file : 'pixel';
-  return { sheet, pick: m && m.sheet === sheet && m.pick ? m.pick : [0, 1, 2, 3], size: (m && m.size) || 1 };
+  return { sheet, pick: m && m.sheet === sheet && m.pick ? m.pick : [0, 1, 2, 3], size: Math.min(1, (m && m.size) || 1) };
 }
 const kindP = kind => ({ ...kindDefault(kind), ...(over.kinds[kind] || {}) });
-const sheetsOf = kind => Object.values(A.sheets).filter(s => s.kind === kind).sort((a, b) => a.v - b.v);
 
 // setOver('world' | 'view', key, value) or setOver('biomes' | 'kinds', name, field, value)
 function setOver(group, key, field, value) {
@@ -117,256 +115,153 @@ function setOver(group, key, field, value) {
   save();
 }
 
-// ---------- world state ----------
+// ---------- feeding the game's renderer ----------
 
-let world = null, scene = { props: [], decor: [] }, fitNext = false;
-let dirty = 0;                            // 4 tiles, 3 border detail, 2 masks, 1 scatter, 0.5 redraw
-const needs = level => { dirty = Math.max(dirty, level); requestAnimationFrame(frame); };
+let planet = null, paint = null, avg = {};
 
-function rebuild(level) {
+// the planet description the map workers build from (galaxy-demo/js/terrain.js, labSampler)
+function makeDesc() {
   const p = worldP();
-  if (level >= 4) {
-    const tiles = painted && painted.n === p.size ? decodeTiles(painted.t, p.size) : generateTiles(p);
-    world = makeWorld(tiles, p.size, p.seed);
+  return { id: 'lab', seed: p.seed, type: 'lab', r: 1, W: p.size, heat: 1, settle: 0, home: false, avg,
+    lab: { lake: p.lake, beach: p.beach, regions: p.regions, warp: p.warp, hills: p.hills,
+      biomes: p.biomes.map(n => ID[n]), paint } };
+}
+function rebuildPlanet(refit) { planet.setPlanet(makeDesc(), refit); presentSoon(); }
+
+// a biome's props as the game stores them: 4 slots, so shares are rounded to quarters
+function toFour(kinds) {
+  const entries = Object.entries(kinds).filter(([, w]) => w > 0);
+  const total = entries.reduce((s, [, w]) => s + w, 0);
+  if (!total) return [];
+  const raw = entries.map(([k, w]) => ({ k, x: w / total * 4 }));
+  raw.forEach(r => { r.n = Math.floor(r.x); });
+  let left = 4 - raw.reduce((s, r) => s + r.n, 0);
+  raw.slice().sort((a, b) => (b.x - b.n) - (a.x - a.n)).forEach(r => { if (left > 0) { r.n++; left--; } });
+  return raw.flatMap(r => Array(r.n).fill(r.k));
+}
+
+// per ground type: prop / decoration density and kinds, clumping (art.js decorTables, the shader's u_biome table)
+let hd = null, gt = null;                // the last prop atlas and ground textures (their uniforms are re-set below)
+function applyTables() {
+  const v = viewP(), propsFor = {}, decorFor = {};
+  for (const n of BASE) {
+    const b = biomeP(n);
+    propsFor[n] = [v.props ? b.density : 0, toFour(b.kinds)];
+    decorFor[n] = [v.decor ? b.decor : 0, toFour(b.decorKinds)];
   }
-  if (level >= 3) refine(world, p.wiggle);
-  if (level >= 2) buildMasks(world, p.soft);
-  if (level >= 1) {
-    spriteCache.clear();
-    const sets = {};
-    scene = scatter(world, id => (sets[id] ||= biomeP(BASE[id])), pickProp, pickDecor, viewP().mirror);
-  }
-  if (fitNext) { fitNext = false; fit(); }
-}
-
-const encodeTiles = t => btoa(Array.from(t, v => String.fromCharCode(v)).join(''));
-const decodeTiles = (s, n) => { const b = atob(s), t = new Uint8Array(n * n); for (let i = 0; i < t.length; i++) t[i] = b.charCodeAt(i) || 0; return t; };
-
-// ---------- sprites and ground patterns ----------
-
-const spriteCache = new Map();
-function propSprites(kind) {
-  if (spriteCache.has(kind)) return spriteCache.get(kind);
-  const ks = kindP(kind);
-  let list = null;
-  const sh = ks.sheet !== 'pixel' && A.sheets[ks.sheet];
-  if (sh) list = ks.pick.map(i => sh.cells[i]).filter(Boolean);
-  if (!list || !list.length) list = A.pixel.props[kind] || null;
-  const out = list && list.map(s => ({ sprite: s, tpp: tilesPerPx(s, ks.size) }));
-  spriteCache.set(kind, out);
-  return out;
-}
-function pickWeighted(table, r) {
-  let total = 0;
-  for (const k in table) total += table[k];
-  if (total <= 0) return null;
-  let x = r * total;
-  for (const k in table) { x -= table[k]; if (x < 0) return k; }
-  return null;
-}
-function pickProp(id, r1, r2) {
-  const kind = pickWeighted(biomeP(BASE[id]).kinds, r1);
-  const list = kind && propSprites(kind);
-  return list ? list[Math.floor(r2 * list.length)] : null;
-}
-function pickDecor(id, r1, r2) {
-  const kind = pickWeighted(biomeP(BASE[id]).decorKinds, r1);
-  const list = kind && A.pixel.decor[kind];
-  if (!list) return null;
-  const s = list[Math.floor(r2 * list.length)];
-  return { sprite: s, tpp: tilesPerPx(s, 1) };
-}
-
-const patternCache = new Map();
-function pattern(id) {
-  const name = BASE[id], b = biomeP(name);
-  const tex = b.ground !== 'pixel' && A.textures[b.ground];
-  const key = [name, tex ? b.ground : 'pixel', b.texTiles, b.bright, b.sat, b.hue].join('|');
-  if (patternCache.has(key)) return patternCache.get(key);
-  const src = tex ? tex.img : A.pixel.ground[name];
-  let img = src;
-  if (b.bright !== 1 || b.sat !== 1 || b.hue !== 0) {
-    img = canvas(src.width, src.height);
-    const g = img.getContext('2d');
-    g.filter = `brightness(${b.bright}) saturate(${b.sat}) hue-rotate(${b.hue}deg)`;
-    g.drawImage(src, 0, 0);
-  }
-  const p = { img, tiles: tex ? b.texTiles : 8 };
-  patternCache.set(key, p);
-  return p;
-}
-
-// ---------- canvas, view and input ----------
-
-const cv = document.getElementById('map');
-const ctx = cv.getContext('2d');
-const layer = canvas(1, 1), shadowLayer = canvas(1, 1);
-const view = { ox: 0, oy: 0, z: 4 };
-let dpr = 1, hover = null;
-
-function resize() {
-  dpr = window.devicePixelRatio || 1;
-  const r = cv.getBoundingClientRect();
-  const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
-  if (cv.width !== w || cv.height !== h) {
-    const cx = view.ox + cv.width / 2 / view.z, cy = view.oy + cv.height / 2 / view.z;
-    cv.width = layer.width = shadowLayer.width = w;
-    cv.height = layer.height = shadowLayer.height = h;
-    if (world) { view.ox = cx - w / 2 / view.z; view.oy = cy - h / 2 / view.z; }
-    needs(0.5);
-  }
-}
-function fit() {
-  const N = world.N;
-  view.z = Math.min(cv.width, cv.height) / N * 0.96;
-  view.ox = N / 2 - cv.width / 2 / view.z;
-  view.oy = N / 2 - cv.height / 2 / view.z;
-  needs(0.5);
-}
-const toWorld = (e) => {
-  const r = cv.getBoundingClientRect();
-  return { x: view.ox + (e.clientX - r.left) * dpr / view.z, y: view.oy + (e.clientY - r.top) * dpr / view.z };
-};
-function zoomAt(px, py, f) {
-  const z = Math.min(160 * dpr, Math.max(0.8 * dpr, view.z * f));
-  const wx = view.ox + px / view.z, wy = view.oy + py / view.z;
-  view.z = z;
-  view.ox = wx - px / z;
-  view.oy = wy - py / z;
-  needs(0.5);
-}
-
-let mode = 'select', brush = 'FOREST', brushSize = 3;
-const pointers = new Map();
-let drag = null, pinch = null;
-cv.addEventListener('pointerdown', e => {
-  if (!world) return;
-  cv.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 2) {
-    const [a, b] = [...pointers.values()];
-    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) };
-    drag = null;
-    return;
-  }
-  const paint = mode === 'paint' && e.button === 0;
-  drag = { x: e.clientX, y: e.clientY, moved: false, paint, last: toWorld(e) };
-  if (paint) paintAt(drag.last);
-});
-cv.addEventListener('pointermove', e => {
-  if (!world) return;
-  hover = toWorld(e);
-  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pinch && pointers.size === 2) {
-    const [a, b] = [...pointers.values()];
-    const d = Math.hypot(a.x - b.x, a.y - b.y), r = cv.getBoundingClientRect();
-    zoomAt(((a.x + b.x) / 2 - r.left) * dpr, ((a.y + b.y) / 2 - r.top) * dpr, d / pinch.d);
-    pinch.d = d;
-  } else if (drag) {
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-    if (drag.paint) {
-      // fill in the stroke between mouse positions, so fast drags leave no gaps
-      const p = toWorld(e), a = drag.last, d = Math.hypot(p.x - a.x, p.y - a.y);
-      const steps = Math.max(1, Math.ceil(d / Math.max(0.5, brushSize / 3)));
-      for (let i = 1; i <= steps; i++) paintAt({ x: a.x + (p.x - a.x) * i / steps, y: a.y + (p.y - a.y) * i / steps });
-      drag.last = p;
-    }
-    else if (drag.moved) {
-      view.ox -= dx * dpr / view.z;
-      view.oy -= dy * dpr / view.z;
-      drag.x = e.clientX; drag.y = e.clientY;
-    }
-  }
-  status();
-  needs(0.5);
-});
-const up = e => {
-  pointers.delete(e.pointerId);
-  if (pointers.size < 2) pinch = null;
-  if (drag && !drag.moved && !drag.paint && mode === 'select') {
-    const p = toWorld(e), id = biomeAt(world, p.x, p.y);
-    if (id >= 0) { selected = BASE[id]; showTab('biome'); }
-  }
-  if (drag && drag.paint) save();
-  drag = null;
-};
-cv.addEventListener('pointerup', up);
-cv.addEventListener('pointercancel', up);
-cv.addEventListener('pointerleave', () => { hover = null; status(); needs(0.5); });
-cv.addEventListener('wheel', e => {
-  e.preventDefault();
-  const r = cv.getBoundingClientRect();
-  zoomAt((e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr, Math.exp(-e.deltaY * 0.0015));
-}, { passive: false });
-cv.addEventListener('contextmenu', e => e.preventDefault());
-
-let paintBox = null;
-function paintAt(p) {
-  const N = world.N, rad = brushSize / 2, id = ID[brush];
-  let changed = false;
-  for (let y = Math.floor(p.y - rad); y <= Math.ceil(p.y + rad); y++) for (let x = Math.floor(p.x - rad); x <= Math.ceil(p.x + rad); x++) {
-    if (x < 0 || y < 0 || x >= N || y >= N) continue;
-    if ((x + 0.5 - p.x) ** 2 + (y + 0.5 - p.y) ** 2 > rad * rad + 0.25) continue;
-    if (world.tiles[y * N + x] !== id) { world.tiles[y * N + x] = id; changed = true; }
-  }
-  if (!changed) return;
-  const b = [Math.floor(p.x - rad - 1), Math.floor(p.y - rad - 1), Math.ceil(p.x + rad + 1), Math.ceil(p.y + rad + 1)];
-  paintBox = paintBox ? [Math.min(paintBox[0], b[0]), Math.min(paintBox[1], b[1]), Math.max(paintBox[2], b[2]), Math.max(paintBox[3], b[3])] : b;
-  painted = { n: N, t: encodeTiles(world.tiles) };
-  needs(2);
-}
-
-function frame() {
-  if (!dirty || !world) return;
-  const level = dirty;
-  dirty = 0;
-  if (paintBox && level < 3) { refine(world, worldP().wiggle, ...paintBox); }
-  paintBox = null;
-  if (level >= 1) rebuild(level);
-  const v = viewP();
-  draw(ctx, layer, shadowLayer, world, view, scene, pattern, {
-    props: v.props, decor: v.decor, grid: v.grid, shadow: v.shadow, shadowLen: v.shadowLen,
-    focus: v.focus && tab === 'biome' ? ID[selected] : null,
+  const t = decorTables({ ...SKIN, propsFor, decorFor });
+  BASE.forEach((n, id) => {
+    const b = biomeP(n);
+    t.B[id * 4 + 3] = b.cluster > 0 ? Math.round(b.clump) + Math.min(0.99, b.cluster) : 0;
   });
-  drawOverlay(v);
-  if (level >= 2 && tab === 'biome') renderBiomeList();
+  planet.R.setDecor(t);                  // (this also clears the prop-atlas and ground-texture tables)
+  reapplyUniforms();
+}
+function reapplyUniforms() {
+  const R = planet.R, gl = R.gl, { p, u } = R.progBody;
+  gl.useProgram(p);
+  if (hd) gl.uniform4iv(u['u_hdK[0]'], hd.hdK);
+  if (gt) { gl.uniform4iv(u['u_gtexK[0]'], gt.K); gl.uniform4fv(u['u_gtexS[0]'], gt.S); }
+}
+// the high-resolution prop atlas from each kind's chosen sheet and cells
+function applyHd() {
+  const names = Object.keys(SKIN.props), list = [], hdK = new Int32Array(32).fill(-1);
+  for (const name of names) {
+    const ks = kindP(name), sh = ks.sheet !== 'pixel' && A.sheets[ks.sheet];
+    if (!sh) continue;
+    const cells = ks.pick.map(i => sh.cells[i]).filter(Boolean);
+    if (!cells.length) continue;
+    list.push({ name, size: ks.size, sprites: [0, 1, 2, 3].map(v => cells[v % cells.length]) });
+  }
+  const at = buildHdAtlas(list);
+  for (const [name, cell] of Object.entries(at.index)) { const k = names.indexOf(name); if (k >= 0 && k < 32) hdK[k] = cell; }
+  planet.R.setHdProps(at.canvas, at.meta, hdK);
+  hd = { hdK };
+}
+// ground textures: one texture-array layer per distinct (texture, colour adjustment) in use
+function applyGround() {
+  const layers = [], keys = {}, K = new Int32Array(32).fill(-1), S = new Float32Array(32).fill(8);
+  avg = {};
+  BASE.forEach((n, id) => {
+    const b = biomeP(n), tex = !WATER.has(n) && b.ground !== 'pixel' && A.textures[b.ground];
+    if (!tex) return;
+    const key = [b.ground, b.bright, b.sat, b.hue].join('|');
+    if (!(key in keys)) { keys[key] = layers.length; layers.push(groundLayer(tex.img, b.bright, b.sat, b.hue)); }
+    K[id] = keys[key]; S[id] = b.texTiles;
+    avg[id] = layers[keys[key]].avg;
+  });
+  planet.R.setGroundTextures(layers.map(l => l.canvas), GROUND_TEX, K, S);
+  gt = { K, S };
 }
 
-function drawOverlay(v) {
+// ---------- painting ----------
+
+let mode = 'look', brush = 'FOREST', brushSize = 4, last = null;
+function dab(t) {
+  const W = worldP().size, rad = brushSize / 2, id = ID[brush];
+  if (!paint) paint = new Uint8Array(W * W).fill(255);
+  for (let y = Math.floor(t.y - rad); y <= Math.ceil(t.y + rad); y++) for (let x = Math.floor(t.x - rad); x <= Math.ceil(t.x + rad); x++) {
+    if (x < 0 || y < 0 || x >= W || y >= W) continue;
+    if ((x + 0.5 - t.x) ** 2 + (y + 0.5 - t.y) ** 2 > rad * rad + 0.25) continue;
+    paint[y * W + x] = id;
+  }
+}
+function paintStroke(t, start) {
+  if (start || !last) dab(t);
+  else {
+    const d = Math.hypot(t.x - last.x, t.y - last.y), steps = Math.max(1, Math.ceil(d / Math.max(0.5, brushSize / 3)));
+    for (let i = 1; i <= steps; i++) dab({ x: last.x + (t.x - last.x) * i / steps, y: last.y + (t.y - last.y) * i / steps });
+  }
+  last = t;
+  rebuildPlanet();
+}
+
+// ---------- overlay and status ----------
+
+let hover = null, fps = '';
+function drawOverlay(g, view) {
   if (!hover) return;
-  const z = view.z, X = x => (x - view.ox) * z, Y = y => (y - view.oy) * z;
-  ctx.save();
-  ctx.lineWidth = Math.max(1, dpr);
+  const z = view.zoom, dpr = view.dpr;
+  g.lineWidth = Math.max(1, dpr);
   if (mode === 'paint') {
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.beginPath();
-    ctx.arc(X(hover.x), Y(hover.y), brushSize / 2 * z, 0, Math.PI * 2);
-    ctx.stroke();
-  } else if (v.ruler) {
-    // footprint of a 3 x 3 machine and a 1 x 1 belt next to it, to judge how big things look
+    const [x, y] = view.toScreen(hover.x, hover.y);
+    g.strokeStyle = 'rgba(255,255,255,0.9)';
+    g.beginPath(); g.arc(x, y, brushSize / 2 * z, 0, Math.PI * 2); g.stroke();
+  } else if (viewP().ruler) {
+    // the footprint of a 3 x 3 machine and a 1 x 1 belt, to judge how big trees and rocks look
     const tx = Math.floor(hover.x) - 1, ty = Math.floor(hover.y) - 1;
-    ctx.fillStyle = 'rgba(242, 193, 78, 0.28)';
-    ctx.strokeStyle = 'rgba(242, 193, 78, 0.95)';
-    ctx.fillRect(X(tx), Y(ty), 3 * z, 3 * z);
-    ctx.strokeRect(X(tx), Y(ty), 3 * z, 3 * z);
-    ctx.fillRect(X(tx + 3.2), Y(ty + 2), z, z);
-    ctx.strokeRect(X(tx + 3.2), Y(ty + 2), z, z);
-    if (z > 14) {
-      ctx.fillStyle = '#fff';
-      ctx.font = `${Math.round(11 * dpr)}px system-ui, sans-serif`;
-      ctx.fillText('3×3 machine', X(tx), Y(ty) - 4 * dpr);
+    const [x, y] = view.toScreen(tx, ty), [bx, by] = view.toScreen(tx + 3.2, ty + 2);
+    g.fillStyle = 'rgba(242, 193, 78, 0.28)'; g.strokeStyle = 'rgba(242, 193, 78, 0.95)';
+    g.fillRect(x, y, 3 * z, 3 * z); g.strokeRect(x, y, 3 * z, 3 * z);
+    g.fillRect(bx, by, z, z); g.strokeRect(bx, by, z, z);
+    if (z > 14 * dpr) {
+      g.fillStyle = '#fff'; g.font = `${Math.round(11 * dpr)}px system-ui, sans-serif`;
+      g.fillText('3×3 machine', x, y - 4 * dpr);
     }
   }
-  ctx.restore();
 }
-
 function status() {
   const el = document.getElementById('status');
-  if (!hover || !world) { el.textContent = ''; return; }
-  const id = biomeAt(world, hover.x, hover.y);
-  const px = Math.round(view.z / dpr * 10) / 10;
-  el.textContent = id < 0 ? '' : `${BASE_NAME[BASE[id]]} · tile ${Math.floor(hover.x)}, ${Math.floor(hover.y)} · ${px} px per tile`;
+  const id = hover ? planet.groundAt(hover) : -1;
+  const z = planet.zoom / planet.dpr;
+  el.textContent = (id >= 0 ? `${BASE_NAME[BASE[id]]} · tile ${Math.floor(hover.x)}, ${Math.floor(hover.y)} · ` : '') +
+    `${z >= 1 ? Math.round(z) : z.toFixed(2)} px per tile · ${fps}`;
+}
+
+// biomes on the planet: sampled on a coarse grid after each change
+let present = [];
+let presentTimer = 0;
+function presentSoon() {
+  clearTimeout(presentTimer);
+  presentTimer = setTimeout(() => {
+    const seen = new Set(), W = worldP().size, n = 72;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const id = planet.groundAt({ x: (x + 0.5) / n * W, y: (y + 0.5) / n * W });
+      if (id >= 0) seen.add(id);
+    }
+    present = [...seen].sort((a, b) => a - b).map(id => BASE[id]);
+    if (tab === 'biome' || tab === 'art') renderPanel();
+  }, 250);
 }
 
 // ---------- the side panel ----------
@@ -387,14 +282,15 @@ const h = (tag, attrs = {}, ...kids) => {
 const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 const swatch = name => h('span', { class: 'sw', style: `background:${rgb(SKIN.base[name].c)}` });
 
-// a labelled slider; changed = whether it differs from the default (shows a dot and a reset on double-click)
+// a labelled slider; changed = differs from the default (a dot; double-click resets it)
 function slider(label, value, min, max, step, onInput, opts = {}) {
   const fmt = opts.fmt || (v => (+v).toFixed(step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0));
   const out = h('span', { class: 'val' }, fmt(value));
   const inp = h('input', { type: 'range', min, max, step, value });
-  inp.addEventListener('input', () => { out.textContent = fmt(inp.value); row.classList.add('changed'); onInput(+inp.value); });
   const row = h('label', { class: 'slider' + (opts.changed ? ' changed' : ''), title: opts.tip || '' },
     h('span', { class: 'lab' }, label), inp, out);
+  inp.addEventListener('input', () => { out.textContent = fmt(inp.value); row.classList.add('changed'); onInput(+inp.value); });
+  if (opts.after) inp.addEventListener('change', opts.after);
   if (opts.onReset) row.addEventListener('dblclick', e => { e.preventDefault(); opts.onReset(); });
   return row;
 }
@@ -409,11 +305,10 @@ function showTab(t) {
   panel.scrollTop = 0;
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   renderPanel();
-  needs(0.5);
 }
 document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
-
 function renderPanel() {
+  if (!A) return;
   const st = panel.scrollTop;
   panel.replaceChildren(tab === 'world' ? worldPanel() : tab === 'biome' ? biomePanel() : catalogPanel());
   panel.scrollTop = st;
@@ -421,53 +316,51 @@ function renderPanel() {
 
 // --- World tab ---
 function worldPanel() {
-  const p = worldP(), v = viewP();
-  const W = (key, level) => val => { setOver('world', key, val); if (key !== 'wiggle' && key !== 'soft') painted = null; needs(level); };
+  const p = worldP();
   const ch = key => over.world[key] !== undefined && over.world[key] !== WORLD_DEFAULT[key];
+  // building the planet takes a moment, so sliders apply when let go
+  const W = key => val => { setOver('world', key, val); };
+  const go = () => rebuildPlanet();
+  const S = (label, key, min, max, step, tip) => slider(label, p[key], min, max, step, W(key), { changed: ch(key), after: go, tip });
   const seedIn = h('input', { type: 'number', value: p.seed, class: 'num' });
-  seedIn.addEventListener('change', () => { W('seed', 4)(+seedIn.value | 0); renderPanel(); });
+  seedIn.addEventListener('change', () => { setOver('world', 'seed', +seedIn.value | 0); go(); });
+  const clearPaint = () => { paint = null; painted = null; save(); };
   return h('div', {},
-    h('h3', {}, 'World'),
+    h('h3', {}, 'Planet'),
     h('div', { class: 'row' }, h('span', { class: 'lab' }, 'Seed'), seedIn,
-      h('button', { onclick: () => { W('seed', 4)((Math.random() * 1e6) | 0); renderPanel(); } }, 'New world')),
+      h('button', { onclick: () => { setOver('world', 'seed', (Math.random() * 1e6) | 0); clearPaint(); go(); renderPanel(); } }, 'New planet')),
     h('div', { class: 'row' }, h('span', { class: 'lab' }, 'Size'),
-      ...[64, 96, 128, 192].map(n => h('button', { class: p.size === n ? 'on' : '', onclick: () => { W('size', 4)(n); fitNext = true; renderPanel(); } }, `${n}`)),
+      ...[128, 192, 256, 384, 512].map(n => h('button', { class: p.size === n ? 'on' : '', onclick: () => {
+        if (n === p.size) return;
+        setOver('world', 'size', n); clearPaint(); rebuildPlanet(true); renderPanel();
+      } }, `${n}`)),
       h('span', { class: 'hint' }, 'tiles across')),
-    slider('Lake size', p.lake, 0, 0.8, 0.01, W('lake', 4), { changed: ch('lake') }),
-    slider('Beach', p.beach, 0, 6, 0.5, W('beach', 4), { changed: ch('beach'), tip: 'width of the sand ring around the lake, in tiles' }),
-    slider('Regions', p.regions, 1, 24, 1, W('regions', 4), { changed: ch('regions'), tip: 'how many biome patches around the lake' }),
-    slider('Region warp', p.warp, 0, 1.5, 0.05, W('warp', 4), { changed: ch('warp'), tip: 'how irregular the patch shapes are' }),
-    slider('Border wiggle', p.wiggle, 0, 2, 0.05, W('wiggle', 3), { changed: ch('wiggle'), tip: 'how far borders wander from the tile grid, in tiles' }),
-    slider('Border blend', p.soft, 0, 3, 0.05, W('soft', 2), { changed: ch('soft'), tip: 'how wide the soft blend between neighbouring biomes is, in tiles' }),
-    h('h4', {}, 'Biomes in this world'),
+    S('Lake size', 'lake', 0, 0.8, 0.01, 'radius of the lake, as a share of the planet\'s'),
+    S('Beach', 'beach', 0, 6, 0.5, 'width of the sand ring around the lake, in tiles'),
+    S('Regions', 'regions', 1, 24, 1, 'how many biome patches around the lake'),
+    S('Region warp', 'warp', 0, 1.5, 0.05, 'how irregular the patch shapes are'),
+    S('Hills', 'hills', 0, 1, 0.01, 'how hilly the land is (hill shading, and cliffs on mountains)'),
+    h('h4', {}, 'Biomes on this planet'),
     h('div', { class: 'biomes' }, LAND.map(n => toggle(h('span', {}, swatch(n), BASE_NAME[n]), p.biomes.includes(n), on => {
       const set = new Set(worldP().biomes);
       on ? set.add(n) : set.delete(n);
-      W('biomes', 4)(LAND.filter(x => set.has(x)));
+      setOver('world', 'biomes', LAND.filter(x => set.has(x))); go();
     }))),
-    painted ? h('p', { class: 'hint' }, 'You have painted on this world. Changing the settings above starts a fresh one.') : null,
-    h('h3', {}, 'Light and look'),
-    slider('Shadow strength', v.shadow, 0, 0.8, 0.01, x => { setOver('view', 'shadow', x); needs(0.5); }),
-    slider('Shadow length', v.shadowLen, 0, 1.6, 0.05, x => { setOver('view', 'shadowLen', x); needs(0.5); }),
-    toggle('Mirror half the props at random', v.mirror, x => { setOver('view', 'mirror', x); needs(1); }),
+    paint ? h('div', { class: 'row' }, h('span', { class: 'hint' }, 'You have painted on this planet.'),
+      h('button', { class: 'small', onclick: () => { clearPaint(); go(); renderPanel(); } }, 'clear painting')) : null,
     h('h3', {}, 'Settings'),
     h('div', { class: 'row' },
       h('button', { onclick: openExport }, 'Export changes…'),
-      h('button', { onclick: () => { if (confirm('Forget every change made in the lab and go back to the game\'s settings?')) { over = { world: {}, view: {}, biomes: {}, kinds: {} }; painted = null; save(); patternCache.clear(); needs(4); renderPanel(); syncToolbar(); } } }, 'Reset everything')),
+      h('button', { onclick: () => {
+        if (!confirm('Forget every change made in the lab and go back to the game\'s settings?')) return;
+        over = { world: {}, view: {}, biomes: {}, kinds: {} }; clearPaint();
+        applyAll(); rebuildPlanet(true); renderPanel(); syncToolbar();
+      } }, 'Reset everything')),
     h('p', { class: 'hint' }, 'Your changes are kept in this browser. Defaults come from the game (skin.js and props.json), so anything you haven\'t changed follows the game.'),
   );
 }
 
 // --- Biome tab ---
-let biomeListEl = null;
-function renderBiomeList() {
-  if (!biomeListEl) return;
-  const present = world ? world.present.map(id => BASE[id]) : [];
-  biomeListEl.replaceChildren(...present.map(n => h('button', {
-    class: 'chip' + (n === selected ? ' on' : '') + (over.biomes[n] ? ' changed' : ''), onclick: () => { selected = n; renderPanel(); needs(0.5); },
-  }, swatch(n), BASE_NAME[n])));
-}
-
 function thumb(sprite, size = 56, bg = '#556b3a') {
   const c = canvas(size * 2, size * 2), g = c.getContext('2d');
   g.fillStyle = bg;
@@ -482,87 +375,94 @@ function thumb(sprite, size = 56, bg = '#556b3a') {
   return c;
 }
 const groundBg = name => rgb(SKIN.base[name] ? SKIN.base[name].c : [90, 110, 60]);
+function kindSprite(kind) {
+  const ks = kindP(kind), sh = ks.sheet !== 'pixel' && A.sheets[ks.sheet];
+  return (sh && sh.cells[ks.pick[0]]) || (A.pixel.props[kind] || [])[0];
+}
 
 function biomePanel() {
   const name = selected, b = biomeP(name), d = biomeDefault(name), o = over.biomes[name] || {};
-  const B = (key, level) => val => { setOver('biomes', name, key, val); needs(level); };
   const ch = key => o[key] !== undefined && JSON.stringify(o[key]) !== JSON.stringify(d[key]);
-  const reset = key => () => { delete o[key]; save(); needs(1); renderPanel(); };
-  const S = (label, key, min, max, step, level, tip) =>
-    slider(label, b[key], min, max, step, B(key, level), { changed: ch(key), onReset: reset(key), tip: (tip || '') + ' (double-click to reset)' });
+  // what each setting feeds: the shader's tables (instant) or the ground textures
+  const apply = key => (['ground', 'texTiles', 'bright', 'sat', 'hue'].includes(key) ? () => { applyGround(); applyTables(); rebuildPlanet(); } : applyTables);
+  const reset = key => () => { delete o[key]; save(); apply(key)(); renderPanel(); };
+  const S = (label, key, min, max, step, tip, live = true) => {
+    const set = val => { setOver('biomes', name, key, val); if (live) apply(key)(); };
+    return slider(label, b[key], min, max, step, set, { changed: ch(key), onReset: reset(key), after: live ? null : apply(key),
+      tip: (tip ? tip + ' ' : '') + '(double-click to reset)' });
+  };
 
-  biomeListEl = h('div', { class: 'chips' });
-  renderBiomeList();
+  const chips = h('div', { class: 'chips' }, present.filter(n => !WATER.has(n)).map(n => h('button', {
+    class: 'chip' + (n === selected ? ' on' : '') + (over.biomes[n] ? ' changed' : ''), onclick: () => { selected = n; renderPanel(); },
+  }, swatch(n), BASE_NAME[n])));
 
   // ground skins
   const tex = Object.values(A.textures).sort((a, b) => a.file.localeCompare(b.file));
   const groundChip = (file, label, img) => {
-    const on = b.ground === file;
     const c = canvas(96, 96), g = c.getContext('2d');
-    if (img) { g.fillStyle = g.createPattern(img, 'repeat'); g.setTransform(96 / img.width * (file === 'pixel' ? 2 : 1), 0, 0, 96 / img.width * (file === 'pixel' ? 2 : 1), 0, 0); g.fillRect(0, 0, img.width, img.height); }
+    if (img) { const k = 96 / img.width * (file === 'pixel' ? 2 : 1); g.setTransform(k, 0, 0, k, 0, 0); g.fillStyle = g.createPattern(img, 'repeat'); g.fillRect(0, 0, img.width, img.height); }
     c.className = 'thumb';
-    return h('button', { class: 'skin' + (on ? ' on' : ''), title: file, onclick: () => { B('ground', 0.5)(file); renderPanel(); } }, c, h('span', {}, label));
+    return h('button', { class: 'skin' + (b.ground === file ? ' on' : ''), title: file,
+      onclick: () => { setOver('biomes', name, 'ground', file); apply('ground')(); renderPanel(); } }, c, h('span', {}, label));
   };
 
   // props
+  const slots = toFour(b.kinds);
   const kindRows = Object.entries(b.kinds).map(([kind, wgt]) => {
-    const ks = kindP(kind), versions = sheetsOf(kind), sp = propSprites(kind);
+    const ks = kindP(kind), versions = sheetsOf(kind);
     const sel = h('select', {}, h('option', { value: 'pixel' }, 'pixel art'),
-      ...versions.map(s => h('option', { value: s.file, selected: s.file === ks.sheet }, s.file.replace('.png', ''))));
+      ...versions.map(s => h('option', { value: s.file }, s.file.replace('.png', ''))));
     sel.value = ks.sheet;
-    sel.addEventListener('change', () => { setOver('kinds', kind, 'sheet', sel.value); setOver('kinds', kind, 'pick', [0, 1, 2, 3]); needs(1); renderPanel(); });
-    const setW = x => { const k = { ...biomeP(name).kinds }; if (x > 0) k[kind] = x; else delete k[kind]; setOver('biomes', name, 'kinds', k); needs(1); };
+    sel.addEventListener('change', () => { setOver('kinds', kind, 'sheet', sel.value); setOver('kinds', kind, 'pick', [0, 1, 2, 3]); applyHd(); renderPanel(); });
+    const setW = x => { const k = { ...biomeP(name).kinds }; if (x > 0) k[kind] = x; else delete k[kind]; setOver('biomes', name, 'kinds', k); applyTables(); };
     const sheet = A.sheets[ks.sheet];
     const cells = sheet ? h('div', { class: 'cells' }, sheet.cells.map((s, i) => {
       const on = ks.pick.includes(i);
-      const t = thumb(s, 40, groundBg(name));
       return h('button', { class: 'cell' + (on ? ' on' : ''), title: `cell ${i + 1}`, onclick: () => {
         const pick = on ? ks.pick.filter(x => x !== i) : [...ks.pick, i].sort();
         if (!pick.length) return;
-        setOver('kinds', kind, 'pick', pick); needs(1); renderPanel();
-      } }, t);
-    })) : h('p', { class: 'hint' }, versions.length ? '' : 'No AI art yet: drawn in pixel art. See the Art tab for the command to make it.');
+        setOver('kinds', kind, 'pick', pick); applyHd(); renderPanel();
+      } }, thumb(s, 40, groundBg(name)));
+    })) : h('p', { class: 'hint' }, 'No AI art yet: drawn in pixel art. The Art tab has the command to make it.');
+    const n = slots.filter(k => k === kind).length;
     return h('div', { class: 'kind' },
-      h('div', { class: 'kindhead' }, thumb(sp && sp[0] && sp[0].sprite, 44, groundBg(name)),
-        h('div', { class: 'kindmain' }, h('b', {}, kind), sel)),
-      slider('Share', wgt, 0, 8, 1, setW, { tip: 'how often this kind is picked compared with the others in this biome' }),
-      slider('Kind size', ks.size, 0.3, 2, 0.05, x => { setOver('kinds', kind, 'size', x); needs(1); },
-        { changed: over.kinds[kind] && over.kinds[kind].size !== undefined, tip: 'size of this kind everywhere it grows (props.json "size")' }),
+      h('div', { class: 'kindhead' }, thumb(kindSprite(kind), 44, groundBg(name)),
+        h('div', { class: 'kindmain' }, h('div', {}, h('b', {}, kind), h('span', { class: 'hint' }, `  ${n} of 4 slots`)), sel)),
+      slider('Share', wgt, 0, 4, 1, setW, { after: renderPanel, tip: 'how often this kind grows here compared with the others (the game has 4 slots per biome)' }),
+      slider('Size', ks.size, 0.3, 1, 0.01, x => { setOver('kinds', kind, 'size', x); }, { after: applyHd,
+        changed: over.kinds[kind] && over.kinds[kind].size !== undefined, tip: 'size of this kind everywhere it grows (props.json "size"); 1 fills the game\'s 2 x 3 tile prop space' }),
       cells);
   });
   const add = h('select', {}, h('option', { value: '' }, '+ add a prop kind…'),
     ...Object.keys(SKIN.props).filter(k => !b.kinds[k]).map(k => h('option', { value: k }, k + (sheetsOf(k).length ? '' : ' (pixel art)'))));
-  add.addEventListener('change', () => { if (!add.value) return; setOver('biomes', name, 'kinds', { ...b.kinds, [add.value]: 1 }); needs(1); renderPanel(); });
+  add.addEventListener('change', () => { if (!add.value) return; setOver('biomes', name, 'kinds', { ...b.kinds, [add.value]: 1 }); applyTables(); renderPanel(); });
 
   return h('div', {},
-    h('h3', {}, 'Biomes in view'), biomeListEl,
-    h('p', { class: 'hint' }, 'Click the map to pick the biome under the cursor.'),
-    toggle('Dim the other biomes', viewP().focus, x => { setOver('view', 'focus', x); syncToolbar(); needs(0.5); }),
-    h('h2', {}, swatch(name), BASE_NAME[name], over.biomes[name] ? h('button', { class: 'small', onclick: () => { delete over.biomes[name]; save(); needs(1); renderPanel(); } }, 'reset biome') : null),
+    h('h3', {}, 'Biomes on the planet'), chips,
+    h('p', { class: 'hint' }, 'Click the planet to pick the biome under the cursor.'),
+    h('h2', {}, swatch(name), BASE_NAME[name],
+      over.biomes[name] ? h('button', { class: 'small', onclick: () => { delete over.biomes[name]; save(); applyGround(); applyTables(); rebuildPlanet(); renderPanel(); } }, 'reset biome') : null),
     h('h3', {}, 'Ground'),
     h('div', { class: 'skins' }, groundChip('pixel', 'pixel art', A.pixel.ground[name]),
       ...tex.map(t => groundChip(t.file, t.file.replace('.png', ''), t.img))),
     !tex.length ? h('p', { class: 'hint' }, 'No ground textures yet. The Art tab lists commands to make them.') : null,
-    b.ground !== 'pixel' ? S('Texture scale', 'texTiles', 2, 24, 0.5, 0.5, 'how many tiles one copy of the texture covers') : null,
-    S('Brightness', 'bright', 0.5, 1.5, 0.01, 0.5),
-    S('Saturation', 'sat', 0, 2, 0.01, 0.5),
-    S('Hue shift', 'hue', -60, 60, 1, 0.5),
+    b.ground !== 'pixel' ? h('div', {},
+      S('Texture scale', 'texTiles', 2, 24, 0.5, 'how many tiles one copy of the texture covers', false),
+      S('Brightness', 'bright', 0.5, 1.5, 0.01, '', false),
+      S('Saturation', 'sat', 0, 2, 0.01, '', false),
+      S('Hue shift', 'hue', -60, 60, 1, '', false)) : null,
     h('h3', {}, 'Props (trees, rocks)'),
-    S('Density', 'density', 0, 1, 0.005, 1, 'share of prop spots (one per 1.5 x 1.5 tiles) that get a prop: skin.js propsFor'),
-    S('Clumping', 'cluster', 0, 1, 0.01, 1, '0 = spread evenly, 1 = gathered into groves with gaps between'),
-    S('Clump size', 'clump', 2, 30, 0.5, 1, 'how big the groves and gaps are, in tiles'),
-    S('Spacing jitter', 'jitter', 0, 1, 0.01, 1, '0 = neat grid, 1 = fully random positions'),
-    S('Size', 'size', 0.3, 3, 0.01, 1, 'apparent size of every prop in this biome'),
-    S('Size variation', 'sizeVar', 0, 0.6, 0.01, 1, 'random size difference between props'),
+    S('Density', 'density', 0, 1, 0.005, 'share of prop spots (one per 1.5 x 1.5 tiles) that get a prop: skin.js propsFor'),
+    S('Clumping', 'cluster', 0, 0.99, 0.01, '0 = spread evenly, 1 = gathered into groves with clearings between'),
+    S('Clump size', 'clump', 2, 40, 1, 'how big the groves and clearings are, in tiles'),
     h('div', { class: 'kinds' }, kindRows), add,
     h('h3', {}, 'Small decorations'),
-    S('Density', 'decor', 0, 0.8, 0.005, 1, 'share of tiles with a grass tuft, pebble, flower... (skin.js decorFor)'),
-    S('Size', 'decorSize', 0.3, 3, 0.01, 1),
+    S('Density', 'decor', 0, 0.8, 0.005, 'share of spots with a grass tuft, pebble, flower... (skin.js decorFor)'),
     h('p', { class: 'hint' }, 'Decorations: ' + Object.keys(b.decorKinds).join(', ') + ' (pixel art for now).'),
   );
 }
 
-// --- Art catalog tab ---
+// --- Art tab ---
 function catalogPanel() {
   const kinds = [...new Set(Object.values(A.sheets).map(s => s.kind))].sort();
   const usedBy = kind => LAND.concat(['BEACH']).filter(n => biomeP(n).kinds[kind]).map(n => BASE_NAME[n]);
@@ -570,7 +470,7 @@ function catalogPanel() {
     const ks = kindP(kind);
     return h('div', { class: 'card' }, h('div', { class: 'cardhead' }, h('b', {}, kind), h('span', { class: 'hint' }, usedBy(kind).join(', ') || 'not used')),
       sheetsOf(kind).map(s => h('div', { class: 'sheetrow' + (s.file === ks.sheet ? ' on' : '') },
-        h('button', { class: 'small', onclick: () => { setOver('kinds', kind, 'sheet', s.file); setOver('kinds', kind, 'pick', [0, 1, 2, 3]); needs(1); renderPanel(); } },
+        h('button', { class: 'small', onclick: () => { setOver('kinds', kind, 'sheet', s.file); setOver('kinds', kind, 'pick', [0, 1, 2, 3]); applyHd(); renderPanel(); } },
           s.file === ks.sheet ? 'in use' : 'use'),
         h('span', { class: 'ver' }, 'v' + s.v),
         s.cells.map((c, i) => {
@@ -582,32 +482,30 @@ function catalogPanel() {
   const tex = Object.values(A.textures).sort((a, b) => a.file.localeCompare(b.file));
   const texCards = tex.map(t => {
     const c = canvas(160, 160), g = c.getContext('2d');
-    g.drawImage(t.img, 0, 0, 80, 80); g.drawImage(t.img, 80, 0, 80, 80); g.drawImage(t.img, 0, 80, 80, 80); g.drawImage(t.img, 80, 80, 80, 80);
+    for (const [x, y] of [[0, 0], [80, 0], [0, 80], [80, 80]]) g.drawImage(t.img, x, y, 80, 80);
     c.className = 'thumb';
-    const users = Object.keys(SKIN.base).filter(n => biomeP(n).ground === t.file).map(n => BASE_NAME[n]);
+    const users = Object.keys(SKIN.base).filter(n => !WATER.has(n) && biomeP(n).ground === t.file).map(n => BASE_NAME[n]);
     return h('div', { class: 'tex' }, c, h('b', {}, t.file.replace('.png', '')), h('span', { class: 'hint' }, users.join(', ') || 'not used'),
-      h('button', { class: 'small', onclick: () => { setOver('biomes', selected, 'ground', t.file); needs(0.5); renderPanel(); } }, `use on ${BASE_NAME[selected]}`));
+      h('button', { class: 'small', onclick: () => { setOver('biomes', selected, 'ground', t.file); applyGround(); applyTables(); rebuildPlanet(); renderPanel(); } }, `use on ${BASE_NAME[selected]}`));
   });
 
-  // what's still missing for the biomes in this world
-  const inWorld = world ? world.present.map(id => BASE[id]) : [];
-  const needKinds = new Map();
-  for (const n of inWorld) for (const k of Object.keys(biomeP(n).kinds)) if (!sheetsOf(k).length) needKinds.set(k, [...(needKinds.get(k) || []), BASE_NAME[n]]);
-  const needGround = new Map();
-  for (const n of inWorld) if (biomeP(n).ground === 'pixel') {
-    const g = (GROUND_FOR[n] || [])[0];
-    if (g) needGround.set(g, [...(needGround.get(g) || []), BASE_NAME[n]]);
+  // what the planet still draws in pixel art
+  const needKinds = new Map(), needGround = new Map();
+  for (const n of present) {
+    if (WATER.has(n)) continue;
+    for (const k of Object.keys(biomeP(n).kinds)) if (!sheetsOf(k).length) needKinds.set(k, [...(needKinds.get(k) || []), BASE_NAME[n]]);
+    if (biomeP(n).ground === 'pixel') { const g = (GROUND_FOR[n] || [])[0]; if (g) needGround.set(g, [...(needGround.get(g) || []), BASE_NAME[n]]); }
   }
   const cmd = text => h('div', { class: 'cmd' }, h('code', {}, text), h('button', { class: 'small', onclick: e => { navigator.clipboard.writeText(text); e.target.textContent = 'copied'; } }, 'copy'));
   const propCmd = k => { const [s, bio, size] = PROP_IDEAS[k] || [k, null]; return `python tools/gen_props.py ${k} "${s}"` + (bio ? ` --biome ${bio}` : '') + (size ? ` --size ${size}` : ''); };
   const groundCmd = g => { const [s, bio] = GROUND_IDEAS[g] || [g, null]; return `python tools/gen_ground.py ${g} "${s}"` + (bio ? ` --biome ${bio}` : ''); };
 
   return h('div', {},
-    h('h3', {}, 'Still needed for this world'),
-    !needKinds.size && !needGround.size ? h('p', { class: 'hint' }, 'Everything in this world has AI art.') : null,
+    h('h3', {}, 'Still needed for this planet'),
+    !needKinds.size && !needGround.size ? h('p', { class: 'hint' }, 'Everything on this planet has AI art.') : null,
     [...needGround].map(([g, who]) => h('div', { class: 'need' }, h('span', {}, h('b', {}, `ground: ${g}`), ' for ', who.join(', ')), cmd(groundCmd(g)))),
     [...needKinds].map(([k, who]) => h('div', { class: 'need' }, h('span', {}, h('b', {}, `prop: ${k}`), ' for ', who.join(', ')), cmd(propCmd(k)))),
-    h('p', { class: 'hint' }, 'Run these in PowerShell from the project folder. New images show up here after a reload (props don\'t need packing for the lab).'),
+    h('p', { class: 'hint' }, 'Run these in PowerShell from the project folder. New images show up here after a reload (no packing needed for the lab).'),
     h('h3', {}, `Ground textures (${tex.length})`),
     h('p', { class: 'hint' }, 'Each shown as 2 × 2 copies, so seams would show.'),
     h('div', { class: 'texgrid' }, texCards),
@@ -619,32 +517,20 @@ function catalogPanel() {
 
 // ---------- export ----------
 
-function toFour(kinds) {
-  const entries = Object.entries(kinds).filter(([, w]) => w > 0);
-  const total = entries.reduce((s, [, w]) => s + w, 0);
-  if (!total) return [];
-  const raw = entries.map(([k, w]) => ({ k, x: w / total * 4 }));
-  raw.forEach(r => { r.n = Math.floor(r.x); });
-  let left = 4 - raw.reduce((s, r) => s + r.n, 0);
-  raw.slice().sort((a, b) => (b.x - b.n) - (a.x - a.n)).forEach(r => { if (left > 0) { r.n++; left--; } });
-  return raw.flatMap(r => Array(r.n).fill(r.k));
-}
 function openExport() {
-  const lines = [];
-  const pf = [], df = [];
+  const pf = [], df = [], lines = [];
   for (const [n, o] of Object.entries(over.biomes)) {
     const b = biomeP(n);
     if ('density' in o || 'kinds' in o) pf.push(`    ${(n + ':').padEnd(10)}[${+b.density.toFixed(3)}, [${toFour(b.kinds).map(k => `'${k}'`).join(', ')}]],`);
     if ('decor' in o || 'decorKinds' in o) df.push(`    ${(n + ':').padEnd(10)}[${+b.decor.toFixed(3)}, [${toFour(b.decorKinds).map(k => `'${k}'`).join(', ')}]],`);
   }
-  lines.push('// skin.js: replace these lines in propsFor (a biome has 4 slots, so shares are rounded to quarters)', ...(pf.length ? pf : ['//   (no changes)']));
+  lines.push('// skin.js: replace these lines in propsFor', ...(pf.length ? pf : ['//   (no changes)']));
   lines.push('', '// skin.js: replace these lines in decorFor', ...(df.length ? df : ['//   (no changes)']));
   const kinds = {};
   for (const k of Object.keys(over.kinds)) { const ks = kindP(k); kinds[k] = { sheet: ks.sheet, pick: ks.pick, size: ks.size }; }
   lines.push('', '// art/props/props.json: kinds whose sheet, cells or size you changed', JSON.stringify(kinds, null, 2));
-  lines.push('', '// everything the lab changed (ground textures, clumping, sizes, ...), to hand to Claude', JSON.stringify(over, null, 1));
-  const ta = document.getElementById('exportText');
-  ta.value = lines.join('\n');
+  lines.push('', '// everything the lab changed (ground textures, clumping, ...), to hand to Claude', JSON.stringify(over, null, 1));
+  document.getElementById('exportText').value = lines.join('\n');
   document.getElementById('export').showModal();
 }
 document.getElementById('exportCopy').addEventListener('click', e => { navigator.clipboard.writeText(document.getElementById('exportText').value); e.target.textContent = 'Copied'; });
@@ -663,26 +549,40 @@ document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click'
   const k = b.dataset.view;
   setOver('view', k, !viewP()[k]);
   syncToolbar();
-  if (tab === 'biome' && k === 'focus') renderPanel();
-  needs(0.5);
+  if (k === 'props' || k === 'decor') applyTables();
 }));
-document.getElementById('fit').addEventListener('click', () => fit());
+document.getElementById('fit').addEventListener('click', () => planet.fit());
 const brushSel = document.getElementById('brush');
-brushSel.append(...['DEEP', 'SHALLOW', 'BEACH', ...LAND].map(n => h('option', { value: n, selected: n === brush }, BASE_NAME[n])));
+brushSel.append(...['DEEP', 'SHALLOW', 'BEACH', ...LAND].map(n => h('option', { value: n }, BASE_NAME[n])));
+brushSel.value = brush;
 brushSel.addEventListener('change', () => { brush = brushSel.value; });
 document.getElementById('brushSize').addEventListener('input', e => { brushSize = +e.target.value; });
 
 // ---------- start ----------
 
+function applyAll() { applyHd(); applyGround(); applyTables(); }
+
 async function start() {
   const bar = document.getElementById('loading');
+  planet = createPlanetView(document.getElementById('gl'), document.getElementById('overlay'), {
+    painting: () => mode === 'paint',
+    paint: paintStroke,
+    paintEnd: () => { last = null; save(); renderPanel(); },
+    tap: t => { const id = planet.groundAt(t); if (id >= 0) { selected = BASE[id]; showTab('biome'); } },
+    hover: t => { hover = t; status(); },
+    overlay: drawOverlay,
+    perf: (p) => { fps = `${Math.round(p.fps)} fps` + (p.quality < 1 ? ` · ${Math.round(p.quality * 100)}% resolution` : ''); status(); },
+  });
+  window.biomeLab = { planet };          // for poking at from the browser console, e.g. biomeLab.planet.bench()
   A = await loadAll((n, total, label) => { bar.textContent = `Loading art ${n} / ${total}: ${label}`; });
   bar.remove();
-  resize();
-  rebuild(4);
-  fit();
+  const W = worldP().size;
+  if (painted && painted.n === W) {
+    try { const s = atob(painted.t); paint = new Uint8Array(W * W); for (let i = 0; i < paint.length; i++) paint[i] = s.charCodeAt(i); } catch { paint = null; }
+  }
+  applyAll();
+  rebuildPlanet(true);
   syncToolbar();
   renderPanel();
-  new ResizeObserver(resize).observe(cv);
 }
 start().catch(e => { document.getElementById('loading').textContent = 'Could not start: ' + e.message; console.error(e); });

@@ -10,25 +10,24 @@
   <header id="toolbar">
     <b class="title">Biome Lab</b>
     <div class="group">
-      <button data-mode="select" title="Drag to move, scroll to zoom, click to pick a biome">Look</button>
+      <button data-mode="look" title="Drag to move, scroll to zoom, click to pick a biome">Look</button>
       <button data-mode="paint" title="Drag to paint a biome onto the map">Paint</button>
       <span id="brushOpts" hidden>
         <select id="brush" aria-label="Biome to paint"></select>
-        <input id="brushSize" type="range" min="1" max="16" step="1" value="3" aria-label="Brush size" title="Brush size">
+        <input id="brushSize" type="range" min="1" max="24" step="1" value="4" aria-label="Brush size" title="Brush size">
       </span>
     </div>
     <div class="group">
       <button data-view="props">Props</button>
       <button data-view="decor">Decor</button>
-      <button data-view="grid" title="Tile grid (when zoomed in)">Grid</button>
       <button data-view="ruler" title="Show a 3×3 machine footprint under the cursor">Size ref</button>
-      <button data-view="focus" title="Dim every biome but the one picked in the Biome tab">Dim others</button>
-      <button id="fit" title="Show the whole world">Fit</button>
+      <button id="fit" title="Show the whole planet">Fit</button>
     </div>
   </header>
   <main>
     <div id="stage">
-      <canvas id="map"></canvas>
+      <canvas id="gl"></canvas>
+      <canvas id="overlay"></canvas>
       <div id="loading">Loading art…</div>
       <div id="status"></div>
     </div>
@@ -47,6 +46,12 @@
     <textarea id="exportText" spellcheck="false"></textarea>
     <div class="row"><button id="exportCopy">Copy all</button><button id="exportClose">Close</button></div>
   </dialog>
-  <script type="module" src="lab.js"></script>
+  <script type="module">
+    // load the current release even if the browser kept old copies: the Galaxy demo's version.txt is never cached,
+    // and every script the lab loads carries that stamp (tools/stamp_galaxy.py)
+    let v = '';
+    try { v = (await (await fetch('../galaxy-demo/version.txt', { cache: 'no-store' })).text()).trim(); } catch (e) { /* offline */ }
+    import('./lab.js?v=' + (v || Date.now()));
+  </script>
 </body>
 </html>
