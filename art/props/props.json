@@ -6,6 +6,55 @@
         3,
         2
       ]
+    },
+    "jungle": {
+      "sheet": "jungle_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "palm": {
+      "sheet": "palm_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "acacia": {
+      "sheet": "acacia_v2.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "sandrock": {
+      "sheet": "sandrock_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.6
+    },
+    "oak2": {
+      "sheet": "oak2_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "pick": [
+        0,
+        1,
+        4,
+        5
+      ]
+    },
+    "birch": {
+      "sheet": "birch_v1.png",
+      "grid": [
+        3,
+        2
+      ]
     }
   }
 }

@@ -7,9 +7,15 @@
  "cols": 8,
  "size": [
   1024,
-  192
+  768
  ],
  "kinds": {
-  "oak": 0
+  "oak": 0,
+  "jungle": 4,
+  "palm": 8,
+  "acacia": 12,
+  "sandrock": 16,
+  "oak2": 20,
+  "birch": 24
  }
 }
