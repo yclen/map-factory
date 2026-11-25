@@ -7,7 +7,7 @@
  "cols": 8,
  "size": [
   1024,
-  768
+  1344
  ],
  "kinds": {
   "oak": 0,
@@ -16,6 +16,12 @@
   "acacia": 12,
   "sandrock": 16,
   "oak2": 20,
-  "birch": 24
+  "birch": 24,
+  "pine": 28,
+  "fir": 32,
+  "snowpine": 36,
+  "boulder": 40,
+  "mossy": 44,
+  "snowrock": 48
  }
 }

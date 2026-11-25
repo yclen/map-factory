@@ -55,6 +55,51 @@
         3,
         2
       ]
+    },
+    "pine": {
+      "sheet": "pine_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "fir": {
+      "sheet": "fir_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "snowpine": {
+      "sheet": "snowpine_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "boulder": {
+      "sheet": "boulder_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.6
+    },
+    "mossy": {
+      "sheet": "mossy_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.6
+    },
+    "snowrock": {
+      "sheet": "snowrock_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.6
     }
   }
 }
