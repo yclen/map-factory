@@ -7,8 +7,44 @@ shrubs and rocks placed on the map, and later the things that move (units, items
 Images are made by **Codex's built-in image tool**, which runs on the ChatGPT subscription (no API key, no
 per-image cost). The scripts call Codex for you; you never open it yourself.
 
-Right now the pipeline covers **big props** (trees, boulders) in the Galaxy demo. Ground tiles, small decorations
-and moving things are planned, see [Roadmap](#roadmap).
+Right now the pipeline covers **big props** (trees, boulders) in the Galaxy demo, and **ground textures** in the
+Biome Lab. Ground in the game itself, small decorations and moving things are planned, see [Roadmap](#roadmap).
+
+---
+
+## Biome Lab: try the art before it goes in the game
+
+`biome-lab/` is a sandbox world for designing biomes: a small map with a lake in the middle and biome patches
+around it, drawn with the AI art. Open it locally with the **biome-lab** preview server (port 8170, serves the
+repo root) at http://localhost:8170/biome-lab/, or on GitHub Pages at `/map-factory/biome-lab/`.
+
+- **It reads the raw art directly.** Every sheet in `art/props/raw/` and texture in `art/ground/raw/` shows up on
+  the next reload, cut out in the browser: no packing needed to look at something new.
+- **World tab:** seed, world size, lake size, beach, number of biome patches, how wiggly and how soft the borders
+  are, which biomes appear, and the shadows.
+- **Biome tab** (click the map to pick a biome): its ground texture with scale, brightness, saturation and hue;
+  prop density, clumping into groves, spacing, size and size variation; which prop kinds grow there and how often,
+  which sheet version each kind uses, and which cells of the sheet are picked. Also small decorations.
+- **Art tab:** every ground texture (shown 2 x 2 so seams show) and every prop sheet, plus **Still needed**: the
+  ground and props the current world still draws in pixel art, each with a ready-to-run generate command.
+- **Toolbar:** Paint biomes onto the map, Size ref (a 3 x 3 machine footprint under the cursor, to judge how big
+  trees look), Dim others, tile grid.
+- Defaults come from the game (`skin.js` `propsFor` / `decorFor`, `art/props/props.json`), and the lab keeps only
+  your changes, in the browser. **Export** turns them into `skin.js` lines and `props.json` entries; clumping,
+  sizes and ground choices don't exist in the game yet, so hand the export to Claude to wire those in.
+- Before pushing new art, run `python tools/lab_catalog.py`: GitHub Pages can't list folders, so the lab reads
+  `biome-lab/catalog.json` there.
+
+### Make a ground texture
+
+```powershell
+python tools/gen_ground.py grass "short green meadow grass with a little clover" --biome forest
+```
+
+It lands in `art/ground/raw/<name>_vN.png` (a square, about 8 x 8 tiles of ground). Same options as `gen_props.py`.
+The lab makes the edges seamless itself, and pairs ground names with biomes by `GROUND_FOR` in `biome-lab/lab.js`
+(grass for grassland and forest, sand for desert and beach, snow for snowfields, ...). Any texture can be tried on
+any biome from the Biome tab.
 
 ---
 
@@ -61,6 +97,9 @@ To pick other cells from a sheet, edit `art/props/props.json`: `"pick": [0, 2, 3
 | `tools/gen_props.py` | builds the prompt and asks Codex for a sheet |
 | `tools/pack_props.py` | cuts sheets out and packs `galaxy-demo/props/props_hd.png` + `.json` |
 | `galaxy-demo/props/` | the packed atlas the game loads (generated: don't edit by hand) |
+| `art/ground/raw/` | every ground texture Codex made (`<name>_v1.png`, ...) |
+| `tools/gen_ground.py` | asks Codex for a seamless ground texture |
+| `biome-lab/` | the Biome Lab sandbox (see above); `tools/lab_catalog.py` writes its `catalog.json` |
 
 How the game uses it: each prop kind gets 4 variants, each 16 x 24 art pixels (2 x 3 tiles) at 8 texels per art
 pixel, standing on its foot point (bottom middle). The terrain shader draws them smoothly, layers overlapping ones
@@ -119,7 +158,9 @@ Instead of a separate picture per tile (which shows a grid), each biome gets a *
 tiles (for example 512 x 512 px = 8 x 8 tiles), which the shader samples by world position, with a second variant
 mixed in through noise so it never visibly repeats. AI images aren't seamless by default, so a packer step
 (`pack_ground.py`) will make them tileable (offset-and-blend). Prompts ask for a straight-down view of the surface
-only, with no objects and no shadows.
+only, with no objects and no shadows. **Started:** `gen_ground.py` makes the textures and the Biome Lab already
+makes them seamless (the same offset-and-blend, in `biome-lab/assets.js`) and blends biomes along soft borders;
+the game's shader is next.
 
 ### Soft biome borders
 Drawing a transition picture for every pair of biomes doesn't scale (30 biomes = hundreds of pairs). The shader

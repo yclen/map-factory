@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Biome Lab</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="toolbar">
+    <b class="title">Biome Lab</b>
+    <div class="group">
+      <button data-mode="select" title="Drag to move, scroll to zoom, click to pick a biome">Look</button>
+      <button data-mode="paint" title="Drag to paint a biome onto the map">Paint</button>
+      <span id="brushOpts" hidden>
+        <select id="brush" aria-label="Biome to paint"></select>
+        <input id="brushSize" type="range" min="1" max="16" step="1" value="3" aria-label="Brush size" title="Brush size">
+      </span>
+    </div>
+    <div class="group">
+      <button data-view="props">Props</button>
+      <button data-view="decor">Decor</button>
+      <button data-view="grid" title="Tile grid (when zoomed in)">Grid</button>
+      <button data-view="ruler" title="Show a 3×3 machine footprint under the cursor">Size ref</button>
+      <button data-view="focus" title="Dim every biome but the one picked in the Biome tab">Dim others</button>
+      <button id="fit" title="Show the whole world">Fit</button>
+    </div>
+  </header>
+  <main>
+    <div id="stage">
+      <canvas id="map"></canvas>
+      <div id="loading">Loading art…</div>
+      <div id="status"></div>
+    </div>
+    <aside>
+      <nav id="tabs">
+        <button data-tab="world" class="on">World</button>
+        <button data-tab="biome">Biome</button>
+        <button data-tab="art">Art</button>
+      </nav>
+      <div id="panel"></div>
+    </aside>
+  </main>
+  <dialog id="export">
+    <h3>Export changes</h3>
+    <p class="hint">Paste the parts you want into skin.js / props.json, or hand the whole thing to Claude.</p>
+    <textarea id="exportText" spellcheck="false"></textarea>
+    <div class="row"><button id="exportCopy">Copy all</button><button id="exportClose">Close</button></div>
+  </dialog>
+  <script type="module" src="lab.js"></script>
+</body>
+</html>

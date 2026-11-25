@@ -1,0 +1,23 @@
+{
+ "props": [
+  "acacia_v1.png",
+  "acacia_v2.png",
+  "birch_v1.png",
+  "boulder_v1.png",
+  "fir_v1.png",
+  "jungle_v1.png",
+  "mossy_v1.png",
+  "oak2_v1.png",
+  "oak_v1.png",
+  "palm_v1.png",
+  "pine_v1.png",
+  "sandrock_v1.png",
+  "snowpine_v1.png",
+  "snowrock_v1.png"
+ ],
+ "ground": [
+  "grass_v1.png",
+  "sand_v1.png",
+  "snow_v1.png"
+ ]
+}
