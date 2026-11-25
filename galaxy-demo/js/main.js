@@ -1,15 +1,15 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261125145354';
-import { SKIN } from './skin.js?v=20261125145354';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125145354';
-import { itemTable } from './biomes.js?v=20261125145354';
-import { buildAtlas, decorTables } from './art.js?v=20261125145354';
-import { Renderer } from './renderer.js?v=20261125145354';
-import { Labels } from './labels.js?v=20261125145354';
-import { mulberry32, hash32 } from './rng.js?v=20261125145354';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125145354';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125145354';
+import { RULES } from './rules.js?v=20261125153450';
+import { SKIN } from './skin.js?v=20261125153450';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125153450';
+import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125153450';
+import { buildAtlas, decorTables } from './art.js?v=20261125153450';
+import { Renderer } from './renderer.js?v=20261125153450';
+import { Labels } from './labels.js?v=20261125153450';
+import { mulberry32, hash32 } from './rng.js?v=20261125153450';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125153450';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125153450';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -111,6 +111,9 @@ R.setDecor(decorTables(SKIN));
 // Biome designs from the Biome Builder (biome-builder/, saved into biomes/): each ground type's texture and the items that
 // grow on it (trees, rocks, shrubs, grass), drawn as pictures. Without them the shader draws its own props, as before
 let groundAvg = null;                                    // per ground id, its texture's average colour (far views)
+// how ragged biome borders are where maps are made, and how far each ground's items straggle into its neighbours
+// (Biome Builder borders, biomes.js): sent to the map workers with every planet
+let borderFuzz = BORDER.fuzz, straggle = null;
 (async () => {
   const v = new URL(import.meta.url).search;
   const res = await fetch('biomes/biomes.json' + v);
@@ -122,6 +125,9 @@ let groundAvg = null;                                    // per ground id, its t
   const K = new Int32Array(32).fill(-1), S = new Float32Array(32).fill(8), Rl = new Float32Array(32);
   bake.grounds.forEach((g, i) => { for (const id of g.ids) { K[id] = i; S[id] = g.scale; Rl[id] = g.relief || 0; } });
   R.setGroundTextures(grounds, bake.groundSize, K, S, Rl);
+  R.setBlend(blendTable(bake.templates));
+  borderFuzz = (bake.border && bake.border.fuzz) ?? BORDER.fuzz;
+  straggle = straggleTable(bake.templates);
   if (bake.shadow) R.shadow = { ...R.shadow, ...bake.shadow };
   R.setItems(atlas, bake.atlas, itemTable(bake.templates, bake.cells));
   propMax = bake.propMax || 1;
@@ -328,7 +334,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261125145354', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261125153450', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -336,7 +342,8 @@ for (let i = 0; i < NW; i++) {
 }
 const bodyByUid = new Map(G.bodies.map(b => [b.uid, b]));
 function descOf(b) {
-  return { id: b.uid, seed: b.seed, type: b.type, r: b.r, W: b.surface.W, heat: b.heat, settle: b.settle, home: b.home, avg: groundAvg };
+  return { id: b.uid, seed: b.seed, type: b.type, r: b.r, W: b.surface.W, heat: b.heat, settle: b.settle, home: b.home, avg: groundAvg,
+    fuzz: borderFuzz, straggle };
 }
 // the detail levels of a body's map: samples across at each level, top level = tiles across
 function levelsOf(b) {
@@ -897,6 +904,7 @@ addEventListener('keydown', e => {
   else if (k === 'tab') { e.preventDefault(); switchRocket(); }
   else if (k === 'f') toggleFollow();
   else if (k === 't') toggleTerrain();
+  else if (k === 'b') R.blendOn = !R.blendOn;           // blended biome borders, or the old hard ones (to compare)
   if ('qead'.includes(k) && k.length === 1) held.add(k);
 });
 const held = new Set();

@@ -3,14 +3,14 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125145354';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125145354';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125145354';
-import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125145354';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125145354';
-import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125145354';
-import { splash } from './splash.js?v=20261125145354';
-import { createSystem } from './system.js?v=20261125145354';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125153450';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125153450';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125153450';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF, BLEND, BORDER, STYLES, blendOf, blendTable, straggleTable } from '../galaxy-demo/js/biomes.js?v=20261125153450';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125153450';
+import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125153450';
+import { splash } from './splash.js?v=20261125153450';
+import { createSystem } from './system.js?v=20261125153450';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
@@ -92,7 +92,9 @@ const ITEM_IDEAS = {
 const STORE = 'biomeBuilder.v1';
 // size: planet width in tiles (the mix planet is twice that); ocean: the ocean's share of a planet's radius;
 // spread: orbit distances, 1 = the Galaxy demo's rules for a blue giant
-let S = { planets: DEFAULT_PLANETS, size: 1024, ocean: 0.35, spread: 0.25, hills: 0.4, drafts: {}, items: true, shadows: true, ruler: false };
+// pair: [biome, biome] while the mix planet shows just those two (to tune their border); blendOff: hard borders (to compare)
+let S = { planets: DEFAULT_PLANETS, size: 1024, ocean: 0.35, spread: 0.25, hills: 0.4, drafts: {}, items: true, shadows: true, ruler: false,
+  pair: null, blendOff: false };
 try {
   const old = localStorage.getItem(STORE) ? null : JSON.parse(localStorage.getItem('biomeLab.v3') || 'null');
   if (old) S.drafts = old.drafts || {};                  // unsaved designs from when this was the Biome Lab
@@ -103,8 +105,9 @@ const persist = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { 
 
 let A = null, sys = null;
 let saved = {};                                          // biome -> its template in art/biomes/
-let savedLook = { ...SHADOW };                           // the item shadows in art/biomes/index.json
-const look = () => S.look || savedLook;                  // the shadows shown: unsaved changes, else the saved ones
+let savedLook = { ...SHADOW, ...BORDER };               // the item shadows and border fuzz in art/biomes/index.json
+const look = () => S.look || savedLook;                  // the shadows and fuzz shown: unsaved changes, else the saved ones
+const fuzzOf = () => look().fuzz ?? BORDER.fuzz;
 const reliefOf = g => g.relief ?? RELIEF;
 let selected = 'FOREST';
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -259,8 +262,9 @@ function apply(what = 'items') {
     sys.R.setItems(atlas && atlas.canvas, atlas && atlas.meta, itemTable(Object.fromEntries(templates.map(t => [t.biome, t])), cells, bigCells));
     sys.propMax = maxSize(templates);
   }
+  if (what === 'all' || what === 'ground' || what === 'blend') sys.R.setBlend(blendTable(Object.fromEntries(templates.map(t => [t.biome, t]))));
   if (what === 'all' || what === 'ground') {
-    const gk = JSON.stringify(templates.map(t => t.ground));
+    const gk = JSON.stringify(templates.map(t => ({ ...t.ground, blend: null })));   // border settings need no new textures
     if (gk !== groundKey) {
       groundKey = gk;
       const { layers, avg } = groundsFor(templates);
@@ -275,24 +279,30 @@ function apply(what = 'items') {
   showPlanets();
 }
 const shownBiomes = () => DESIGNABLE.filter(n => S.planets.includes(n));
+const pairOn = () => !!(S.pair && S.pair.length === 2 && S.pair.every(n => DESIGNABLE.includes(n)));
+// the mix planet's slices, clockwise from the top: during a pair test the two biomes three times over (six borders)
+const mixSlices = () => pairOn() ? [...S.pair, ...S.pair, ...S.pair] : shownBiomes();
 // a spot on dry land: halfway across the ring of land round the ocean, at angle a (clockwise from the top)
 const landAt = a => { const r = (S.ocean + 1) / 2; return [Math.sin(a) * r, -Math.cos(a) * r]; };
 // where a biome's slice is on the mix planet: [u, v] across its disk
 function sliceSpot(name) {
-  const list = shownBiomes(), i = list.indexOf(name);
+  const list = mixSlices(), i = list.indexOf(name);
   return i < 0 ? null : landAt((i + 0.5) / list.length * Math.PI * 2);
 }
 function showPlanets() {
-  const list = shownBiomes(), avg = {};
-  for (const n of list) if (liveAvg[ID[n]]) avg[ID[n]] = liveAvg[ID[n]];
+  const list = shownBiomes(), mix = mixSlices(), avg = {};
+  for (const n of mix) if (liveAvg[ID[n]]) avg[ID[n]] = liveAvg[ID[n]];
   const colour = n => liveAvg[ID[n]] || SKIN.base[n].c;
   const base = { type: 'lab', r: 1, heat: 1, settle: 0, home: false };
   const planets = [];
-  if (list.length) {
-    const W = Math.min(4096, S.size * 2), dot = [0, 1, 2].map(i => Math.round(list.reduce((t, n) => t + colour(n)[i], 0) / list.length));
-    planets.push({ name: MIX, label: 'Mix planet', badge: '', W, dot, land: landAt(Math.PI / list.length),
-      desc: { ...base, id: 'builder-mix', seed: 4242, W, avg: Object.keys(avg).length ? avg : null,
-        lab: { slices: list.map(n => ID[n]), lake: S.ocean, hills: S.hills } } });
+  if (mix.length) {
+    const W = Math.min(4096, S.size * 2), dot = [0, 1, 2].map(i => Math.round(mix.reduce((t, n) => t + colour(n)[i], 0) / mix.length));
+    // the border fuzz and item straggle shape its borders the way they shape the game's
+    planets.push({ name: MIX, label: pairOn() ? `Pair test: ${BASE_NAME[S.pair[0]]} and ${BASE_NAME[S.pair[1]]}` : 'Mix planet', badge: '', W, dot,
+      land: pairOn() ? landAt(0) : landAt(Math.PI / mix.length),
+      desc: { ...base, id: 'builder-mix', seed: 4242, W, avg: Object.keys(avg).length ? avg : null, fuzz: fuzzOf(),
+        straggle: straggleTable(Object.fromEntries(mix.map(n => [n, effective(n)]))),
+        lab: { slices: mix.map(n => ID[n]), lake: S.ocean, hills: S.hills } } });
   }
   for (const n of list) {
     const id = ID[n];
@@ -324,7 +334,7 @@ async function save(name, template) {
       atlas: { file: 'items.webp', ...atlas.meta }, groundSize: GROUND_TEX,
       bigAtlas: { file: 'items_big.webp', ...big.meta }, bigCells: big.cells,
       grounds: grounds.layers.map((l, i) => ({ file: `ground_${i}.webp`, ids: l.ids, scale: l.scale, relief: l.relief })), avg: farAvgs(templates, grounds.avg),
-      shadow: look(),
+      shadow: look(), border: { fuzz: fuzzOf() },
       propMax: maxSize(templates),
     };
     const res = await fetch('/api/biome-builder/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -455,7 +465,12 @@ function systemPanel() {
     shadowSlider('Angle', 'angle', 0, 80, 1, 'degrees below the horizontal, falling to the right'),
     shadowSlider('Darkness', 'dark', 0, 0.9, 0.01, 'how dark the cast shadows are'),
     shadowSlider('Contact', 'contact', 0, 1, 0.01, 'the soft dark patch on the ground right under each item, so it sits on the ground'),
-    S.look ? h('div', { class: 'row' }, h('button', { onclick: () => { delete S.look; persist(); syncToolbar(); renderPanel(); } }, 'Back to the saved shadows')) : null,
+    S.look ? h('div', { class: 'row' }, h('button', { onclick: () => { delete S.look; persist(); syncToolbar(); showPlanets(); renderPanel(); } }, 'Back to the saved shadows and fuzz')) : null,
+    h('h3', {}, 'Borders', fuzzOf() !== (savedLook.fuzz ?? BORDER.fuzz) ? h('span', { class: 'pill unsaved' }, 'unsaved') : null),
+    h('p', { class: 'hint' }, 'Where two biomes meet, their ground textures blend into each other. Each biome\'s own border settings (width, creep, softness, style…) are in its Biome tab. Fuzz is shared by every planet: it shapes where borders run when the map is made, so they wander in ragged lines with little islands, the way it will in the game.'),
+    slider('Fuzz', fuzzOf(), 0, 2, 0.05, () => {}, { tip: 'how ragged biome borders are where the map is made (0 = smooth lines). Rebuilds the mix planet',
+      after: v => { S.look = { ...look(), fuzz: v }; persist(); showPlanets(); renderPanel(); } }),
+    toggle('Blend the borders (untick to see the old hard edges)', !S.blendOff, on => { S.blendOff = !on; persist(); syncToolbar(); }),
     h('h3', {}, 'Saving'),
     h('div', { class: 'row' }, h('button', { disabled: saving, onclick: () => save(null, null),
       title: 'rebuild what the Galaxy demo loads from the saved designs, with the newest art (designs stay as they are)' }, 'Update the game')),
@@ -559,9 +574,57 @@ function biomePanel() {
       G('Brightness', 'bright', 0.5, 1.5, 0.01), G('Saturation', 'sat', 0, 2, 0.01), G('Hue shift', 'hue', -60, 60, 1),
       slider('Relief', reliefOf(g), 0, 2, 0.05, () => {}, { tip: 'light parts of the texture stand up as bumps, dark parts sink, lit by the sun (0 = flat)',
         after: v => { edit(name, x => { x.ground.relief = v; }, 'ground'); renderPanel(); } })) : null,
+    bordersBlock(name, t),
     layerBlock('big', 'Big items', 'Trees, boulders and other large things, one spot per 1.5 x 1.5 tiles.'),
     layerBlock('small', 'Small items', 'Shrubs, grass tufts, flowers, pebbles: one spot per tile, drawn under the big items.'),
   );
+}
+
+// the Borders block of a biome's tab: how its ground meets its neighbours (biomes.js BLEND), and the pair test
+function bordersBlock(name, t) {
+  const b = blendOf(t.ground);
+  const set = (key, v) => edit(name, x => { x.ground.blend = { ...blendOf(x.ground), [key]: v }; }, key === 'straggle' ? 'items' : 'blend');
+  // while dragging: the shader's table only, so the planet answers at once (straggle rebuilds the map, so it waits)
+  const live = (key, v) => {
+    const all = Object.fromEntries(DESIGNABLE.map(n => [n, effective(n)]));
+    all[name] = { ...all[name], ground: { ...all[name].ground, blend: { ...b, [key]: v } } };
+    sys.R.setBlend(blendTable(all));
+  };
+  const B = (label, key, min, max, step, tip) => slider(label, b[key], min, max, step, v => { if (key !== 'straggle') live(key, v); },
+    { tip, after: v => { set(key, v); if (key === 'straggle') showPlanets(); renderPanel(); } });
+  const others = DESIGNABLE.filter(n => n !== name);
+  const pairSel = h('select', {}, h('option', { value: '' }, 'test against…'), ...others.map(n => h('option', { value: n }, BASE_NAME[n])));
+  pairSel.value = pairOn() && S.pair[0] === name ? S.pair[1] : '';
+  pairSel.addEventListener('change', () => {
+    S.pair = pairSel.value ? [name, pairSel.value] : null;
+    persist(); showPlanets(); renderPanel();
+    if (S.pair) sys.visit(MIX, ...landAt(0));
+  });
+  const LABEL = { soft: 'Soft', pixel: 'Pixel', dither: 'Dither' };
+  return h('div', {},
+    h('h3', {}, 'Borders'),
+    h('p', { class: 'hint' }, t.ground.texture
+      ? 'How this ground meets its neighbours. Where two textured grounds meet, the wider width and the stronger creep win; softness and raggedness are shared between the two.'
+      : 'Only grounds drawn with a texture blend into their neighbours: pick a texture above. Item straggle works either way.'),
+    B('Width', 'width', 0, 1, 0.05, 'how wide the band where the two grounds mix is, in tiles (0 = a hard edge)'),
+    B('Creep', 'creep', -1, 1, 0.05, 'how far this ground pushes into its neighbours (the higher one wins the border)'),
+    B('Softness', 'soft', 0.02, 0.5, 0.01, 'low: crisp, the bumps of each texture poke through the other; high: a smooth fade'),
+    h('div', { class: 'row' }, h('span', { class: 'lab' }, 'Style'),
+      ...STYLES.map(st => h('button', { class: b.style === st ? 'on' : '', title: {
+        soft: 'mixed by the textures\' bumps: sand settles between stones, grass tufts poke over dirt',
+        pixel: 'whole art pixels, a ragged pixel-art edge', dither: 'stippled, like old pixel art' }[st],
+        onclick: () => { set('style', st); renderPanel(); } }, LABEL[st]))),
+    B('Ragged', 'ragged', 0, 1, 0.05, 'how much noise breaks up the border line'),
+    B('Rim', 'rim', -1, 1, 0.05, 'the border band darkened (left) or lightened (right) on this ground\'s side'),
+    B('Bump height', 'height', -2, 2, 0.05, 'how much the light parts of the texture stand up over the neighbour (below 0: its dark parts do)'),
+    B('Item straggle', 'straggle', 0, 12, 0.5, 'how far this biome\'s trees, rocks and grass wander into its neighbours, in tiles. Rebuilds the mix planet'),
+    h('div', { class: 'row' }, h('span', { class: 'lab' }, 'Pair test'), pairSel,
+      pairOn() ? h('button', { onclick: () => { S.pair = null; persist(); showPlanets(); renderPanel(); } }, 'End the pair test') : null),
+    h('p', { class: 'hint' }, pairOn()
+      ? `The mix planet shows only ${BASE_NAME[S.pair[0]]} and ${BASE_NAME[S.pair[1]]}, three slices each: six borders to look at.`
+      : 'Turns the mix planet into just this biome and another, so you can tune the border between them.'),
+    JSON.stringify(b) !== JSON.stringify(BLEND) ? h('div', { class: 'row' }, h('button', { onclick: () => {
+      edit(name, x => { delete x.ground.blend; }, 'ground'); renderPanel(); } }, 'Default borders')) : null);
 }
 
 // --- Art tab ---
@@ -612,6 +675,7 @@ function syncToolbar() {
   document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', !!S[b.dataset.view]));
   sys.items = S.items; sys.shadows = S.shadows;
   sys.R.shadow = { ...look() };
+  sys.R.blendOn = !S.blendOff;
 }
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => { S[b.dataset.view] = !S[b.dataset.view]; persist(); syncToolbar(); }));
 document.getElementById('fit').addEventListener('click', () => sys.overview());
@@ -638,7 +702,7 @@ async function start() {
   splash.step('Reading the saved biomes', 0.91);
   try {
     const idx = await (await fetch('../art/biomes/index.json', { cache: 'no-store' })).json();
-    if (idx.look) savedLook = { ...SHADOW, ...idx.look };
+    if (idx.look) savedLook = { ...SHADOW, ...BORDER, ...idx.look };
     await Promise.all((idx.saved || []).map(async n => { saved[n] = await (await fetch(`../art/biomes/${n}.json`, { cache: 'no-store' })).json(); }));
   } catch { /* nothing saved yet */ }
   splash.step('Building the planets', 0.95);

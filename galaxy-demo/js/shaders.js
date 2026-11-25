@@ -1,5 +1,5 @@
-import { SLOPE_K } from './terrain.js?v=20261125145354';
-import { ITEM_SLOTS } from './biomes.js?v=20261125145354';
+import { SLOPE_K } from './terrain.js?v=20261125153450';
+import { ITEM_SLOTS } from './biomes.js?v=20261125153450';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -112,6 +112,8 @@ uniform vec4 u_oreStain[16]; uniform vec2 u_oreFx[16];
 // art) and how many tiles one copy of the texture covers, and its relief (0 = flat; its light and dark parts lit as
 // bumps and hollows). Sampled at every screen pixel, so they keep full detail
 uniform mediump sampler2DArray u_gtex; uniform ivec4 u_gtexK[8]; uniform vec4 u_gtexS[8]; uniform vec4 u_gtexR[8];
+// how textured grounds blend into each other at borders (biomes.js blendTable; 1 = on, 0 = the old hard edges)
+uniform sampler2D u_blend; uniform int u_blendOn;
 // 1 = draw big props here, per pixel (the old way); 0 = they're drawn as pictures on top (PROPS_VS), the default
 uniform int u_shaderProps;
 out vec4 o;
@@ -126,6 +128,7 @@ vec2 g_off = vec2(0.0);   // this chunk's first art pixel on the whole map (so n
 vec2 g_ap = vec2(0.0);    // this screen pixel's exact spot on the whole map, in art pixels (high-resolution props)
 float g_hdLod = 0.0;      // mip level for high-resolution props at the current zoom
 vec2 g_dx = vec2(0.0), g_dy = vec2(0.0);   // how far g_ap moves per screen pixel (texture filtering)
+vec4 g_gnd = vec4(0.0);   // the ground texture's colour at this screen pixel, blended across borders (a = 1 when set)
 
 uint hashu(uvec2 p) { uint h = (p.x * 0x27d4eb2du) ^ (p.y * 0x165667b1u); h ^= h >> 15; h *= 0x85ebca6bu; h ^= h >> 13; return h; }
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -164,6 +167,111 @@ ivec2 groundTile(ivec2 a) {
 }
 bool isWater(uint id) { return id <= 1u; }       // DEEP, SHALLOW
 vec4 atlasPix(int s, ivec2 inT) { return texelFetch(u_atlas, ivec2((s & 31) * 8 + inT.x, (s >> 5) * 8 + inT.y), 0); }
+
+// ---------- ground textures and the blend between them ----------
+int gLayer(uint id) { return u_gtexK[int(id) >> 2][int(id) & 3]; }
+bool textured(uint id) { return gLayer(id) >= 0 && !isWater(id); }
+const vec3 LUM = vec3(0.3, 0.5, 0.2);
+// one ground's texture at this screen pixel (full detail at any zoom), with its relief: brightness read as height
+// (light clumps stand up, dark cracks sink), lit by the same sun as the hills. The relief step is about a screen
+// pixel, so the bumps stay as fine as the detail on screen
+vec3 groundTex(uint gid) {
+  int k = int(gid), gtl = gLayer(gid);
+  float ts = u_gtexS[k >> 2][k & 3] * 8.0;   // art px per copy of the texture
+  vec2 uv = g_ap / ts, gx = g_dx / ts, gy = g_dy / ts;
+  vec3 c = textureGrad(u_gtex, vec3(uv, float(gtl)), gx, gy).rgb;
+  float rl = u_gtexR[k >> 2][k & 3];
+  if (rl > 0.0) {
+    float e = max(1.5 / float(textureSize(u_gtex, 0).x), max(length(gx), length(gy)));
+    float h0 = dot(c, LUM);
+    float hx = dot(textureGrad(u_gtex, vec3(uv + vec2(e, 0.0), float(gtl)), gx, gy).rgb, LUM) - h0;
+    float hy = dot(textureGrad(u_gtex, vec3(uv + vec2(0.0, e), float(gtl)), gx, gy).rgb, LUM) - h0;
+    vec3 L = normalize(SUN);
+    c *= clamp(1.0 - 6.0 * rl * (hx * L.x + hy * L.y) / L.z, 0.55, 1.6);
+  }
+  return c;
+}
+// how high a ground's texture stands at this pixel, for the blend: its brightness against the texture's average
+// (its smallest mip level), scaled by the ground's height setting (< 0: its dark parts stand up)
+float groundHeight(uint gid, vec3 c, float k) {
+  float avg = dot(textureLod(u_gtex, vec3(0.5, 0.5, float(gLayer(gid))), 20.0).rgb, LUM);
+  return clamp(0.5 + (dot(c, LUM) - avg) * 3.0 * k, 0.0, 1.0) * 0.5;
+}
+vec4 blendA(uint id) { return texelFetch(u_blend, ivec2(int(id), 0), 0); }   // width, creep, soft, style
+vec4 blendB(uint id) { return texelFetch(u_blend, ivec2(int(id), 1), 0); }   // ragged, rim, height, -
+
+// The ground at a screen pixel, blended where biomes meet. Ground ids are samples at tile centres: the 4 around the
+// pixel (nudged by the same wiggle as groundTile) give smooth weights, and the two strongest grounds are mixed by
+// their textures' bumps (sand settles between the stones, grass tufts poke over the dirt), with noise so the line
+// isn't smooth. Where all 4 agree (most pixels) it's one texture read. Water and tile-art grounds take no part: they
+// keep their own edges (a = 0 then)
+vec4 groundBlend(vec2 ap) {
+  vec2 t = (ap + 0.5 + g_warp) / 8.0 - 0.5;   // tile coordinates, tile centres on whole numbers
+  ivec2 i0 = ivec2(floor(t)), mx = ivec2(u_map) - 1;
+  uint id[4];
+  id[0] = texelFetch(u_ids, clamp(i0, ivec2(0), mx), 0).r;
+  id[1] = texelFetch(u_ids, clamp(i0 + ivec2(1, 0), ivec2(0), mx), 0).r;
+  id[2] = texelFetch(u_ids, clamp(i0 + ivec2(0, 1), ivec2(0), mx), 0).r;
+  id[3] = texelFetch(u_ids, clamp(i0 + ivec2(1, 1), ivec2(0), mx), 0).r;
+  if (id[0] == id[1] && id[0] == id[2] && id[0] == id[3]) return textured(id[0]) ? vec4(groundTex(id[0]), 1.0) : vec4(0.0);
+  // the band is as wide as the wider of the grounds wants
+  float wid = 0.0;
+  for (int k = 0; k < 4; k++) if (textured(id[k])) wid = max(wid, blendA(id[k]).x);
+  if (wid <= 0.0) return vec4(0.0);
+  float hw = max(wid * 0.5, 0.02);
+  // the pixel and dither styles decide per art pixel (crisp, like the pixel art); soft per screen pixel
+  vec2 tq = (floor(ap + 0.5) + 0.5 + g_warp) / 8.0 - 0.5;
+  vec2 s = smoothstep(0.5 - hw, 0.5 + hw, t - vec2(i0)), sq = smoothstep(0.5 - hw, 0.5 + hw, clamp(tq - vec2(i0), 0.0, 1.0));
+  // add up each ground's weight (the same ground can sit at several corners)
+  uint uid[4]; float uw[4], uq[4]; int n = 0;
+  for (int k = 0; k < 4; k++) {
+    if (!textured(id[k])) continue;
+    vec2 c = vec2(float(k & 1), float(k >> 1));
+    vec2 a = mix(1.0 - s, s, c), aq = mix(1.0 - sq, sq, c);
+    int j = 0;
+    for (; j < n; j++) if (uid[j] == id[k]) break;
+    if (j == n) { uid[n] = id[k]; uw[n] = 0.0; uq[n] = 0.0; n++; }
+    uw[j] += a.x * a.y; uq[j] += aq.x * aq.y;
+  }
+  // creep: each ground pushes into its neighbours a little; then the two strongest
+  for (int j = 0; j < n; j++) { float cr = blendA(uid[j]).y * 0.3; uw[j] = max(0.0, uw[j] + cr); uq[j] = max(0.0, uq[j] + cr); }
+  int ia = 0, ib = -1;
+  for (int j = 1; j < n; j++) if (uw[j] > uw[ia]) ia = j;
+  for (int j = 0; j < n; j++) if (j != ia && (ib < 0 || uw[j] > uw[ib])) ib = j;
+  if (ib < 0 || uw[ib] <= 0.0) return vec4(groundTex(uid[ia]), 1.0);
+  // the pair in a fixed order (lower id first), so nothing jumps where the strongest ground changes
+  bool sw = uid[ib] < uid[ia];
+  int ip = sw ? ib : ia, iq = sw ? ia : ib;
+  uint P = uid[ip], Q = uid[iq];
+  vec4 aP = blendA(P), aQ = blendA(Q), bP = blendB(P), bQ = blendB(Q);
+  float x = uw[ip] / max(uw[ip] + uw[iq], 1e-4), xq = uq[ip] / max(uq[ip] + uq[iq], 1e-4);   // P's share, 0..1
+  float ragged = (bP.x + bQ.x) * 0.5;
+  float style = aQ.y > aP.y ? aQ.w : aP.w;                             // the stronger-creeping ground's style
+  vec3 cP = groundTex(P), cQ = groundTex(Q);
+  float sh;                                                            // P's share of the colour
+  if (style > 1.5) {                                                   // dither: stippled, anchored to the world
+    ivec2 ac = ivec2(floor(g_ap));
+    float nq = vn2((vec2(ac) + 0.5) / 5.0, 11u) - 0.5;
+    sh = clamp(xq + nq * ragged * 0.6, 0.0, 1.0) > hf(uvec2(ac) ^ uvec2(0x51a7u, 0x2c4bu)) ? 1.0 : 0.0;
+  } else if (style > 0.5) {                                            // pixel: whole art pixels, a ragged edge
+    ivec2 ac = ivec2(floor(g_ap));
+    float nq = (vn2((vec2(ac) + 0.5) / 5.0, 11u) - 0.5) * 0.7 + (hf(uvec2(ac)) - 0.5) * 0.3;
+    sh = xq + nq * ragged > 0.5 ? 1.0 : 0.0;
+  } else {                                                             // soft: mixed by the textures' bumps
+    float nz = (vn2(g_ap / 5.0, 11u) - 0.5) * 0.7 + (vn2(g_ap / 1.7, 12u) - 0.5) * 0.3;
+    x = clamp(x + nz * ragged * 0.5, 0.0, 1.0);
+    float hP = groundHeight(P, cP, bP.z), hQ = groundHeight(Q, cQ, bQ.z);
+    float depth = max((aP.z + aQ.z) * 0.5, 0.005);
+    float ma = max(hP + x, hQ + 1.0 - x) - depth;
+    float kP = max(hP + x - ma, 0.0), kQ = max(hQ + 1.0 - x - ma, 0.0);
+    sh = kP / max(kP + kQ, 1e-5);
+  }
+  vec3 c = mix(cQ, cP, sh);
+  // the rim: the band darkened or lightened, each ground on its own side
+  float band = 1.0 - smoothstep(0.0, 0.32, abs(x - 0.5));
+  c *= 1.0 + mix(bQ.y, bP.y, sh) * band * 0.45;
+  return vec4(c, 1.0);
+}
 
 // Decorations: one spot per 8x8 cell of global art pixels, nudged 0..6 px so they don't line up with tiles. Each
 // spot looks at the ground under its foot (not nudged by the border wiggle, so they can spill a little past a
@@ -312,24 +420,8 @@ vec3 artPix(ivec2 a) {
   int gslot = int(gid) * 4 + int(h & 3u);
   if (u_fx == 1 && u_biome[int(gid)].y > 0.5) gslot += 128;             // forest floor (SLOT_FLOOR) under scattered trees
   vec3 c = atlasPix(gslot, inT).rgb;
-  int gtl = u_gtexK[int(gid) >> 2][int(gid) & 3];
-  if (u_fx == 1 && gtl >= 0 && !isWater(gid)) {
-    float ts = u_gtexS[int(gid) >> 2][int(gid) & 3] * 8.0;   // art px per copy of the texture
-    vec2 uv = g_ap / ts, gx = g_dx / ts, gy = g_dy / ts;
-    c = textureGrad(u_gtex, vec3(uv, float(gtl)), gx, gy).rgb;
-    float rl = u_gtexR[int(gid) >> 2][int(gid) & 3];
-    if (rl > 0.0) {
-      // relief: brightness read as height (light clumps stand up, dark cracks sink), lit by the same sun as the
-      // hills. The step is about a screen pixel, so the bumps stay as fine as the detail on screen
-      const vec3 Y = vec3(0.3, 0.5, 0.2);
-      float e = max(1.5 / float(textureSize(u_gtex, 0).x), max(length(gx), length(gy)));
-      float h0 = dot(c, Y);
-      float hx = dot(textureGrad(u_gtex, vec3(uv + vec2(e, 0.0), float(gtl)), gx, gy).rgb, Y) - h0;
-      float hy = dot(textureGrad(u_gtex, vec3(uv + vec2(0.0, e), float(gtl)), gx, gy).rgb, Y) - h0;
-      vec3 L = normalize(SUN);
-      c *= clamp(1.0 - 6.0 * rl * (hx * L.x + hy * L.y) / L.z, 0.55, 1.6);
-    }
-  }
+  // a textured ground: this screen pixel's ground (blended across borders), worked out once per screen pixel in main
+  if (u_fx == 1 && textured(gid)) c = g_gnd.a > 0.0 ? g_gnd.rgb : groundTex(gid);
   bool water = u_fx == 1 && isWater(gid);
   if (water) {
     // smooth depth colour, keeping the tile art's ripples as light and dark
@@ -471,6 +563,7 @@ void main() {
           vec4 F = texture(u_fld, (floor(ap + 0.5) + 0.5) / (u_map * 8.0));
           g_land = hillShade(F) * landTint(F);
           g_depth = max(0.0, -(F.b * 255.0 - 127.5) / 600.0);
+          g_gnd = u_blendOn == 1 ? groundBlend(ap) : vec4(0.0);
         }
         // anti-aliased pixel art: blend neighbouring art pixels only across art-pixel edges, one lookup elsewhere
         bvec2 mid = bvec2(f.x > 0.0 && f.x < 1.0, f.y > 0.0 && f.y < 1.0);

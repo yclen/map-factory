@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125145354';
-import { RULES } from './rules.js?v=20261125145354';
-import { makeNoise } from './noise.js?v=20261125145354';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125145354';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125153450';
+import { RULES } from './rules.js?v=20261125153450';
+import { makeNoise } from './noise.js?v=20261125153450';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125153450';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -37,10 +37,29 @@ export function makeSampler(desc) {
   }
   // the level liquid sits at on this planet type (for water depth; types without seas get a nominal level)
   const sea = tr.sea ?? tr.lava ?? (type === 'ice' ? 0.34 : 0.36);
+  // Border fuzz: mid-scale noise (about 64 and 16 tiles across) added to the climate the biome choice reads, so
+  // biomes meet in ragged edges with little islands of each other, not smooth contour lines. desc.fuzz scales it
+  // (0 = off; the Biome Builder's border look, saved for the game). Like detail(), each octave is left out on maps
+  // too coarse to show it (ctl.tps = tiles per sample, set per chunk by generatePage), so far views don't speckle.
+  // fuzz.m / fuzz.t: the nudge to moisture and temperature
+  const ctl = { tps: 1 };
+  const tileF = desc.W / 2;                                 // tiles per disk unit
+  const fzK = desc.fuzz ?? 1, fzA = tileF / 64, fzB = tileF / 16;
+  const rF = mulberry32(hash32(desc.seed, 5)), oF = [0, 1, 2].map(() => (rF() - 0.5) * 200);   // own stream: other offsets stay
+  let zTps = -1, zA = 0, zB = 0;
+  function fuzz(x, y) {
+    if (ctl.tps !== zTps) { zTps = ctl.tps; zA = clamp01((64 / zTps - 3) / 3) * fzK; zB = clamp01((16 / zTps - 3) / 3) * fzK; }
+    const a = zA > 0 ? N.simplex3(x * fzA + oF[0], y * fzA + oF[1], oF[2]) * zA : 0;
+    const b = zB > 0 ? N.simplex3(x * fzB + oF[1], y * fzB + oF[2], oF[0]) * zB : 0;
+    fuzz.m = a * 0.035 + b * 0.015;
+    fuzz.t = b * 0.025 - a * 0.03;
+  }
+  fuzz.m = 0; fuzz.t = 0;
   // ground id at disk position (x, y) (each -1..1; z is just a fixed slice of the 3D noise); e = elev(x, y, z)
   // when the caller already has it
   function classify(x, y, z = 0, e = elev(x, y, z)) {
-    const m = N.fbm(x * 2.2 + oM[0], y * 2.2 + oM[1], z * 2.2 + oM[2], 2) * 0.5 + 0.5;
+    fuzz(x, y);
+    const m = N.fbm(x * 2.2 + oM[0], y * 2.2 + oM[1], z * 2.2 + oM[2], 2) * 0.5 + 0.5 + fuzz.m;
     const n = N.simplex3(x * 9 + oN[0], y * 9 + oN[1], z * 9 + oN[2]) * 0.5 + 0.5;
     // latitude: 0 along the equator (the line across the middle of the disk), about 1 at the north and south
     // poles (top and bottom). Only latitude makes things cold, so ice forms caps at the poles and the east and
@@ -49,7 +68,7 @@ export function makeSampler(desc) {
     switch (type) {
       case 'terran': case 'ocean': {
         const sea = tr.sea;
-        let temp = 1.05 - lat * lat * 1.12 - Math.max(0, e - sea) * 1.1 + (n - 0.5) * 0.18 + (desc.heat - 1) * 0.6;
+        let temp = 1.05 - lat * lat * 1.12 - Math.max(0, e - sea) * 1.1 + (n - 0.5) * 0.18 + (desc.heat - 1) * 0.6 + fuzz.t;
         if (e < sea) {
           if (temp < 0.08) return T.SEA_ICE;
           return e < sea - 0.07 ? T.DEEP : T.SHALLOW;
@@ -96,7 +115,7 @@ export function makeSampler(desc) {
         return n > 0.55 ? T.BASALT : T.OBSIDIAN;
       }
       case 'tundra': {
-        let temp = 0.85 - lat * lat * 0.75 - Math.max(0, e - tr.sea) * 0.8 + (n - 0.5) * 0.2;
+        let temp = 0.85 - lat * lat * 0.75 - Math.max(0, e - tr.sea) * 0.8 + (n - 0.5) * 0.2 + fuzz.t;
         if (e < tr.sea) return temp < 0.45 ? T.SEA_ICE : T.SHALLOW;
         if (e > tr.sea + 0.4) return T.PEAK;
         if (e > tr.sea + 0.3) return T.MOUNTAIN;
@@ -150,7 +169,6 @@ export function makeSampler(desc) {
   // small-scale relief, used only for shading (never for what a tile is), and a slow colour variation. `tps` =
   // tiles per sample: bumps smaller than a few samples are left out, so coarse maps don't turn them into speckle.
   // Writes detail.rel and detail.vari (no allocation: this runs for every sample)
-  const tileF = desc.W / 2;                                 // tiles per disk unit
   const oD = [o(), o(), o()];
   // the elevation noise already carries bumps down to ~60 tiles across on the biggest planets: one finer octave
   // (24 tiles) is enough on top
@@ -166,8 +184,9 @@ export function makeSampler(desc) {
     if (mtn > 0 && kR > 0) detail.rel += (N.ridged(x * fR + oD[1], y * fR + oD[0], oD[2] + 7, 2) - 0.6) * kR * mtn;
     detail.vari = k3 > 0 ? N.simplex3(x * f3 + oD[2], y * f3 + oD[0], oD[1]) * k3 : 0;
   }
-  if (desc.lab) return labSampler(desc, N, r, detail, sea);
-  return { classify, deposit, elev, detail, sea };
+  const setTps = tps => { ctl.tps = tps; };
+  if (desc.lab) return { ...labSampler(desc, N, r, detail, sea, ctl), setTps };
+  return { classify, deposit, elev, detail, sea, setTps };
 }
 
 // The Biome Builder's planets (biome-builder/). desc.lab is one of:
@@ -177,10 +196,20 @@ export function makeSampler(desc) {
 //   { lake, beach (tiles), regions, warp, hills, biomes: [ground ids], paint: null or Uint8Array(W * W) of ground ids
 //     (255 = not painted) }                 the older lab planet: a lake, biome regions around it, tiles painted by hand
 // lake = the ocean's radius as a share of the disk's (0 = no ocean); hills 0..1; warp 0..1.5
-function labSampler(desc, N, r, detail, sea) {
+function labSampler(desc, N, r, detail, sea, ctl) {
   const L = desc.lab, W = desc.W;
   if (L.mono !== undefined || L.slices) {
     const lake = L.lake || 0, hills = L.hills || 0, K = L.slices ? L.slices.length : 1, warp = (L.warp ?? 1) * 0.2;
+    // border fuzz, as on real planets: the slice borders pushed about by noise ~64 and ~16 tiles across, by up to
+    // ~28 and ~7 tiles (times desc.fuzz), so they meet the way biomes do in the game
+    const fzK = desc.fuzz ?? 1, tileF = W / 2, fzA = tileF / 64, fzB = tileF / 16;
+    let zTps = -1, zA = 0, zB = 0;
+    const fuzzAngle = (x, y) => {
+      if (ctl.tps !== zTps) { zTps = ctl.tps; zA = clamp01((64 / zTps - 3) / 3) * fzK; zB = clamp01((16 / zTps - 3) / 3) * fzK; }
+      if (!zA && !zB) return 0;
+      const d = (zA ? N.simplex3(x * fzA + 2.7, y * fzA - 6.1, 3.3) * zA * 28 : 0) + (zB ? N.simplex3(x * fzB - 4.4, y * fzB + 1.9, 9.2) * zB * 7 : 0);
+      return d / (Math.max(0.08, Math.hypot(x, y)) * tileF);     // tiles along the border -> an angle
+    };
     const shoreD = (x, y) => Math.hypot(x, y) + N.fbm(x * 3 + 3.1, y * 3 - 1.7, 1.3, 4) * 0.1;   // a wobbly coast
     const hill = (x, y) => (N.fbm(x * 3 + 11, y * 3 + 7, 5.5, 4) * 0.5 + 0.5) * hills * 0.16;
     // the sea bed drops away from the shore; the land rises gently from it into hills
@@ -194,7 +223,7 @@ function labSampler(desc, N, r, detail, sea) {
       if (e < sea) return e < sea - 0.03 ? T.DEEP : T.SHALLOW;
       if (K === 1) return L.slices ? L.slices[0] : L.mono;
       // the angle clockwise from the top (y runs down), pushed about by noise so neighbouring slices meet in wavy lines
-      const a = Math.atan2(x, -y) + N.fbm(x * 4 + 5.3, y * 4 - 2.9, 8.1, 4) * warp;
+      const a = Math.atan2(x, -y) + N.fbm(x * 4 + 5.3, y * 4 - 2.9, 8.1, 4) * warp + fuzzAngle(x, y);
       return L.slices[Math.floor(((a / TAU) % 1 + 1) % 1 * K) % K];
     }
     return { classify, deposit: () => 0, elev, detail, sea };
@@ -276,6 +305,7 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
   const ids = new Uint8Array(sx * sy * 4);
   // elevation (and shading relief) on the chunk plus a 1-sample border, so slopes at the edges match the neighbours
   const GW = sx + 2, GH = sy + 2, tps = desc.W / N;
+  sampler.setTps(tps);
   const E = new Float32Array(GW * GH), Hs = new Float32Array(GW * GH), Vr = new Float32Array(GW * GH);
   for (let gy = 0; gy < GH; gy++) {
     const v = ((y0 + gy - 1 + 0.5) / N) * 2 - 1;
@@ -375,8 +405,8 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     fld[t * 4 + 3] = Math.max(0, Math.min(255, 127.5 + Vr[g] * 127.5));
   }
   // full detail (one sample per tile): every spot where an item could stand, for the renderer to draw as pictures
-  const props = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, BIG) : null;
-  const small = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, SMALL) : null;
+  const props = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, BIG, desc.straggle) : null;
+  const small = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, SMALL, desc.straggle) : null;
   return { ids, col, fld, counts, settlements, props, small, ms: performance.now() - t0 };
 }
 
@@ -386,9 +416,13 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
 // what, is decided when drawing (from the biome tables), so densities and kinds change without rebuilding maps.
 // Per spot: box corner (art px x, y), ground id, the spot's hash. Sorted top to bottom, so drawing in order puts
 // nearer items in front. The big grid uses the same hash as the old in-shader props.
+// straggle (biomes.js straggleTable, or null): per ground id, how far its items wander into neighbouring ground, in
+// tiles. A spot looks at a random tile up to that far away (from its own hash); if that tile's ground straggles at
+// least that far, the spot grows that ground's items, so forests thin out into the grass instead of stopping at a
+// line. Only tiles inside the chunk are looked at
 const BIG = { cell: 12, salt: [0x2b9f, 0x6d31] }, SMALL = { cell: 8, salt: [0x51ed, 0x2701] };
-function propSpots(ids, N, x0, y0, sx, sy, grid) {
-  const out = [], PG = grid.cell;
+function propSpots(ids, N, x0, y0, sx, sy, grid, straggle) {
+  const out = [], PG = grid.cell, SM = straggle ? Math.max(...straggle) : 0;
   const cxA = Math.floor((x0 * 8 - 8 - PG + 1) / PG), cxB = Math.floor(((x0 + sx) * 8 - 8) / PG);
   const cyA = Math.floor((y0 * 8 - 22 - PG + 1) / PG), cyB = Math.floor(((y0 + sy) * 8 - 22) / PG);
   for (let cy = cyA; cy <= cyB; cy++) for (let cx = cxA; cx <= cxB; cx++) {
@@ -398,8 +432,18 @@ function propSpots(ids, N, x0, y0, sx, sy, grid) {
     if (fx < x0 || fy < y0 || fx >= x0 + sx || fy >= y0 + sy) continue;
     const u = (fx + 0.5) / N * 2 - 1, v = (fy + 0.5) / N * 2 - 1;
     if (u * u + v * v > 1) continue;                              // outside the disk
-    const i = ((fy - y0) * sx + (fx - x0)) * 4, g = ids[i];
+    const i = ((fy - y0) * sx + (fx - x0)) * 4;
+    let g = ids[i];
     if (ids[i + 1] || WATER.has(g)) continue;                     // deposits and buildings keep their tile clear
+    if (SM > 0) {
+      const h2 = tileHash(cx ^ 0x3d1f, cy ^ 0x7a45);
+      const dx = Math.round(((h2 & 1023) / 1023 * 2 - 1) * SM), dy = Math.round((((h2 >>> 10) & 1023) / 1023 * 2 - 1) * SM);
+      const tx = fx + dx, ty = fy + dy;
+      if ((dx || dy) && tx >= x0 && ty >= y0 && tx < x0 + sx && ty < y0 + sy) {
+        const g2 = ids[((ty - y0) * sx + (tx - x0)) * 4];
+        if (g2 !== g && !WATER.has(g2) && straggle[g2] >= Math.max(Math.abs(dx), Math.abs(dy))) g = g2;
+      }
+    }
     out.push(ax, ay, g, h);
   }
   const n = out.length / 4, order = Array.from({ length: n }, (_, i) => i);

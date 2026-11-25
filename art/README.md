@@ -35,6 +35,14 @@ icon. Unsaved changes are kept per address, so changes made online don't show up
 - **Ground:** a texture from `art/ground/raw/` (or the old tile art), its scale, brightness, saturation, hue and
   **relief** (0-2, 0.8 by default): the texture's light parts stand up as bumps and its dark parts sink, lit by the
   same sun as the hills, so flat AI textures look raised and cracked without new art.
+- **Borders** (Biome tab, saved as `ground.blend`): how the ground meets its neighbours. Textured grounds blend into
+  each other in the shader instead of switching on a hard line: **width** of the mixing band (tiles), **creep** (who
+  pushes into whom), **softness**, **style** (soft = mixed by the textures' bumps, pixel = a ragged pixel-art edge,
+  dither = stippled), **ragged** (noise along the line), **rim** (the band darkened or lightened), **bump height** (how
+  much the texture's light parts poke through the neighbour) and **item straggle** (how far its trees, rocks and grass
+  wander into the neighbour, in tiles). **Pair test** turns the mix planet into just this biome and one other, three
+  slices each. **Fuzz** (System tab, shared by every planet) makes borders wander in ragged lines with little islands
+  where the map is made. In the game, **B** switches between blended and the old hard borders.
 - **Shadows** (shared by every biome, System tab; kept in `art/biomes/index.json`): each item casts its own outline
   flat along the ground, the way Factorio does, so no separate shadow pictures are needed, plus a soft **contact
   shadow** on the ground right under it so it sits on the ground. Both start from the picture's **base** (the part

@@ -1,6 +1,7 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125145354';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125145354';
+import * as S from './shaders.js?v=20261125153450';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125153450';
+import { blendTable } from './biomes.js?v=20261125153450';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -65,6 +66,14 @@ export class Renderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 128]));
     this.water = [[0, 0, 0], [0, 0, 0]];      // deep and shallow water colours (0..255), set from the skin
     this.gtex = this.makeGroundTextures([], 1);   // no ground textures until setGroundTextures
+    // how each ground blends into its neighbours (biomes.js blendTable): defaults until setBlend; blendOn = 0 draws
+    // the old hard borders (for comparing)
+    this.blendTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.blendTex);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 32, 2);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    this.setBlend(blendTable({}));
+    this.blendOn = true;
     // the tables both the terrain and the prop programs read (kept, so either can be changed alone)
     this.tables = null; this.hdK = new Int32Array(32).fill(-1); this.hdInfo = [128, 192, 8, 8]; this.hdSize = [1, 1];
     this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8); this.gR = new Float32Array(32);
@@ -200,6 +209,13 @@ export class Renderer {
     this.gtex = this.makeGroundTextures(layers, size);
     this.gK = K; this.gS = S; this.gR = Rl || new Float32Array(32);
     this.applyPropTables();
+  }
+
+  // the blend table (biomes.js blendTable: 32 x 2 RGBA floats)
+  setBlend(data) {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.blendTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 32, 2, gl.RGBA, gl.FLOAT, data);
   }
 
   // ---------- items as pictures ----------
@@ -406,6 +422,8 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.fld : this.dummyFld); gl.uniform1i(u.u_fld, 3);
     gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.hdProps || this.dummyCol); gl.uniform1i(u.u_hd, 4);
     gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.gtex); gl.uniform1i(u.u_gtex, 5);
+    gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, this.blendTex); gl.uniform1i(u.u_blend, 6);
+    gl.uniform1i(u.u_blendOn, this.blendOn ? 1 : 0);
     gl.uniform1i(u.u_fx, b.fx ? 1 : 0); gl.uniform1f(u.u_tpp, b.tpp || 0);
     const [wd, ws] = this.water;
     gl.uniform3f(u.u_deep, wd[0] / 255, wd[1] / 255, wd[2] / 255); gl.uniform3f(u.u_shallow, ws[0] / 255, ws[1] / 255, ws[2] / 255);
