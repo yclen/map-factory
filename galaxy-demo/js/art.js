@@ -2,8 +2,8 @@
 // 16x24 big props (trees, boulders) below.
 // Runs on the main thread (for the GPU) and in the map worker (for each tile's average colour).
 // Hand-drawn art can replace any slot later without touching the generator.
-import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN, SLOT_FLOOR, SLOT_DECO, SLOT_ORE, RESOURCES, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from './ids.js?v=20261124191529';
-import { mulberry32, hash32 } from './rng.js?v=20261124191529';
+import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN, SLOT_FLOOR, SLOT_DECO, SLOT_ORE, RESOURCES, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from './ids.js?v=20261124193000';
+import { mulberry32, hash32 } from './rng.js?v=20261124193000';
 
 export const ATLAS_W = 256, ATLAS_H = 512;
 

@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261124191529';
-import { SKIN } from './skin.js?v=20261124191529';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124191529';
-import { buildAtlas, decorTables } from './art.js?v=20261124191529';
-import { Renderer } from './renderer.js?v=20261124191529';
-import { Labels } from './labels.js?v=20261124191529';
-import { mulberry32, hash32 } from './rng.js?v=20261124191529';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124191529';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124191529';
+import { RULES } from './rules.js?v=20261124193000';
+import { SKIN } from './skin.js?v=20261124193000';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124193000';
+import { buildAtlas, decorTables } from './art.js?v=20261124193000';
+import { Renderer } from './renderer.js?v=20261124193000';
+import { Labels } from './labels.js?v=20261124193000';
+import { mulberry32, hash32 } from './rng.js?v=20261124193000';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124193000';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124193000';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -289,7 +289,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261124191529', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261124193000', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -840,7 +840,7 @@ addEventListener('blur', () => held.clear());
 // ---------- UI ----------
 let selected = null;
 function select(b) { selected = b; if (b && b.surface) wantPage(b, 0, 0, 0, 4e6); updateUI(true); }
-const perfEl = $('perf'), infoEl = $('info'), tipEl = $('tip'), crumbsEl = $('crumbs');
+const perfEl = $('perf'), infoEl = $('info'), tipEl = $('tip'), crumbsEl = $('crumbs'), barEl = $('bar');
 let perfOn = !coarse || params.has('perf'), autoQuality = true;
 perfEl.hidden = !perfOn;
 function toggleTerrain() {
@@ -922,12 +922,20 @@ function updateUI(force) {
   // info panel
   // on phones the info card waits for a tap, and gives way to the rocket controls while you're flying
   infoEl.hidden = (coarse && !selected) || (!touchEl.hidden && innerWidth <= 640);
-  if (frameNo % 30 === 0 || force) infoEl.innerHTML = infoHTML(selected);
-  const fly = infoEl.querySelector('[data-fly]');
-  if (fly && !fly.onclick) fly.onclick = () => flyTo(selected);
-  const close = infoEl.querySelector('[data-close]');
-  if (close && !close.onclick) close.onclick = () => select(null);
+  if (frameNo % 30 === 0 || force) {
+    // only rebuild when the text changed: replacing the buttons in the middle of a tap swallowed the tap
+    const html = infoHTML(selected);
+    if (html !== infoEl._html) { infoEl._html = html; infoEl.innerHTML = html; }
+    // keep the card above the bottom bar, however many rows the bar wraps to on a phone
+    const above = Math.round(innerHeight - barEl.getBoundingClientRect().top + 10);
+    if (above !== infoEl._above) { infoEl._above = above; document.documentElement.style.setProperty('--above-bar', above + 'px'); }
+  }
 }
+// the card's buttons, handled on the card itself so they work even if its contents were just rebuilt
+infoEl.addEventListener('click', e => {
+  if (e.target.closest('[data-fly]')) flyTo(selected);
+  else if (e.target.closest('[data-close]')) select(null);
+});
 function infoHTML(b) {
   if (b && b.kind === 'rocket') b = null;                // rockets have their own readout
   if (!b) {
