@@ -3,13 +3,13 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125134458';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125134458';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125134458';
-import { skinKey, itemTable, ITEM_SLOTS } from '../galaxy-demo/js/biomes.js?v=20261125134458';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125134458';
-import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125134458';
-import { createSystem } from './system.js?v=20261125134458';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125135241';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125135241';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125135241';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125135241';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125135241';
+import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125135241';
+import { createSystem } from './system.js?v=20261125135241';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
@@ -96,6 +96,9 @@ const persist = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { 
 
 let A = null, sys = null;
 let saved = {};                                          // biome -> its template in art/biomes/
+let savedLook = { ...SHADOW };                           // the item shadows in art/biomes/index.json
+const look = () => S.look || savedLook;                  // the shadows shown: unsaved changes, else the saved ones
+const reliefOf = g => g.relief ?? RELIEF;
 let selected = 'FOREST';
 const clone = o => JSON.parse(JSON.stringify(o));
 
@@ -134,7 +137,7 @@ function defaultTemplate(name) {
   };
   add(SKIN.propsFor, 'big');
   add(SKIN.decorFor, 'small');
-  return { biome: name, ground: { texture: latestTexture(GROUND_FOR[name]), scale: 8, bright: 1, sat: 1, hue: 0 }, items };
+  return { biome: name, ground: { texture: latestTexture(GROUND_FOR[name]), scale: 8, bright: 1, sat: 1, hue: 0, relief: RELIEF }, items };
 }
 const effective = name => S.drafts[name] || saved[name] || defaultTemplate(name);
 const statusOf = name => S.drafts[name] ? 'unsaved' : saved[name] ? 'saved' : 'default';
@@ -174,8 +177,8 @@ function groundsFor(templates) {
   for (const t of templates) {
     const g = t.ground, tex = g.texture && A.textures[g.texture];
     if (!tex) continue;
-    const key = [g.texture, g.bright, g.sat, g.hue, g.scale].join('|');
-    if (!(key in keys)) { keys[key] = layers.length; layers.push({ ...groundLayer(tex.img, g.bright, g.sat, g.hue), ids: [], scale: g.scale }); }
+    const key = [g.texture, g.bright, g.sat, g.hue, g.scale, reliefOf(g)].join('|');
+    if (!(key in keys)) { keys[key] = layers.length; layers.push({ ...groundLayer(tex.img, g.bright, g.sat, g.hue), ids: [], scale: g.scale, relief: reliefOf(g) }); }
     const L = layers[keys[key]];
     L.ids.push(ID[t.biome]);
     avg[ID[t.biome]] = L.avg.map(Math.round);
@@ -233,8 +236,9 @@ function apply(what = 'items') {
       groundKey = gk;
       const { layers, avg } = groundsFor(templates);
       const K = new Int32Array(32).fill(-1), Sc = new Float32Array(32).fill(8);
-      layers.forEach((l, i) => { for (const id of l.ids) { K[id] = i; Sc[id] = l.scale; } });
-      sys.R.setGroundTextures(layers.map(l => l.canvas), GROUND_TEX, K, Sc);
+      const Rl = new Float32Array(32);
+      layers.forEach((l, i) => { for (const id of l.ids) { K[id] = i; Sc[id] = l.scale; Rl[id] = l.relief; } });
+      sys.R.setGroundTextures(layers.map(l => l.canvas), GROUND_TEX, K, Sc, Rl);
       groundAvg = avg;
     }
   }
@@ -288,14 +292,16 @@ async function save(name, template) {
       version: 1, saved: Object.keys(after).sort(),
       templates: Object.fromEntries(templates.map(t => [t.biome, t])), cells: atlas.cells,
       atlas: { file: 'items.webp', ...atlas.meta }, groundSize: GROUND_TEX,
-      grounds: grounds.layers.map((l, i) => ({ file: `ground_${i}.webp`, ids: l.ids, scale: l.scale })), avg: farAvgs(templates, grounds.avg),
+      grounds: grounds.layers.map((l, i) => ({ file: `ground_${i}.webp`, ids: l.ids, scale: l.scale, relief: l.relief })), avg: farAvgs(templates, grounds.avg),
+      shadow: look(),
       propMax: maxSize(templates),
     };
     const res = await fetch('/api/biome-builder/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ biome: name || '', template: template || null, bake: { json, files } }) });
+      body: JSON.stringify({ biome: name || '', template: template || null, look: look(), bake: { json, files } }) });
     const out = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null;
     if (!out || !out.ok) throw new Error(out ? out.error : 'no save server');
     if (name) { if (template) saved[name] = template; else delete saved[name]; delete S.drafts[name]; }
+    savedLook = { ...look() }; delete S.look;            // the shadows went out with this save too
     persist();
     saveMsg = !name ? 'The Galaxy demo now uses the saved designs and the newest art.'
       : template ? `Saved to ${out.template}. The Galaxy demo uses it now.` : `${BASE_NAME[name]} uses the game's defaults again.`;
@@ -385,6 +391,10 @@ function select(name, fly) {
 }
 
 // --- System tab ---
+function shadowSlider(label, key, min, max, step, tip) {
+  return slider(label, look()[key], min, max, step, v => { S.look = { ...look(), [key]: v }; sys.R.shadow = { ...S.look }; },
+    { tip, after: () => { persist(); renderPanel(); } });
+}
 function systemPanel() {
   const shown = new Set(S.planets);
   const nSaved = Object.keys(saved).length;
@@ -407,6 +417,12 @@ function systemPanel() {
     slider('Hills', S.hills, 0, 1, 0.01, x => { S.hills = x; }, { after: relayout, tip: 'hill shading on every planet' }),
     slider('Orbits', S.spread, 0.1, 1, 0.01, x => { S.spread = x; }, { after: relayout, tip: "how far apart the orbits are: 1 = the Galaxy demo's rules for a blue giant" }),
     h('div', { class: 'row' }, h('button', { onclick: () => sys.overview() }, 'Show the whole system')),
+    h('h3', {}, 'Shadows', S.look ? h('span', { class: 'pill unsaved' }, 'unsaved') : null),
+    h('p', { class: 'hint' }, 'Every item casts its outline flat along the ground from its foot, like Factorio. Shared by all biomes; the game gets them with the next Save or Update the game.'),
+    shadowSlider('Length', 'len', 0, 2.5, 0.05, 'shadow length per unit of an item\'s height'),
+    shadowSlider('Angle', 'angle', 0, 80, 1, 'degrees below the horizontal, falling to the right'),
+    shadowSlider('Darkness', 'dark', 0, 0.9, 0.01, 'how dark the shadows are'),
+    S.look ? h('div', { class: 'row' }, h('button', { onclick: () => { delete S.look; persist(); syncToolbar(); renderPanel(); } }, 'Back to the saved shadows')) : null,
     h('h3', {}, 'Saving'),
     h('div', { class: 'row' }, h('button', { disabled: saving, onclick: () => save(null, null),
       title: 'rebuild what the Galaxy demo loads from the saved designs, with the newest art (designs stay as they are)' }, 'Update the game')),
@@ -507,7 +523,9 @@ function biomePanel() {
     !tex.length ? h('p', { class: 'hint' }, 'No ground textures yet. The Art tab lists commands to make them.') : null,
     g.texture ? h('div', {},
       G('Texture scale', 'scale', 2, 24, 0.5, 'how many tiles one copy of the texture covers'),
-      G('Brightness', 'bright', 0.5, 1.5, 0.01), G('Saturation', 'sat', 0, 2, 0.01), G('Hue shift', 'hue', -60, 60, 1)) : null,
+      G('Brightness', 'bright', 0.5, 1.5, 0.01), G('Saturation', 'sat', 0, 2, 0.01), G('Hue shift', 'hue', -60, 60, 1),
+      slider('Relief', reliefOf(g), 0, 2, 0.05, () => {}, { tip: 'light parts of the texture stand up as bumps, dark parts sink, lit by the sun (0 = flat)',
+        after: v => { edit(name, x => { x.ground.relief = v; }, 'ground'); renderPanel(); } })) : null,
     layerBlock('big', 'Big items', 'Trees, boulders and other large things, one spot per 1.5 x 1.5 tiles.'),
     layerBlock('small', 'Small items', 'Shrubs, grass tufts, flowers, pebbles: one spot per tile, drawn under the big items.'),
   );
@@ -560,6 +578,7 @@ function artPanel() {
 function syncToolbar() {
   document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', !!S[b.dataset.view]));
   sys.items = S.items; sys.shadows = S.shadows;
+  sys.R.shadow = { ...look() };
 }
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => { S[b.dataset.view] = !S[b.dataset.view]; persist(); syncToolbar(); }));
 document.getElementById('fit').addEventListener('click', () => sys.overview());
@@ -585,6 +604,7 @@ async function start() {
   A = await loadAll((n, total, label) => { bar.textContent = `Loading art ${n} / ${total}: ${label}`; });
   try {
     const idx = await (await fetch('../art/biomes/index.json', { cache: 'no-store' })).json();
+    if (idx.look) savedLook = { ...SHADOW, ...idx.look };
     await Promise.all((idx.saved || []).map(async n => { saved[n] = await (await fetch(`../art/biomes/${n}.json`, { cache: 'no-store' })).json(); }));
   } catch { /* nothing saved yet */ }
   bar.remove();

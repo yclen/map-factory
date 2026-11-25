@@ -1,15 +1,15 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261125134458';
-import { SKIN } from './skin.js?v=20261125134458';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125134458';
-import { itemTable } from './biomes.js?v=20261125134458';
-import { buildAtlas, decorTables } from './art.js?v=20261125134458';
-import { Renderer } from './renderer.js?v=20261125134458';
-import { Labels } from './labels.js?v=20261125134458';
-import { mulberry32, hash32 } from './rng.js?v=20261125134458';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125134458';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125134458';
+import { RULES } from './rules.js?v=20261125135241';
+import { SKIN } from './skin.js?v=20261125135241';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125135241';
+import { itemTable } from './biomes.js?v=20261125135241';
+import { buildAtlas, decorTables } from './art.js?v=20261125135241';
+import { Renderer } from './renderer.js?v=20261125135241';
+import { Labels } from './labels.js?v=20261125135241';
+import { mulberry32, hash32 } from './rng.js?v=20261125135241';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125135241';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125135241';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -119,9 +119,10 @@ let groundAvg = null;                                    // per ground id, its t
   const load = async src => { const img = new Image(); img.src = src + v; await img.decode(); return img; };
   const [atlas, ...grounds] = await Promise.all([load('biomes/' + bake.atlas.file),
     ...bake.grounds.map(g => load('biomes/' + g.file))]);
-  const K = new Int32Array(32).fill(-1), S = new Float32Array(32).fill(8);
-  bake.grounds.forEach((g, i) => { for (const id of g.ids) { K[id] = i; S[id] = g.scale; } });
-  R.setGroundTextures(grounds, bake.groundSize, K, S);
+  const K = new Int32Array(32).fill(-1), S = new Float32Array(32).fill(8), Rl = new Float32Array(32);
+  bake.grounds.forEach((g, i) => { for (const id of g.ids) { K[id] = i; S[id] = g.scale; Rl[id] = g.relief || 0; } });
+  R.setGroundTextures(grounds, bake.groundSize, K, S, Rl);
+  if (bake.shadow) R.shadow = { ...R.shadow, ...bake.shadow };
   R.setItems(atlas, bake.atlas, itemTable(bake.templates, bake.cells));
   propMax = bake.propMax || 1;
   groundAvg = bake.avg;
@@ -322,7 +323,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261125134458', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261125135241', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -746,9 +747,10 @@ function drawPropsOn(b, cx, cy, Rd, focus) {
   const alpha = clamp((1.15 - 8 * N / D) / 0.45, 0, 1);
   if (alpha <= 0 || !R.items) return;
   const k = D / N, sx0 = cx - Rd, sy0 = cy - Rd, C = Math.ceil(N / PAGE);
-  const mx = PROP_REACH[0] * propMax * k, my = PROP_REACH[1] * propMax * k;
+  const [sx, sy] = R.shadowReach();                        // shadows of items just off screen reach into it
+  const mx = (PROP_REACH[0] + sx) * propMax * k, my = PROP_REACH[1] * propMax * k, ms = sy * propMax * k;
   const pxA = Math.max(0, Math.floor((-mx - sx0) / k / PAGE)), pxB = Math.min(C - 1, Math.floor((R.w + mx - sx0) / k / PAGE));
-  const pyA = Math.max(0, Math.floor(-sy0 / k / PAGE)), pyB = Math.min(C - 1, Math.floor((R.h + my - sy0) / k / PAGE));
+  const pyA = Math.max(0, Math.floor((-ms - sy0) / k / PAGE)), pyB = Math.min(C - 1, Math.floor((R.h + my - sy0) / k / PAGE));
   const items = [];
   for (let py = pyA; py <= pyB; py++) for (let px = pxA; px <= pxB; px++) {
     const rx0 = sx0 + px * PAGE * k, ry0 = sy0 + py * PAGE * k, rx1 = rx0 + PAGE * k, ry1 = ry0 + PAGE * k;

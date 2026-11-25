@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125134458';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125134458';
+import * as S from './shaders.js?v=20261125135241';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125135241';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -65,7 +65,10 @@ export class Renderer {
     this.gtex = this.makeGroundTextures([], 1);   // no ground textures until setGroundTextures
     // the tables both the terrain and the prop programs read (kept, so either can be changed alone)
     this.tables = null; this.hdK = new Int32Array(32).fill(-1); this.hdInfo = [128, 192, 8, 8]; this.hdSize = [1, 1];
-    this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8);
+    this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8); this.gR = new Float32Array(32);
+    // item shadows, Factorio style: len = shadow length per unit of an item's height, angle = degrees below the
+    // horizontal (to the right), dark = how dark (0..1). biomes.js SHADOW has the defaults
+    this.shadow = { len: 1.1, angle: 25, dark: 0.45 };
     this.items = null; this.itemTex = null; this.itemTable = null; this.itemInfo = [128, 192, 8, 8]; this.itemSize = [1, 1];
     this.shadowFb = null; this.shadowTex = null; this.shadowW = 0; this.shadowH = 0;
   }
@@ -98,7 +101,7 @@ export class Renderer {
     gl.uniform4iv(u['u_hdK[0]'], this.hdK);
     gl.uniform4f(u.u_hdInfo, this.hdInfo[0], this.hdInfo[1], this.hdInfo[2], this.hdInfo[3]);
     gl.uniform2f(u.u_hdSize, this.hdSize[0], this.hdSize[1]);
-    gl.uniform4iv(u['u_gtexK[0]'], this.gK); gl.uniform4fv(u['u_gtexS[0]'], this.gS);
+    gl.uniform4iv(u['u_gtexK[0]'], this.gK); gl.uniform4fv(u['u_gtexS[0]'], this.gS); gl.uniform4fv(u['u_gtexR[0]'], this.gR);
     gl.uniform1i(u.u_shaderProps, this.items ? 0 : 1);
     if (this.tables) {                                      // items include the small things: no tile-art decorations
       const B = this.tables.B.slice();
@@ -159,11 +162,12 @@ export class Renderer {
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
     return t;
   }
-  setGroundTextures(layers, size, K, S) {
+  // K, S, Rl: per ground id, its layer (-1 = none), tiles per copy, relief (0 = flat; optional)
+  setGroundTextures(layers, size, K, S, Rl) {
     const gl = this.gl;
     gl.deleteTexture(this.gtex);
     this.gtex = this.makeGroundTextures(layers, size);
-    this.gK = K; this.gS = S;
+    this.gK = K; this.gS = S; this.gR = Rl || new Float32Array(32);
     this.applyPropTables();
   }
 
@@ -182,9 +186,14 @@ export class Renderer {
   }
   freePropBuffer(P) { this.gl.deleteBuffer(P.buf); this.gl.deleteVertexArray(P.vao); this.texBytes -= P.bytes; }
   // Draw the items of some chunks (listed top to bottom, so nearer ones end up in front; small items under big ones):
-  // first every item's silhouette, nudged down-right, onto a shadow layer (overlaps keep the darkest, never add up),
+  // first every item's silhouette, laid down flat from its foot (this.shadow), onto a shadow layer (overlaps keep the darkest, never add up),
   // laid over the ground once; then the items themselves. chunks: [{ big, small (spot buffers), fld,
   // chunk: [x0, y0, w, h] in tiles }]; q: { cx, cy, R (device px), W8 (art px across the disk's square), tpp, alpha, shadows }
+  // how far shadows reach from an item's foot, in tiles per unit of item size (it's 3 tiles tall): [sideways, down]
+  shadowReach() {
+    const a = this.shadow.angle * Math.PI / 180;
+    return [3 * this.shadow.len * Math.abs(Math.cos(a)), 3 * this.shadow.len * Math.abs(Math.sin(a))];
+  }
   drawProps(chunks, q) {
     if (!chunks.length || !this.items) return;
     const gl = this.gl, { p, u } = this.progProps;
@@ -192,6 +201,8 @@ export class Renderer {
       gl.useProgram(p);
       gl.uniform2f(u.u_res, this.w, this.h); gl.uniform2f(u.u_center, q.cx, q.cy); gl.uniform1f(u.u_R, q.R);
       gl.uniform1f(u.u_W8, q.W8); gl.uniform1f(u.u_tpp, q.tpp); gl.uniform1i(u.u_shadow, shadow ? 1 : 0);
+      const sa = this.shadow.angle * Math.PI / 180;
+      gl.uniform2f(u.u_shadowDir, Math.cos(sa) * this.shadow.len, Math.sin(sa) * this.shadow.len);
       gl.uniform1f(u.u_alpha, q.alpha);
       gl.uniform4f(u.u_hdInfo, ...this.itemInfo); gl.uniform2f(u.u_hdSize, ...this.itemSize);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.itemTex); gl.uniform1i(u.u_hd, 0);
@@ -235,7 +246,7 @@ export class Renderer {
       gl.useProgram(sp.p); gl.bindVertexArray(this.vaoRect);
       gl.uniform4f(sp.u.u_rect, 0, 0, this.w, this.h); gl.uniform2f(sp.u.u_res, this.w, this.h);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.shadowTex); gl.uniform1i(sp.u.u_tex, 0);
-      gl.uniform1f(sp.u.u_alpha, q.alpha);
+      gl.uniform1f(sp.u.u_alpha, q.alpha); gl.uniform1f(sp.u.u_dark, this.shadow.dark);
       gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.draws++;
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);

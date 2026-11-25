@@ -4,7 +4,7 @@
 
 Save in the Builder sends the biome's template and a fresh bake for the game. This writes:
   art/biomes/<GROUND>.json      the template you saved (the source, kept in git)
-  art/biomes/index.json         which biomes have saved templates
+  art/biomes/index.json         which biomes have saved templates, and the look they share (item shadows)
   galaxy-demo/biomes/           what the Galaxy demo loads: biomes.json, the item atlas and ground textures
 Revert to the game's defaults sends no template, which deletes the biome's file. "Update the game" sends no biome:
 it only re-bakes (for new AI art).
@@ -64,7 +64,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             else:
                 path.write_text(json.dumps(req['template'], indent=2) + '\n', encoding='utf-8')
             saved = sorted(p.stem for p in TEMPLATES.glob('*.json') if p.stem != 'index')
-            (TEMPLATES / 'index.json').write_text(json.dumps({'saved': saved}, indent=1) + '\n', encoding='utf-8')
+            index = {'saved': saved}
+            try:
+                old = json.loads((TEMPLATES / 'index.json').read_text(encoding='utf-8'))
+                if 'look' in old: index['look'] = old['look']
+            except (OSError, ValueError):
+                pass
+            if isinstance(req.get('look'), dict): index['look'] = req['look']
+            (TEMPLATES / 'index.json').write_text(json.dumps(index, indent=1) + '\n', encoding='utf-8')
             wrote = write_bake(req['bake'])
             body = json.dumps({'ok': True, 'template': str(path.relative_to(ROOT).as_posix()), 'saved': saved,
                                'bake': [f'galaxy-demo/biomes/{n}' for n in wrote]}).encode()

@@ -2,6 +2,1206 @@
  "version": 1,
  "saved": [],
  "templates": {
+  "OBSIDIAN": {
+   "biome": "OBSIDIAN",
+   "ground": {
+    "texture": "obsidian_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "columns",
+     "layer": "big",
+     "density": 0.02,
+     "size": 0.8,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "columns_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "darkrock",
+     "layer": "big",
+     "density": 0.02,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "darkrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "spire",
+     "layer": "small",
+     "density": 0.03,
+     "size": 0.45,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "spire_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebblesd",
+     "layer": "small",
+     "density": 0.03,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebblesd_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "ASH": {
+   "biome": "ASH",
+   "ground": {
+    "texture": "ash_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "deadtree",
+     "layer": "big",
+     "density": 0.01,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "deadtree_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "darkrock",
+     "layer": "big",
+     "density": 0.02,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "darkrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "columns",
+     "layer": "big",
+     "density": 0.01,
+     "size": 0.8,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "columns_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "deadtree",
+     "layer": "small",
+     "density": 0.02,
+     "size": 0.45,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "deadtree-small_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebblesd",
+     "layer": "small",
+     "density": 0.04,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebblesd_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "spire",
+     "layer": "small",
+     "density": 0.02,
+     "size": 0.45,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "spire_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "SULFUR": {
+   "biome": "SULFUR",
+   "ground": {
+    "texture": "sulfur_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "sulfrock",
+     "layer": "big",
+     "density": 0.03,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "sulfrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "darkrock",
+     "layer": "big",
+     "density": 0.01,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "darkrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "sulfrock",
+     "layer": "small",
+     "density": 0.035,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "sulfrock-small_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebblesd",
+     "layer": "small",
+     "density": 0.0175,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebblesd_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebbles",
+     "layer": "small",
+     "density": 0.0175,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebbles_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "BASALT": {
+   "biome": "BASALT",
+   "ground": {
+    "texture": "basalt_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "columns",
+     "layer": "big",
+     "density": 0.03,
+     "size": 0.8,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "columns_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "darkrock",
+     "layer": "big",
+     "density": 0.015,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "darkrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "boulder",
+     "layer": "big",
+     "density": 0.015,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "boulder_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "spire",
+     "layer": "small",
+     "density": 0.02,
+     "size": 0.45,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "spire_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebblesd",
+     "layer": "small",
+     "density": 0.04,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebblesd_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rock",
+     "layer": "small",
+     "density": 0.02,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "CANYON": {
+   "biome": "CANYON",
+   "ground": {
+    "texture": "redsand_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "redrock",
+     "layer": "big",
+     "density": 0.07,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "redrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rockred",
+     "layer": "small",
+     "density": 0.05,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rockred_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebblesr",
+     "layer": "small",
+     "density": 0.05,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebblesr_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "DUNES": {
+   "biome": "DUNES",
+   "ground": {
+    "texture": "dunes_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "sandrock",
+     "layer": "big",
+     "density": 0.006,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "sandrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "saguaro",
+     "layer": "big",
+     "density": 0.002,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "saguaro_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "bones",
+     "layer": "small",
+     "density": 0.005,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "bones_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rocksand",
+     "layer": "small",
+     "density": 0.005,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rocksand_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebbles",
+     "layer": "small",
+     "density": 0.01,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebbles_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "DESERT": {
+   "biome": "DESERT",
+   "ground": {
+    "texture": "sand_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "saguaro",
+     "layer": "big",
+     "density": 0.0125,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "saguaro_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "sandrock",
+     "layer": "big",
+     "density": 0.0125,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "sandrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "cactus",
+     "layer": "small",
+     "density": 0.0125,
+     "size": 0.4,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "cactus_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rocksand",
+     "layer": "small",
+     "density": 0.0125,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rocksand_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "bones",
+     "layer": "small",
+     "density": 0.0125,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "bones_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebbles",
+     "layer": "small",
+     "density": 0.0125,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebbles_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "MESA": {
+   "biome": "MESA",
+   "ground": {
+    "texture": "redsand_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "redrock",
+     "layer": "big",
+     "density": 0.06,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "redrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "saguaro",
+     "layer": "big",
+     "density": 0.02,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "saguaro_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rockred",
+     "layer": "small",
+     "density": 0.07,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rockred_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebblesr",
+     "layer": "small",
+     "density": 0.035,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebblesr_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "cactus",
+     "layer": "small",
+     "density": 0.035,
+     "size": 0.4,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "cactus_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "SALT": {
+   "biome": "SALT",
+   "ground": {
+    "texture": "salt_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "boulder",
+     "layer": "big",
+     "density": 0.0075,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "boulder_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "sandrock",
+     "layer": "big",
+     "density": 0.0025,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "sandrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebbles",
+     "layer": "small",
+     "density": 0.015,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebbles_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "bones",
+     "layer": "small",
+     "density": 0.0075,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "bones_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rock",
+     "layer": "small",
+     "density": 0.0075,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "RUST": {
+   "biome": "RUST",
+   "ground": {
+    "texture": "rust_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "redrock",
+     "layer": "big",
+     "density": 0.03,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "redrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "darkrock",
+     "layer": "big",
+     "density": 0.01,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "darkrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rockred",
+     "layer": "small",
+     "density": 0.035,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rockred_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebblesr",
+     "layer": "small",
+     "density": 0.035,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebblesr_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "SAVANNA": {
+   "biome": "SAVANNA",
+   "ground": {
+    "texture": "drygrass_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "acacia",
+     "layer": "big",
+     "density": 0.0525,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "acacia_v2.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "sandrock",
+     "layer": "big",
+     "density": 0.0175,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "sandrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "tuft",
+     "layer": "small",
+     "density": 0.08,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "tuft_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "bush",
+     "layer": "small",
+     "density": 0.04,
+     "size": 0.45,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "bush_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebbles",
+     "layer": "small",
+     "density": 0.04,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebbles_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "JUNGLE": {
+   "biome": "JUNGLE",
+   "ground": {
+    "texture": "junglefloor_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "jungle",
+     "layer": "big",
+     "density": 0.69,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "jungle_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "palm",
+     "layer": "big",
+     "density": 0.23,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "palm_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "bush",
+     "layer": "small",
+     "density": 0.3375,
+     "size": 0.45,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "bush_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "tuft",
+     "layer": "small",
+     "density": 0.1125,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "tuft_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
   "BEACH": {
    "biome": "BEACH",
    "ground": {
@@ -9,7 +1209,8 @@
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
@@ -104,6 +1305,109 @@
     }
    ]
   },
+  "SWAMP": {
+   "biome": "SWAMP",
+   "ground": {
+    "texture": "mud_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "willow",
+     "layer": "big",
+     "density": 0.11,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "willow_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "deadtree",
+     "layer": "big",
+     "density": 0.055,
+     "size": 1,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "deadtree_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "mossy",
+     "layer": "big",
+     "density": 0.055,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "mossy_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "reeds",
+     "layer": "small",
+     "density": 0.3,
+     "size": 0.5,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "reeds_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "bush",
+     "layer": "small",
+     "density": 0.1,
+     "size": 0.45,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "bush_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
   "GRASS": {
    "biome": "GRASS",
    "ground": {
@@ -111,7 +1415,8 @@
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
@@ -249,7 +1554,8 @@
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
@@ -362,128 +1668,27 @@
     }
    ]
   },
-  "JUNGLE": {
-   "biome": "JUNGLE",
+  "HIGHLAND": {
+   "biome": "HIGHLAND",
    "ground": {
-    "texture": "junglefloor_v1.png",
+    "texture": "rock_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
-     "kind": "jungle",
+     "kind": "boulder",
      "layer": "big",
-     "density": 0.69,
-     "size": 1,
+     "density": 0.0525,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "jungle_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "palm",
-     "layer": "big",
-     "density": 0.23,
-     "size": 1,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "palm_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "bush",
-     "layer": "small",
-     "density": 0.3375,
-     "size": 0.45,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "bush_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "tuft",
-     "layer": "small",
-     "density": 0.1125,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "tuft_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "SWAMP": {
-   "biome": "SWAMP",
-   "ground": {
-    "texture": "mud_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "willow",
-     "layer": "big",
-     "density": 0.11,
-     "size": 1,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "willow_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "deadtree",
-     "layer": "big",
-     "density": 0.055,
-     "size": 1,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "deadtree_v1.png",
+      "sheet": "boulder_v1.png",
       "pick": [
        0,
        1,
@@ -494,90 +1699,6 @@
     },
     {
      "kind": "mossy",
-     "layer": "big",
-     "density": 0.055,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "mossy_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "reeds",
-     "layer": "small",
-     "density": 0.3,
-     "size": 0.5,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "reeds_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "bush",
-     "layer": "small",
-     "density": 0.1,
-     "size": 0.45,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "bush_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "SAVANNA": {
-   "biome": "SAVANNA",
-   "ground": {
-    "texture": "drygrass_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "acacia",
-     "layer": "big",
-     "density": 0.0525,
-     "size": 1,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "acacia_v2.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "sandrock",
      "layer": "big",
      "density": 0.0175,
      "size": 0.6,
@@ -585,469 +1706,7 @@
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "sandrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "tuft",
-     "layer": "small",
-     "density": 0.08,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "tuft_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "bush",
-     "layer": "small",
-     "density": 0.04,
-     "size": 0.45,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "bush_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebbles",
-     "layer": "small",
-     "density": 0.04,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "DESERT": {
-   "biome": "DESERT",
-   "ground": {
-    "texture": "sand_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "saguaro",
-     "layer": "big",
-     "density": 0.0125,
-     "size": 1,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "saguaro_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "sandrock",
-     "layer": "big",
-     "density": 0.0125,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "sandrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "cactus",
-     "layer": "small",
-     "density": 0.0125,
-     "size": 0.4,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "cactus_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rocksand",
-     "layer": "small",
-     "density": 0.0125,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rocksand_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "bones",
-     "layer": "small",
-     "density": 0.0125,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "bones_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebbles",
-     "layer": "small",
-     "density": 0.0125,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "DUNES": {
-   "biome": "DUNES",
-   "ground": {
-    "texture": "dunes_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "sandrock",
-     "layer": "big",
-     "density": 0.006,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "sandrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "saguaro",
-     "layer": "big",
-     "density": 0.002,
-     "size": 1,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "saguaro_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "bones",
-     "layer": "small",
-     "density": 0.005,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "bones_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rocksand",
-     "layer": "small",
-     "density": 0.005,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rocksand_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebbles",
-     "layer": "small",
-     "density": 0.01,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "MESA": {
-   "biome": "MESA",
-   "ground": {
-    "texture": "redsand_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "redrock",
-     "layer": "big",
-     "density": 0.06,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "redrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "saguaro",
-     "layer": "big",
-     "density": 0.02,
-     "size": 1,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "saguaro_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rockred",
-     "layer": "small",
-     "density": 0.07,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rockred_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebblesr",
-     "layer": "small",
-     "density": 0.035,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebblesr_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "cactus",
-     "layer": "small",
-     "density": 0.035,
-     "size": 0.4,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "cactus_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "SALT": {
-   "biome": "SALT",
-   "ground": {
-    "texture": "salt_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "boulder",
-     "layer": "big",
-     "density": 0.0075,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "boulder_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "sandrock",
-     "layer": "big",
-     "density": 0.0025,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "sandrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebbles",
-     "layer": "small",
-     "density": 0.015,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "bones",
-     "layer": "small",
-     "density": 0.0075,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "bones_v1.png",
+      "sheet": "mossy_v1.png",
       "pick": [
        0,
        1,
@@ -1059,7 +1718,7 @@
     {
      "kind": "rock",
      "layer": "small",
-     "density": 0.0075,
+     "density": 0.06,
      "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1073,29 +1732,17 @@
        3
       ]
      }
-    }
-   ]
-  },
-  "TUNDRA": {
-   "biome": "TUNDRA",
-   "ground": {
-    "texture": "tundra_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
+    },
     {
-     "kind": "snowpine",
-     "layer": "big",
-     "density": 0.015,
-     "size": 1,
+     "kind": "pebbles",
+     "layer": "small",
+     "density": 0.06,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "snowpine_v1.png",
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1103,11 +1750,24 @@
        3
       ]
      }
-    },
+    }
+   ]
+  },
+  "MOUNTAIN": {
+   "biome": "MOUNTAIN",
+   "ground": {
+    "texture": "rock_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
     {
      "kind": "boulder",
      "layer": "big",
-     "density": 0.015,
+     "density": 0.06,
      "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1125,7 +1785,7 @@
     {
      "kind": "mossy",
      "layer": "big",
-     "density": 0.015,
+     "density": 0.03,
      "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1141,15 +1801,15 @@
      }
     },
     {
-     "kind": "snowrock",
+     "kind": "fir",
      "layer": "big",
-     "density": 0.015,
-     "size": 0.6,
+     "density": 0.03,
+     "size": 1,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "snowrock_v1.png",
+      "sheet": "fir_v1.png",
       "pick": [
        0,
        1,
@@ -1161,7 +1821,7 @@
     {
      "kind": "rock",
      "layer": "small",
-     "density": 0.04,
+     "density": 0.11,
      "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1179,7 +1839,74 @@
     {
      "kind": "pebbles",
      "layer": "small",
-     "density": 0.08,
+     "density": 0.11,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebbles_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "CRATER": {
+   "biome": "CRATER",
+   "ground": {
+    "texture": "regolith_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "boulder",
+     "layer": "big",
+     "density": 0.025,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "boulder_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "darkrock",
+     "layer": "big",
+     "density": 0.025,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "darkrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebbles",
+     "layer": "small",
+     "density": 0.0375,
      "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1195,15 +1922,100 @@
      }
     },
     {
-     "kind": "tuft",
+     "kind": "rock",
      "layer": "small",
-     "density": 0.04,
+     "density": 0.0125,
      "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "tuft_v1.png",
+      "sheet": "rock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "REGOLITH": {
+   "biome": "REGOLITH",
+   "ground": {
+    "texture": "regolith_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "boulder",
+     "layer": "big",
+     "density": 0.03,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "boulder_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "darkrock",
+     "layer": "big",
+     "density": 0.01,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "darkrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rock",
+     "layer": "small",
+     "density": 0.03,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "pebbles",
+     "layer": "small",
+     "density": 0.03,
+     "size": 0.3,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1221,7 +2033,8 @@
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
@@ -1334,38 +2147,21 @@
     }
    ]
   },
-  "SNOW": {
-   "biome": "SNOW",
+  "TUNDRA": {
+   "biome": "TUNDRA",
    "ground": {
-    "texture": "snow_v1.png",
+    "texture": "tundra_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
-     "kind": "snowrock",
-     "layer": "big",
-     "density": 0.0225,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "snowrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
      "kind": "snowpine",
      "layer": "big",
-     "density": 0.0075,
+     "density": 0.015,
      "size": 1,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1381,273 +2177,9 @@
      }
     },
     {
-     "kind": "rocksnow",
-     "layer": "small",
-     "density": 0.02,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rocksnow_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebbles",
-     "layer": "small",
-     "density": 0.02,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "ICE": {
-   "biome": "ICE",
-   "ground": {
-    "texture": "ice_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "iceblock",
-     "layer": "big",
-     "density": 0.0112,
-     "size": 0.7,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "iceblock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "snowrock",
-     "layer": "big",
-     "density": 0.0037,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "snowrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "icechunk",
-     "layer": "small",
-     "density": 0.0225,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "icechunk_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebbles",
-     "layer": "small",
-     "density": 0.0075,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "SEA_ICE": {
-   "biome": "SEA_ICE",
-   "ground": {
-    "texture": "ice_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "iceblock",
-     "layer": "big",
-     "density": 0.01,
-     "size": 0.7,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "iceblock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "icechunk",
-     "layer": "small",
-     "density": 0.02,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "icechunk_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "ICE_CRACK": {
-   "biome": "ICE_CRACK",
-   "ground": {
-    "texture": "ice_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "iceblock",
-     "layer": "big",
-     "density": 0.0225,
-     "size": 0.7,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "iceblock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "snowrock",
-     "layer": "big",
-     "density": 0.0075,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "snowrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "icechunk",
-     "layer": "small",
-     "density": 0.03,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "icechunk_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rocksnow",
-     "layer": "small",
-     "density": 0.01,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rocksnow_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "MOUNTAIN": {
-   "biome": "MOUNTAIN",
-   "ground": {
-    "texture": "rock_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
      "kind": "boulder",
      "layer": "big",
-     "density": 0.06,
+     "density": 0.015,
      "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1665,7 +2197,7 @@
     {
      "kind": "mossy",
      "layer": "big",
-     "density": 0.03,
+     "density": 0.015,
      "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1681,15 +2213,15 @@
      }
     },
     {
-     "kind": "fir",
+     "kind": "snowrock",
      "layer": "big",
-     "density": 0.03,
-     "size": 1,
+     "density": 0.015,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "fir_v1.png",
+      "sheet": "snowrock_v1.png",
       "pick": [
        0,
        1,
@@ -1701,7 +2233,7 @@
     {
      "kind": "rock",
      "layer": "small",
-     "density": 0.11,
+     "density": 0.04,
      "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
@@ -1719,13 +2251,31 @@
     {
      "kind": "pebbles",
      "layer": "small",
-     "density": 0.11,
+     "density": 0.08,
      "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
       "sheet": "pebbles_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "tuft",
+     "layer": "small",
+     "density": 0.04,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "tuft_v1.png",
       "pick": [
        0,
        1,
@@ -1743,7 +2293,8 @@
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
@@ -1838,44 +2389,27 @@
     }
    ]
   },
-  "OBSIDIAN": {
-   "biome": "OBSIDIAN",
+  "SNOW": {
+   "biome": "SNOW",
    "ground": {
-    "texture": "obsidian_v1.png",
+    "texture": "snow_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
-     "kind": "columns",
+     "kind": "snowrock",
      "layer": "big",
-     "density": 0.02,
-     "size": 0.8,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "columns_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "darkrock",
-     "layer": "big",
-     "density": 0.02,
+     "density": 0.0225,
      "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "darkrock_v1.png",
+      "sheet": "snowrock_v1.png",
       "pick": [
        0,
        1,
@@ -1885,63 +2419,15 @@
      }
     },
     {
-     "kind": "spire",
-     "layer": "small",
-     "density": 0.03,
-     "size": 0.45,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "spire_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebblesd",
-     "layer": "small",
-     "density": 0.03,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebblesd_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "ASH": {
-   "biome": "ASH",
-   "ground": {
-    "texture": "ash_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "deadtree",
+     "kind": "snowpine",
      "layer": "big",
-     "density": 0.01,
+     "density": 0.0075,
      "size": 1,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "deadtree_v1.png",
+      "sheet": "snowpine_v1.png",
       "pick": [
        0,
        1,
@@ -1951,171 +2437,15 @@
      }
     },
     {
-     "kind": "darkrock",
-     "layer": "big",
-     "density": 0.02,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "darkrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "columns",
-     "layer": "big",
-     "density": 0.01,
-     "size": 0.8,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "columns_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "deadtree",
+     "kind": "rocksnow",
      "layer": "small",
      "density": 0.02,
-     "size": 0.45,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "deadtree-small_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebblesd",
-     "layer": "small",
-     "density": 0.04,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebblesd_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "spire",
-     "layer": "small",
-     "density": 0.02,
-     "size": 0.45,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "spire_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "SULFUR": {
-   "biome": "SULFUR",
-   "ground": {
-    "texture": "sulfur_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "sulfrock",
-     "layer": "big",
-     "density": 0.03,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "sulfrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "darkrock",
-     "layer": "big",
-     "density": 0.01,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "darkrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "sulfrock",
-     "layer": "small",
-     "density": 0.035,
      "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "sulfrock-small_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebblesd",
-     "layer": "small",
-     "density": 0.0175,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebblesd_v1.png",
+      "sheet": "rocksnow_v1.png",
       "pick": [
        0,
        1,
@@ -2127,7 +2457,7 @@
     {
      "kind": "pebbles",
      "layer": "small",
-     "density": 0.0175,
+     "density": 0.02,
      "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
@@ -2144,116 +2474,81 @@
     }
    ]
   },
-  "BASALT": {
-   "biome": "BASALT",
+  "ICE_CRACK": {
+   "biome": "ICE_CRACK",
    "ground": {
-    "texture": "basalt_v1.png",
+    "texture": "ice_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
-     "kind": "columns",
+     "kind": "iceblock",
      "layer": "big",
+     "density": 0.0225,
+     "size": 0.7,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "iceblock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "snowrock",
+     "layer": "big",
+     "density": 0.0075,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "snowrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "icechunk",
+     "layer": "small",
      "density": 0.03,
-     "size": 0.8,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "columns_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "darkrock",
-     "layer": "big",
-     "density": 0.015,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "darkrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "boulder",
-     "layer": "big",
-     "density": 0.015,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "boulder_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "spire",
-     "layer": "small",
-     "density": 0.02,
-     "size": 0.45,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "spire_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebblesd",
-     "layer": "small",
-     "density": 0.04,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebblesd_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rock",
-     "layer": "small",
-     "density": 0.02,
      "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "rock_v1.png",
+      "sheet": "icechunk_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "rocksnow",
+     "layer": "small",
+     "density": 0.01,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "rocksnow_v1.png",
       "pick": [
        0,
        1,
@@ -2264,44 +2559,27 @@
     }
    ]
   },
-  "REGOLITH": {
-   "biome": "REGOLITH",
+  "SEA_ICE": {
+   "biome": "SEA_ICE",
    "ground": {
-    "texture": "regolith_v1.png",
+    "texture": "ice_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
-    "hue": 0
+    "hue": 0,
+    "relief": 0.8
    },
    "items": [
     {
-     "kind": "boulder",
-     "layer": "big",
-     "density": 0.03,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "boulder_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "darkrock",
+     "kind": "iceblock",
      "layer": "big",
      "density": 0.01,
-     "size": 0.6,
+     "size": 0.7,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "darkrock_v1.png",
+      "sheet": "iceblock_v1.png",
       "pick": [
        0,
        1,
@@ -2311,15 +2589,82 @@
      }
     },
     {
-     "kind": "rock",
+     "kind": "icechunk",
      "layer": "small",
-     "density": 0.03,
+     "density": 0.02,
      "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": "rock_v1.png",
+      "sheet": "icechunk_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    }
+   ]
+  },
+  "ICE": {
+   "biome": "ICE",
+   "ground": {
+    "texture": "ice_v1.png",
+    "scale": 8,
+    "bright": 1,
+    "sat": 1,
+    "hue": 0,
+    "relief": 0.8
+   },
+   "items": [
+    {
+     "kind": "iceblock",
+     "layer": "big",
+     "density": 0.0112,
+     "size": 0.7,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "iceblock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "snowrock",
+     "layer": "big",
+     "density": 0.0037,
+     "size": 0.6,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "snowrock_v1.png",
+      "pick": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "kind": "icechunk",
+     "layer": "small",
+     "density": 0.0225,
+     "size": 0.35,
+     "sizeVar": 0.1,
+     "clump": 0,
+     "clumpSize": 10,
+     "skin": {
+      "sheet": "icechunk_v1.png",
       "pick": [
        0,
        1,
@@ -2331,331 +2676,13 @@
     {
      "kind": "pebbles",
      "layer": "small",
-     "density": 0.03,
+     "density": 0.0075,
      "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
       "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "HIGHLAND": {
-   "biome": "HIGHLAND",
-   "ground": {
-    "texture": "rock_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "boulder",
-     "layer": "big",
-     "density": 0.0525,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "boulder_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "mossy",
-     "layer": "big",
-     "density": 0.0175,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "mossy_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rock",
-     "layer": "small",
-     "density": 0.06,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebbles",
-     "layer": "small",
-     "density": 0.06,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "CRATER": {
-   "biome": "CRATER",
-   "ground": {
-    "texture": "regolith_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "boulder",
-     "layer": "big",
-     "density": 0.025,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "boulder_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "darkrock",
-     "layer": "big",
-     "density": 0.025,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "darkrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebbles",
-     "layer": "small",
-     "density": 0.0375,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebbles_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rock",
-     "layer": "small",
-     "density": 0.0125,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "RUST": {
-   "biome": "RUST",
-   "ground": {
-    "texture": "rust_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "redrock",
-     "layer": "big",
-     "density": 0.03,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "redrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "darkrock",
-     "layer": "big",
-     "density": 0.01,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "darkrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rockred",
-     "layer": "small",
-     "density": 0.035,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rockred_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebblesr",
-     "layer": "small",
-     "density": 0.035,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebblesr_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    }
-   ]
-  },
-  "CANYON": {
-   "biome": "CANYON",
-   "ground": {
-    "texture": "redsand_v1.png",
-    "scale": 8,
-    "bright": 1,
-    "sat": 1,
-    "hue": 0
-   },
-   "items": [
-    {
-     "kind": "redrock",
-     "layer": "big",
-     "density": 0.07,
-     "size": 0.6,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "redrock_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "rockred",
-     "layer": "small",
-     "density": 0.05,
-     "size": 0.35,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "rockred_v1.png",
-      "pick": [
-       0,
-       1,
-       2,
-       3
-      ]
-     }
-    },
-    {
-     "kind": "pebblesr",
-     "layer": "small",
-     "density": 0.05,
-     "size": 0.3,
-     "sizeVar": 0.1,
-     "clump": 0,
-     "clumpSize": 10,
-     "skin": {
-      "sheet": "pebblesr_v1.png",
       "pick": [
        0,
        1,
@@ -2668,47 +2695,47 @@
   }
  },
  "cells": {
-  "palm_v1.png#0,1,2,3": 0,
-  "sandrock_v1.png#0,1,2,3": 4,
-  "shell_v1.png#0,1,2,3": 8,
-  "driftwood_v1.png#0,1,2,3": 12,
-  "pebbles_v1.png#0,1,2,3": 16,
-  "oak_v1.png#0,1,2,3": 20,
-  "oak2_v1.png#0,1,4,5": 24,
-  "blossom_v1.png#0,1,2,3": 28,
-  "boulder_v1.png#0,1,2,3": 32,
-  "tuft_v1.png#0,1,2,3": 36,
-  "flowers_v1.png#0,1,2,3": 40,
-  "bush_v1.png#0,1,2,3": 44,
-  "birch_v1.png#0,1,2,3": 48,
-  "jungle_v1.png#0,1,2,3": 52,
-  "willow_v1.png#0,1,2,3": 56,
-  "deadtree_v1.png#0,1,2,3": 60,
-  "mossy_v1.png#0,1,2,3": 64,
-  "reeds_v1.png#0,1,2,3": 68,
-  "acacia_v2.png#0,1,2,3": 72,
-  "saguaro_v1.png#0,1,2,3": 76,
-  "cactus_v1.png#0,1,2,3": 80,
-  "rocksand_v1.png#0,1,2,3": 84,
-  "bones_v1.png#0,1,2,3": 88,
-  "redrock_v1.png#0,1,2,3": 92,
-  "rockred_v1.png#0,1,2,3": 96,
-  "pebblesr_v1.png#0,1,2,3": 100,
-  "rock_v1.png#0,1,2,3": 104,
-  "snowpine_v1.png#0,1,2,3": 108,
-  "snowrock_v1.png#0,1,2,3": 112,
-  "pine_v1.png#0,1,2,3": 116,
-  "fir_v1.png#0,1,2,3": 120,
-  "rocksnow_v1.png#0,1,2,3": 124,
-  "iceblock_v1.png#0,1,2,3": 128,
-  "icechunk_v1.png#0,1,2,3": 132,
-  "columns_v1.png#0,1,2,3": 136,
-  "darkrock_v1.png#0,1,2,3": 140,
-  "spire_v1.png#0,1,2,3": 144,
-  "pebblesd_v1.png#0,1,2,3": 148,
-  "deadtree-small_v1.png#0,1,2,3": 152,
-  "sulfrock_v1.png#0,1,2,3": 156,
-  "sulfrock-small_v1.png#0,1,2,3": 160
+  "columns_v1.png#0,1,2,3": 0,
+  "darkrock_v1.png#0,1,2,3": 4,
+  "spire_v1.png#0,1,2,3": 8,
+  "pebblesd_v1.png#0,1,2,3": 12,
+  "deadtree_v1.png#0,1,2,3": 16,
+  "deadtree-small_v1.png#0,1,2,3": 20,
+  "sulfrock_v1.png#0,1,2,3": 24,
+  "sulfrock-small_v1.png#0,1,2,3": 28,
+  "pebbles_v1.png#0,1,2,3": 32,
+  "boulder_v1.png#0,1,2,3": 36,
+  "rock_v1.png#0,1,2,3": 40,
+  "redrock_v1.png#0,1,2,3": 44,
+  "rockred_v1.png#0,1,2,3": 48,
+  "pebblesr_v1.png#0,1,2,3": 52,
+  "sandrock_v1.png#0,1,2,3": 56,
+  "saguaro_v1.png#0,1,2,3": 60,
+  "bones_v1.png#0,1,2,3": 64,
+  "rocksand_v1.png#0,1,2,3": 68,
+  "cactus_v1.png#0,1,2,3": 72,
+  "acacia_v2.png#0,1,2,3": 76,
+  "tuft_v1.png#0,1,2,3": 80,
+  "bush_v1.png#0,1,2,3": 84,
+  "jungle_v1.png#0,1,2,3": 88,
+  "palm_v1.png#0,1,2,3": 92,
+  "shell_v1.png#0,1,2,3": 96,
+  "driftwood_v1.png#0,1,2,3": 100,
+  "willow_v1.png#0,1,2,3": 104,
+  "mossy_v1.png#0,1,2,3": 108,
+  "reeds_v1.png#0,1,2,3": 112,
+  "oak_v1.png#0,1,2,3": 116,
+  "oak2_v1.png#0,1,4,5": 120,
+  "blossom_v1.png#0,1,2,3": 124,
+  "flowers_v1.png#0,1,2,3": 128,
+  "birch_v1.png#0,1,2,3": 132,
+  "fir_v1.png#0,1,2,3": 136,
+  "pine_v1.png#0,1,2,3": 140,
+  "snowpine_v1.png#0,1,2,3": 144,
+  "snowrock_v1.png#0,1,2,3": 148,
+  "rocksnow_v1.png#0,1,2,3": 152,
+  "iceblock_v1.png#0,1,2,3": 156,
+  "icechunk_v1.png#0,1,2,3": 160
  },
  "atlas": {
   "file": "items.webp",
@@ -2728,155 +2755,176 @@
   {
    "file": "ground_0.webp",
    "ids": [
-    2
+    21
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_1.webp",
    "ids": [
-    3
+    22
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_2.webp",
    "ids": [
-    4
+    23
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_3.webp",
    "ids": [
-    5
+    24
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_4.webp",
    "ids": [
-    6
+    29,
+    10
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_5.webp",
    "ids": [
-    7
+    9
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_6.webp",
    "ids": [
     8
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_7.webp",
    "ids": [
-    9
+    11
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_8.webp",
    "ids": [
-    10,
-    29
+    28
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_9.webp",
    "ids": [
-    11
+    7
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_10.webp",
    "ids": [
-    12
+    5
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_11.webp",
    "ids": [
-    13
+    2
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_12.webp",
    "ids": [
-    14,
-    19
+    6
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_13.webp",
    "ids": [
-    15,
-    16,
-    17
+    3
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_14.webp",
    "ids": [
-    18,
-    26
+    4
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_15.webp",
    "ids": [
-    21
+    26,
+    18
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_16.webp",
    "ids": [
-    22
+    27,
+    25
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_17.webp",
    "ids": [
-    23
+    13
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_18.webp",
    "ids": [
-    24
+    12
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_19.webp",
    "ids": [
-    25,
-    27
+    19,
+    14
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   },
   {
    "file": "ground_20.webp",
    "ids": [
-    28
+    17,
+    16,
+    15
    ],
-   "scale": 8
+   "scale": 8,
+   "relief": 0.8
   }
  ],
  "avg": {
@@ -3015,6 +3063,11 @@
    107,
    53
   ]
+ },
+ "shadow": {
+  "len": 1.1,
+  "angle": 25,
+  "dark": 0.45
  },
  "propMax": 1.1
 }

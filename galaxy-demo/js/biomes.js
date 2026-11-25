@@ -2,13 +2,17 @@
 // as art/biomes/<GROUND>.json, and baked for the game into galaxy-demo/biomes/ (biomes.json, items.webp, ground
 // textures). A template:
 //   { biome: 'FOREST',
-//     ground: { texture: 'grass_v1.png' or null (tile art), scale (tiles per copy), bright, sat, hue },
+//     ground: { texture: 'grass_v1.png' or null (tile art), scale (tiles per copy), bright, sat, hue,
+//               relief (0 = flat .. 2; missing = RELIEF) },
 //     items: [ { kind: 'oak', layer: 'big' | 'small', density (share of spots), size (1 = a 2 x 3 tile box),
 //                sizeVar (0..1 random size spread), clump (0..1), clumpSize (tiles), skin: { sheet, pick } } ] }
 // Big items stand on one spot per 1.5 x 1.5 tiles, small items on one spot per tile; up to ITEM_SLOTS per layer.
-import { BASE } from './ids.js?v=20261125134458';
+import { BASE } from './ids.js?v=20261125135241';
 
 export const ITEM_SLOTS = 8;
+// the look shared by every biome: item shadows (renderer.js this.shadow) and the ground relief a template without one gets
+export const SHADOW = { len: 1.1, angle: 25, dark: 0.45 };
+export const RELIEF = 0.8;
 export const LAYERS = ['big', 'small'];
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 

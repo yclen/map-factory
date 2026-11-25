@@ -33,7 +33,12 @@ then open http://localhost:8170/biome-builder/ (or start the **biome-builder** p
 Pages (`/map-factory/biome-builder/`) you can look and try things, but Save only works locally.
 
 **A biome design** (galaxy-demo/js/biomes.js has the exact format):
-- **Ground:** a texture from `art/ground/raw/` (or the old tile art), its scale, brightness, saturation and hue.
+- **Ground:** a texture from `art/ground/raw/` (or the old tile art), its scale, brightness, saturation, hue and
+  **relief** (0-2, 0.8 by default): the texture's light parts stand up as bumps and its dark parts sink, lit by the
+  same sun as the hills, so flat AI textures look raised and cracked without new art.
+- **Shadows** (shared by every biome, System tab; kept in `art/biomes/index.json`): each item casts its own outline
+  flat along the ground from its foot, the way Factorio does, so no separate shadow pictures are needed. Length (per
+  unit of the item's height), angle below the horizontal, and darkness.
 - **Items:** up to 8 **big** ones (trees, boulders; one spot per 1.5 x 1.5 tiles) and 8 **small** ones (shrubs,
   grass tufts, flowers, pebbles; one spot per tile, drawn under the big ones). Each has a **density** (share of spots
   it fills), **size** (1 = a 2 x 3 tile box, up to 20x), **size spread**, **clumping** and clump size, and its

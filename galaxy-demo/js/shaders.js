@@ -1,5 +1,5 @@
-import { SLOPE_K } from './terrain.js?v=20261125134458';
-import { ITEM_SLOTS } from './biomes.js?v=20261125134458';
+import { SLOPE_K } from './terrain.js?v=20261125135241';
+import { ITEM_SLOTS } from './biomes.js?v=20261125135241';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -109,8 +109,9 @@ uniform sampler2D u_hd; uniform ivec4 u_hdK[8]; uniform vec4 u_hdInfo; uniform v
 // deposits, per overlay id: soil stain (rgb, strength) and (glint, pulse)
 uniform vec4 u_oreStain[16]; uniform vec2 u_oreFx[16];
 // ground textures (the Biome Builder, for now): per ground type, the texture layer that replaces its tile art (-1 = tile
-// art) and how many tiles one copy of the texture covers. Sampled at every screen pixel, so they keep full detail
-uniform mediump sampler2DArray u_gtex; uniform ivec4 u_gtexK[8]; uniform vec4 u_gtexS[8];
+// art) and how many tiles one copy of the texture covers, and its relief (0 = flat; its light and dark parts lit as
+// bumps and hollows). Sampled at every screen pixel, so they keep full detail
+uniform mediump sampler2DArray u_gtex; uniform ivec4 u_gtexK[8]; uniform vec4 u_gtexS[8]; uniform vec4 u_gtexR[8];
 // 1 = draw big props here, per pixel (the old way); 0 = they're drawn as pictures on top (PROPS_VS), the default
 uniform int u_shaderProps;
 out vec4 o;
@@ -314,7 +315,20 @@ vec3 artPix(ivec2 a) {
   int gtl = u_gtexK[int(gid) >> 2][int(gid) & 3];
   if (u_fx == 1 && gtl >= 0 && !isWater(gid)) {
     float ts = u_gtexS[int(gid) >> 2][int(gid) & 3] * 8.0;   // art px per copy of the texture
-    c = textureGrad(u_gtex, vec3(g_ap / ts, float(gtl)), g_dx / ts, g_dy / ts).rgb;
+    vec2 uv = g_ap / ts, gx = g_dx / ts, gy = g_dy / ts;
+    c = textureGrad(u_gtex, vec3(uv, float(gtl)), gx, gy).rgb;
+    float rl = u_gtexR[int(gid) >> 2][int(gid) & 3];
+    if (rl > 0.0) {
+      // relief: brightness read as height (light clumps stand up, dark cracks sink), lit by the same sun as the
+      // hills. The step is about a screen pixel, so the bumps stay as fine as the detail on screen
+      const vec3 Y = vec3(0.3, 0.5, 0.2);
+      float e = max(1.5 / float(textureSize(u_gtex, 0).x), max(length(gx), length(gy)));
+      float h0 = dot(c, Y);
+      float hx = dot(textureGrad(u_gtex, vec3(uv + vec2(e, 0.0), float(gtl)), gx, gy).rgb, Y) - h0;
+      float hy = dot(textureGrad(u_gtex, vec3(uv + vec2(0.0, e), float(gtl)), gx, gy).rgb, Y) - h0;
+      vec3 L = normalize(SUN);
+      c *= clamp(1.0 - 6.0 * rl * (hx * L.x + hy * L.y) / L.z, 0.55, 1.6);
+    }
   }
   bool water = u_fx == 1 && isWater(gid);
   if (water) {
@@ -510,13 +524,15 @@ void main() {
 // What grows there comes from the item table (biomes.js itemTable): the row for this ground type and layer lists up
 // to 8 items with their density, clumping, atlas cell, size and size spread; a spot's random number picks one in
 // proportion to their densities (or none). So designs change instantly, without rebuilding maps. Sizes scale the
-// 16 x 24 art px box (2 x 3 tiles) about its foot. u_shadow = 1 draws the shadow pass (silhouettes, nudged down-right)
+// 16 x 24 art px box (2 x 3 tiles) about its foot. u_shadow = 1 draws the shadow pass: each picture's silhouette laid
+// down flat from its foot, the way Factorio casts shadows, its top reaching out along u_shadowDir (art px per art px of
+// height: down and to the right, away from the sun in the top left)
 export const PROPS_VS = `#version 300 es
 precision highp float; precision highp int; precision highp sampler2D;
 in vec2 a_pos; in uvec4 a_t;
 uniform vec2 u_res; uniform vec2 u_center; uniform float u_R; uniform float u_W8;
 uniform sampler2D u_items; uniform int u_layer;
-uniform sampler2D u_fld; uniform vec4 u_chunk; uniform float u_tpp; uniform int u_shadow;
+uniform sampler2D u_fld; uniform vec4 u_chunk; uniform float u_tpp; uniform int u_shadow; uniform vec2 u_shadowDir;
 out vec2 v_s; out vec3 v_tint; flat out int v_cell;
 const float SLOPE_K = ${SLOPE_K}.0;
 const vec3 SUN = vec3(-0.55, -0.65, 0.75);
@@ -554,8 +570,10 @@ void main() {
   uint h2 = hashu(uvec2(hh, 0x5bd1u));
   float sc = it.z * (1.0 + it.w * (float(h2 & 1023u) / 1023.0 * 2.0 - 1.0));
   vec2 s = a_pos * vec2(16.0, 24.0);                    // art px inside the sprite's box
-  vec2 g = A + vec2(8.0, 23.0) + (s - vec2(8.0, 23.0)) * sc;
-  if (u_shadow == 1) g += vec2(3.0, 2.0) * sc;           // the shadow falls down and to the right
+  vec2 d = (s - vec2(8.0, 23.0)) * sc;                  // art px from the foot (d.y < 0 above it)
+  vec2 g = A + vec2(8.0, 23.0) + d;
+  // the shadow: each point of the picture moves from its height above the foot out along the shadow's direction
+  if (u_shadow == 1) g = A + vec2(8.0, 23.0) + vec2(d.x, 0.0) - d.y * u_shadowDir;
   vec2 px = u_center + (g / u_W8 * 2.0 - 1.0) * u_R;    // device px, y down
   gl_Position = vec4(px.x / u_res.x * 2.0 - 1.0, 1.0 - px.y / u_res.y * 2.0, 0.0, 1.0);
   v_s = s;
@@ -586,7 +604,7 @@ void main() {
 // the shadow layer laid down once over the ground: darkens what's under it, never doubles up where shadows overlap
 export const SHADE_FS = `#version 300 es
 precision highp float;
-in vec2 v_uv; uniform sampler2D u_tex; uniform float u_alpha;
+in vec2 v_uv; uniform sampler2D u_tex; uniform float u_alpha; uniform float u_dark;
 out vec4 o;
-void main() { o = vec4(0.0, 0.0, 0.0, 0.38 * u_alpha * texture(u_tex, vec2(v_uv.x, 1.0 - v_uv.y)).a); }`;
+void main() { o = vec4(0.0, 0.0, 0.0, u_dark * u_alpha * texture(u_tex, vec2(v_uv.x, 1.0 - v_uv.y)).a); }`;
 

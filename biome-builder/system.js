@@ -3,12 +3,12 @@
 // pyramid of 256 x 256 chunks, items drawn as pictures). The chunk and drawing code follows galaxy-demo/js/main.js
 // (wantPage, pump, onPage, drawBody, setPage, drawPropsOn): keep them in step when one changes.
 // World coordinates are tiles, with the star at (0, 0).
-import { Renderer } from '../galaxy-demo/js/renderer.js?v=20261125134458';
-import { buildAtlas } from '../galaxy-demo/js/art.js?v=20261125134458';
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125134458';
-import { RULES } from '../galaxy-demo/js/rules.js?v=20261125134458';
-import { hash32, mulberry32, range } from '../galaxy-demo/js/rng.js?v=20261125134458';
-import { makeSampler } from '../galaxy-demo/js/terrain.js?v=20261125134458';
+import { Renderer } from '../galaxy-demo/js/renderer.js?v=20261125135241';
+import { buildAtlas } from '../galaxy-demo/js/art.js?v=20261125135241';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125135241';
+import { RULES } from '../galaxy-demo/js/rules.js?v=20261125135241';
+import { hash32, mulberry32, range } from '../galaxy-demo/js/rng.js?v=20261125135241';
+import { makeSampler } from '../galaxy-demo/js/terrain.js?v=20261125135241';
 
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 const PAGE = 256;
@@ -32,7 +32,7 @@ export function createSystem(canvas, overlay, hooks) {
   const workers = [];
   const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
   for (let i = 0; i < NW; i++) {
-    const w = new Worker(new URL('../galaxy-demo/js/mapworker.js?v=20261125134458', import.meta.url), { type: 'module' });
+    const w = new Worker(new URL('../galaxy-demo/js/mapworker.js?v=20261125135241', import.meta.url), { type: 'module' });
     w.busy = null;
     w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
     w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -255,9 +255,10 @@ export function createSystem(canvas, overlay, hooks) {
     const alpha = clamp((1.15 - 8 * N / D) / 0.45, 0, 1);
     if (alpha <= 0 || !view.items) return;
     const k = D / N, sx0 = cx - Rd, sy0 = cy - Rd, C = Math.ceil(N / PAGE);
-    const mx = PROP_REACH[0] * view.propMax * k, my = PROP_REACH[1] * view.propMax * k;
+    const [sx, sy] = R.shadowReach();                      // shadows of items just off screen reach into it
+    const mx = (PROP_REACH[0] + sx) * view.propMax * k, my = PROP_REACH[1] * view.propMax * k, ms = sy * view.propMax * k;
     const pxA = Math.max(0, Math.floor((-mx - sx0) / k / PAGE)), pxB = Math.min(C - 1, Math.floor((R.w + mx - sx0) / k / PAGE));
-    const pyA = Math.max(0, Math.floor(-sy0 / k / PAGE)), pyB = Math.min(C - 1, Math.floor((R.h + my - sy0) / k / PAGE));
+    const pyA = Math.max(0, Math.floor((-ms - sy0) / k / PAGE)), pyB = Math.min(C - 1, Math.floor((R.h + my - sy0) / k / PAGE));
     const items = [];
     for (let py = pyA; py <= pyB; py++) for (let px = pxA; px <= pxB; px++) {
       const rx0 = sx0 + px * PAGE * k, ry0 = sy0 + py * PAGE * k, rx1 = rx0 + PAGE * k, ry1 = ry0 + PAGE * k;
