@@ -7,7 +7,7 @@
 //     items: [ { kind: 'oak', layer: 'big' | 'small', density (share of spots), size (1 = a 2 x 3 tile box),
 //                sizeVar (0..1 random size spread), clump (0..1), clumpSize (tiles), skin: { sheet, pick } } ] }
 // Big items stand on one spot per 1.5 x 1.5 tiles, small items on one spot per tile; up to ITEM_SLOTS per layer.
-import { BASE } from './ids.js?v=20261125141207';
+import { BASE } from './ids.js?v=20261125143024';
 
 export const ITEM_SLOTS = 8;
 // the look shared by every biome: item shadows (renderer.js this.shadow) and the ground relief a template without one gets
@@ -24,8 +24,9 @@ export function skinKey(item) {
 
 // The table the prop shader reads (RGBA float, ITEM_SLOTS * 2 wide, one row per ground type and layer):
 // texel (slot, row) = (density, first atlas cell, size, sizeVar); texel (ITEM_SLOTS + slot, row) = (clump, clumpSize, 0, 0).
-// row = ground id * 2 + layer (0 big, 1 small). cellOf = { skin key: atlas cell of its first variant }
-export function itemTable(templates, cellOf) {
+// row = ground id * 2 + layer (0 big, 1 small). cellOf = { skin key: atlas cell of its first variant }; bigCellOf, if
+// given, the same for the big items' own atlas (renderer.js setBigItems), which the big rows then point into
+export function itemTable(templates, cellOf, bigCellOf) {
   const W = ITEM_SLOTS * 2, H = 64, t = new Float32Array(W * H * 4);
   for (const tpl of Object.values(templates)) {
     const id = ID[tpl.biome];
@@ -33,7 +34,7 @@ export function itemTable(templates, cellOf) {
     LAYERS.forEach((layer, L) => {
       const row = id * 2 + L;
       tpl.items.filter(it => it.layer === layer).slice(0, ITEM_SLOTS).forEach((it, j) => {
-        const cell = cellOf[skinKey(it)];
+        const cell = (layer === 'big' && bigCellOf ? bigCellOf : cellOf)[skinKey(it)];
         if (cell === undefined || !(it.density > 0)) return;
         t.set([it.density, cell, it.size || 1, it.sizeVar || 0], (row * W + j) * 4);
         t.set([it.clump || 0, Math.max(1, it.clumpSize || 10), 0, 0], (row * W + ITEM_SLOTS + j) * 4);

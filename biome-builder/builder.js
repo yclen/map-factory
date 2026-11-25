@@ -3,14 +3,14 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125141207';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125141207';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125141207';
-import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125141207';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125141207';
-import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125141207';
-import { splash } from './splash.js?v=20261125141207';
-import { createSystem } from './system.js?v=20261125141207';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125143024';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125143024';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125143024';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125143024';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125143024';
+import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125143024';
+import { splash } from './splash.js?v=20261125143024';
+import { createSystem } from './system.js?v=20261125143024';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
@@ -21,6 +21,11 @@ const HEAT_ORDER = ['OBSIDIAN', 'ASH', 'SULFUR', 'BASALT', 'CANYON', 'DUNES', 'D
   'SNOW', 'ICE_CRACK', 'SEA_ICE', 'ICE'];
 const DESIGNABLE = [...HEAT_ORDER, ...BASE.filter(n => !NO_DESIGN.has(n) && !HEAT_ORDER.includes(n))];
 const DEFAULT_PLANETS = ['DESERT', 'MESA', 'SAVANNA', 'JUNGLE', 'BEACH', 'SWAMP', 'GRASS', 'FOREST', 'MOUNTAIN', 'TAIGA', 'TUNDRA', 'SNOW'];
+// trees start big and sparse: TREE_SIZE (1 = a 2 x 3 tile box) and the game's tree density times TREE_DENSITY
+const TREES = new Set(['oak', 'oak2', 'birch', 'blossom', 'willow', 'deadtree', 'saguaro', 'palm', 'jungle', 'acacia', 'pine', 'fir', 'snowpine']);
+const TREE_SIZE = 3.5, TREE_DENSITY = 0.08;
+// the big items' own sharp atlas: texels per art px to try, sharpest first, within 4096 x 4096 (safe on phones too)
+const BIG_ATLAS = { scales: [24, 20, 16, 12], maxSide: 4096 };
 const MIX = 'MIX';                                       // the mix planet's name (every other planet is named by its biome)
 const SIZES = [512, 1024, 2048, 4096];
 
@@ -122,8 +127,9 @@ function defaultSkin(kind, layer) {
   return { sheet: null, pick: [0, 1, 2, 3] };
 }
 function newItem(kind, layer, density) {
-  const skin = defaultSkin(kind, layer), m = A.manifest.kinds[kind];
-  const size = layer === 'big' ? (m && m.size) || 1 : skin.sheet ? (ITEM_IDEAS[sheetKind(kind, layer)] || [])[2] || 0.4 : 1;
+  const skin = defaultSkin(kind, layer), m = A.manifest.kinds[kind], tree = layer === 'big' && TREES.has(kind);
+  const size = tree ? TREE_SIZE : layer === 'big' ? (m && m.size) || 1 : skin.sheet ? (ITEM_IDEAS[sheetKind(kind, layer)] || [])[2] || 0.4 : 1;
+  if (tree) density *= TREE_DENSITY;
   return { kind, layer, density: +density.toFixed(4), size, sizeVar: 0.1, clump: 0, clumpSize: 10, skin };
 }
 const hasArt = (kind, layer) => sheetsOf(sheetKind(kind, layer)).length > 0 || !!(layer === 'big' ? A.pixel.props[kind] : A.pixel.decor[kind] || A.pixel.props[kind]);
@@ -153,10 +159,12 @@ function edit(name, fn, rebuild = 'items') {
 
 // ---------- pictures for items ----------
 
-function spritesOf(item) {
+// hd: the full-size sprites, once they've loaded (big items' atlas)
+function spritesOf(item, hd = false) {
   const sh = item.skin && item.skin.sheet && A.sheets[item.skin.sheet];
   if (sh) {
-    const cells = (item.skin.pick || [0, 1, 2, 3]).map(i => sh.cells[i]).filter(Boolean);
+    const all = hd && sh.hd ? sh.hd : sh.cells;
+    const cells = (item.skin.pick || [0, 1, 2, 3]).map(i => all[i]).filter(Boolean);
     if (cells.length) return [0, 1, 2, 3].map(v => cells[v % cells.length]);
   }
   return (item.layer === 'small' ? A.pixel.decor[item.kind] || A.pixel.props[item.kind] : A.pixel.props[item.kind]) || null;
@@ -172,6 +180,19 @@ function atlasFor(templates) {
   }
   return buildItemAtlas([...skins.values()]);
 }
+// the big items' own atlas, sharper (trees are drawn several times bigger than anything else), from the full-size
+// sheets once they've loaded
+function bigAtlasFor(templates) {
+  const skins = new Map();
+  for (const t of templates) for (const it of t.items) {
+    const key = skinKey(it);
+    if (it.layer !== 'big' || skins.has(key)) continue;
+    const sprites = spritesOf(it, true);
+    if (sprites) skins.set(key, { key, sprites });
+  }
+  return buildItemAtlas([...skins.values()], BIG_ATLAS);
+}
+const bigKeys = templates => [...new Set(templates.flatMap(t => t.items.filter(it => it.layer === 'big').map(skinKey)))].join(';');
 // ground-texture layers: one per distinct (texture, colour adjustment, scale)
 function groundsFor(templates) {
   const layers = [], keys = {}, avg = {};
@@ -221,14 +242,20 @@ const maxSize = templates => Math.max(1, ...templates.flatMap(t => t.items.map(i
 
 // ---------- feeding the renderer ----------
 
-let atlasKey = '', groundKey = '', liveAvg = {}, groundAvg = {}, cells = {};
+let atlasKey = '', bigKey = '', groundKey = '', liveAvg = {}, groundAvg = {}, cells = {}, bigCells = {}, hdLoaded = 0;
 function apply(what = 'items') {
   const templates = DESIGNABLE.map(effective);
   if (what === 'all' || what === 'skins' || what === 'items') {
     const keys = [...new Set(templates.flatMap(t => t.items.map(skinKey)))].join(';');
     let atlas = null;
     if (keys !== atlasKey || what !== 'items') { atlas = atlasFor(templates); atlasKey = keys; cells = atlas.cells; }
-    sys.R.setItems(atlas && atlas.canvas, atlas && atlas.meta, itemTable(Object.fromEntries(templates.map(t => [t.biome, t])), cells));
+    const bk = bigKeys(templates) + '|' + hdLoaded;
+    if (bk !== bigKey || what !== 'items') {
+      const big = bigAtlasFor(templates);
+      bigKey = bk; bigCells = big.cells;
+      sys.R.setBigItems(big.canvas, big.meta);
+    }
+    sys.R.setItems(atlas && atlas.canvas, atlas && atlas.meta, itemTable(Object.fromEntries(templates.map(t => [t.biome, t])), cells, bigCells));
     sys.propMax = maxSize(templates);
   }
   if (what === 'all' || what === 'ground') {
@@ -287,12 +314,14 @@ async function save(name, template) {
     if (name) { if (template) after[name] = template; else delete after[name]; }
     const templates = DESIGNABLE.map(n => after[n] || defaultTemplate(n));
     const atlas = atlasFor(templates), grounds = groundsFor(templates);
-    const files = { 'items.webp': atlas.canvas.toDataURL('image/webp', 0.92) };
+    const big = bigAtlasFor(templates);
+    const files = { 'items.webp': atlas.canvas.toDataURL('image/webp', 0.92), 'items_big.webp': big.canvas.toDataURL('image/webp', 0.9) };
     grounds.layers.forEach((l, i) => { files[`ground_${i}.webp`] = l.canvas.toDataURL('image/webp', 0.92); });
     const json = {
       version: 1, saved: Object.keys(after).sort(),
       templates: Object.fromEntries(templates.map(t => [t.biome, t])), cells: atlas.cells,
       atlas: { file: 'items.webp', ...atlas.meta }, groundSize: GROUND_TEX,
+      bigAtlas: { file: 'items_big.webp', ...big.meta }, bigCells: big.cells,
       grounds: grounds.layers.map((l, i) => ({ file: `ground_${i}.webp`, ids: l.ids, scale: l.scale, relief: l.relief })), avg: farAvgs(templates, grounds.avg),
       shadow: look(),
       propMax: maxSize(templates),
@@ -318,7 +347,7 @@ async function save(name, template) {
 
 // ---------- overlay and status ----------
 
-let hover = null, fps = '';
+let hover = null, fps = '', hdNote = '';
 function drawOverlay(g, view) {
   if (!hover || !S.ruler) return;
   // the footprint of a 3 x 3 machine and a 1 x 1 belt, to judge how big items look
@@ -336,7 +365,7 @@ function status() {
   const z = sys.zoom / sys.dpr;
   const where = hover ? `${hover.planet.label}${hover.planet.name === MIX ? ' · ' + BASE_NAME[BASE[sys.groundAt(hover)]] : ''} · ` : '';
   el.textContent = (hover ? `${where}tile ${Math.floor(hover.x)}, ${Math.floor(hover.y)} · ` : '') +
-    `${z >= 1 ? Math.round(z) : z.toFixed(2)} px per tile · ${fps}`;
+    `${z >= 1 ? Math.round(z) : z.toFixed(2)} px per tile · ${fps}` + (hdNote ? ' · ' + hdNote : '');
 }
 
 // ---------- the side panel ----------
@@ -610,11 +639,16 @@ async function start() {
     await Promise.all((idx.saved || []).map(async n => { saved[n] = await (await fetch(`../art/biomes/${n}.json`, { cache: 'no-store' })).json(); }));
   } catch { /* nothing saved yet */ }
   splash.step('Building the planets', 0.95);
-  await new Promise(r => requestAnimationFrame(() => setTimeout(r)));   // let that line show before the busy part
+  await new Promise(r => setTimeout(r, 30));      // let that line show before the busy part (a timer: frames pause in hidden tabs)
   sys.R.setDecor(decorTables(SKIN));
   syncToolbar();
   apply('all');
   renderPanel();
   splash.done();
+  // then the big items' full-size sheets, in the background: their atlas sharpens once they're in
+  hdNote = 'Sharpening trees…'; status();
+  hdLoaded = await loadHd(A, (n, total) => { hdNote = `Sharpening trees ${n} / ${total}`; status(); });
+  hdNote = ''; status();
+  if (hdLoaded) apply('skins');
 }
 start().catch(e => { splash.fail('Could not start: ' + e.message); console.error(e); });

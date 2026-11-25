@@ -101,8 +101,8 @@
     {
      "kind": "deadtree",
      "layer": "big",
-     "density": 0.01,
-     "size": 1,
+     "density": 0.0008,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -531,8 +531,8 @@
     {
      "kind": "saguaro",
      "layer": "big",
-     "density": 0.002,
-     "size": 1,
+     "density": 0.0002,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -616,8 +616,8 @@
     {
      "kind": "saguaro",
      "layer": "big",
-     "density": 0.0125,
-     "size": 1,
+     "density": 0.001,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -755,8 +755,8 @@
     {
      "kind": "saguaro",
      "layer": "big",
-     "density": 0.02,
-     "size": 1,
+     "density": 0.0016,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1028,8 +1028,8 @@
     {
      "kind": "acacia",
      "layer": "big",
-     "density": 0.0525,
-     "size": 1,
+     "density": 0.0042,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1131,8 +1131,8 @@
     {
      "kind": "jungle",
      "layer": "big",
-     "density": 0.69,
-     "size": 1,
+     "density": 0.0552,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1149,8 +1149,8 @@
     {
      "kind": "palm",
      "layer": "big",
-     "density": 0.23,
-     "size": 1,
+     "density": 0.0184,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1216,8 +1216,8 @@
     {
      "kind": "palm",
      "layer": "big",
-     "density": 0.0225,
-     "size": 1,
+     "density": 0.0018,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1319,8 +1319,8 @@
     {
      "kind": "willow",
      "layer": "big",
-     "density": 0.11,
-     "size": 1,
+     "density": 0.0088,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1337,8 +1337,8 @@
     {
      "kind": "deadtree",
      "layer": "big",
-     "density": 0.055,
-     "size": 1,
+     "density": 0.0044,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1422,8 +1422,8 @@
     {
      "kind": "oak",
      "layer": "big",
-     "density": 0.0125,
-     "size": 1,
+     "density": 0.001,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1440,8 +1440,8 @@
     {
      "kind": "oak2",
      "layer": "big",
-     "density": 0.0125,
-     "size": 1,
+     "density": 0.001,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1458,8 +1458,8 @@
     {
      "kind": "blossom",
      "layer": "big",
-     "density": 0.0125,
-     "size": 1,
+     "density": 0.001,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1561,8 +1561,8 @@
     {
      "kind": "oak",
      "layer": "big",
-     "density": 0.43,
-     "size": 1,
+     "density": 0.0344,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1579,8 +1579,8 @@
     {
      "kind": "oak2",
      "layer": "big",
-     "density": 0.215,
-     "size": 1,
+     "density": 0.0172,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1597,8 +1597,8 @@
     {
      "kind": "birch",
      "layer": "big",
-     "density": 0.215,
-     "size": 1,
+     "density": 0.0172,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -1803,8 +1803,8 @@
     {
      "kind": "fir",
      "layer": "big",
-     "density": 0.03,
-     "size": 1,
+     "density": 0.0024,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -2040,8 +2040,8 @@
     {
      "kind": "pine",
      "layer": "big",
-     "density": 0.41,
-     "size": 1,
+     "density": 0.0328,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -2058,8 +2058,8 @@
     {
      "kind": "fir",
      "layer": "big",
-     "density": 0.205,
-     "size": 1,
+     "density": 0.0164,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -2076,8 +2076,8 @@
     {
      "kind": "snowpine",
      "layer": "big",
-     "density": 0.205,
-     "size": 1,
+     "density": 0.0164,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -2161,8 +2161,8 @@
     {
      "kind": "snowpine",
      "layer": "big",
-     "density": 0.015,
-     "size": 1,
+     "density": 0.0012,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -2421,8 +2421,8 @@
     {
      "kind": "snowpine",
      "layer": "big",
-     "density": 0.0075,
-     "size": 1,
+     "density": 0.0006,
+     "size": 3.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
@@ -2744,13 +2744,50 @@
    128,
    192
   ],
-  "cols": 16,
+  "cols": 32,
   "size": [
-   2048,
-   2112
+   4096,
+   1152
   ]
  },
  "groundSize": 512,
+ "bigAtlas": {
+  "file": "items_big.webp",
+  "scale": 20,
+  "cell": [
+   320,
+   480
+  ],
+  "cols": 12,
+  "size": [
+   3840,
+   3840
+  ]
+ },
+ "bigCells": {
+  "columns_v1.png#0,1,2,3": 0,
+  "darkrock_v1.png#0,1,2,3": 4,
+  "deadtree_v1.png#0,1,2,3": 8,
+  "sulfrock_v1.png#0,1,2,3": 12,
+  "boulder_v1.png#0,1,2,3": 16,
+  "redrock_v1.png#0,1,2,3": 20,
+  "sandrock_v1.png#0,1,2,3": 24,
+  "saguaro_v1.png#0,1,2,3": 28,
+  "acacia_v2.png#0,1,2,3": 32,
+  "jungle_v1.png#0,1,2,3": 36,
+  "palm_v1.png#0,1,2,3": 40,
+  "willow_v1.png#0,1,2,3": 44,
+  "mossy_v1.png#0,1,2,3": 48,
+  "oak_v1.png#0,1,2,3": 52,
+  "oak2_v1.png#0,1,4,5": 56,
+  "blossom_v1.png#0,1,2,3": 60,
+  "birch_v1.png#0,1,2,3": 64,
+  "fir_v1.png#0,1,2,3": 68,
+  "pine_v1.png#0,1,2,3": 72,
+  "snowpine_v1.png#0,1,2,3": 76,
+  "snowrock_v1.png#0,1,2,3": 80,
+  "iceblock_v1.png#0,1,2,3": 84
+ },
  "grounds": [
   {
    "file": "ground_0.webp",
@@ -3069,5 +3106,5 @@
   "angle": 25,
   "dark": 0.45
  },
- "propMax": 1.1
+ "propMax": 3.8500000000000005
 }

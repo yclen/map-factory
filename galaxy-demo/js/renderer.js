@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125141207';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125141207';
+import * as S from './shaders.js?v=20261125143024';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125143024';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -70,6 +70,8 @@ export class Renderer {
     // horizontal (to the right), dark = how dark (0..1). biomes.js SHADOW has the defaults
     this.shadow = { len: 1.1, angle: 25, dark: 0.45 };
     this.items = null; this.itemTex = null; this.itemTable = null; this.itemInfo = [128, 192, 8, 8]; this.itemSize = [1, 1];
+    // big items (trees, boulders) can have their own sharper atlas (setBigItems); until then they come from itemTex
+    this.bigTex = null; this.bigInfo = null; this.bigSize = null;
     this.shadowFb = null; this.shadowTex = null; this.shadowW = 0; this.shadowH = 0;
   }
 
@@ -131,6 +133,15 @@ export class Renderer {
     }
     this.items = !!(this.itemTex && this.itemTable);
     this.applyPropTables();
+  }
+  // the big items' own atlas, at a higher resolution (biome-builder/assets.js buildItemAtlas). Set it together with
+  // a table (setItems) whose big rows point into it: biomes.js itemTable(templates, cells, bigCells). null = none
+  setBigItems(img, meta) {
+    const gl = this.gl;
+    if (this.bigTex) { gl.deleteTexture(this.bigTex); this.texBytes -= this.bigSize[0] * this.bigSize[1] * 4 * 1.34; }
+    this.bigTex = img ? this.uploadSpriteAtlas(img) : null;
+    this.bigInfo = img ? [meta.cell[0], meta.cell[1], meta.cols, meta.scale] : null;
+    this.bigSize = img ? [img.width, img.height] : null;
   }
   uploadSpriteAtlas(img) {
     const gl = this.gl, t = gl.createTexture();
@@ -204,12 +215,14 @@ export class Renderer {
       const sa = this.shadow.angle * Math.PI / 180;
       gl.uniform2f(u.u_shadowDir, Math.cos(sa) * this.shadow.len, Math.sin(sa) * this.shadow.len);
       gl.uniform1f(u.u_alpha, q.alpha);
-      gl.uniform4f(u.u_hdInfo, ...this.itemInfo); gl.uniform2f(u.u_hdSize, ...this.itemSize);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.itemTex); gl.uniform1i(u.u_hd, 0);
+      gl.uniform1i(u.u_hd, 0);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.itemTable); gl.uniform1i(u.u_items, 1);
       gl.uniform1i(u.u_fld, 2);
       for (const layer of ['small', 'big']) {
         gl.uniform1i(u.u_layer, layer === 'big' ? 0 : 1);
+        const big = layer === 'big' && this.bigTex;           // big items from their own sharper atlas, if there is one
+        gl.uniform4f(u.u_hdInfo, ...(big ? this.bigInfo : this.itemInfo)); gl.uniform2f(u.u_hdSize, ...(big ? this.bigSize : this.itemSize));
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, big ? this.bigTex : this.itemTex);
         for (const c of chunks) {
           const buf = c[layer];
           if (!buf || !buf.n) continue;

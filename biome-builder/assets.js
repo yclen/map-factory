@@ -1,9 +1,9 @@
 // Loading art for the Biome Builder: the raw AI sheets (cut into sprites here in the browser, the same way
 // tools/pack_props.py does it), the AI ground textures (made seamless here), and the game's pixel-art fallbacks.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125141207';
-import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125141207';
-import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125141207';
-import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125141207';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125143024';
+import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125143024';
+import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125143024';
+import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125143024';
 
 const ART = '../art/';
 const SHEET_W = 922;            // sheets are cut at most this wide (60% of ChatGPT's 1536 px): plenty for the closest zoom
@@ -39,8 +39,8 @@ const parseName = f => { const m = /^(.+?)_v(\d+)\.png$/i.exec(f); return m ? { 
 // ---------- prop sheets ----------
 
 // magenta background -> transparent, pink fringes pulled back to neutral (same maths as pack_props.py cut_out)
-function keyOut(img) {
-  const k = Math.min(1, SHEET_W / img.width), w = Math.round(img.width * k), h = Math.round(img.height * k);
+function keyOut(img, maxW = SHEET_W) {
+  const k = Math.min(1, maxW / img.width), w = Math.round(img.width * k), h = Math.round(img.height * k);
   const c = canvas(w, h), g = c.getContext('2d', { willReadFrequently: true });
   g.drawImage(img, 0, 0, w, h);
   const id = g.getImageData(0, 0, w, h), d = id.data;
@@ -206,13 +206,22 @@ function pixelArt() {
 
 // ---------- for the game's renderer ----------
 
-// The item atlas the game's prop shader reads: 4 variants per skin in 16 x 24 art px cells (8 texels per art px), each
-// standing on the cell's foot point, art px (8, 23). AI sprites are fitted to fill the cell (sizes are applied when
-// drawing); pixel-art fallbacks keep their natural size. skins: [{ key, sprites: [4 sprites] }] -> canvas, meta,
-// cells { key: first cell }
-const HD_SCALE = 8, CELL_W = 16 * HD_SCALE, CELL_H = 24 * HD_SCALE, HD_COLS = 16;
-export function buildItemAtlas(skins) {
-  const rows = Math.max(1, Math.ceil(skins.length * 4 / HD_COLS));
+// The item atlas the game's prop shader reads: 4 variants per skin in 16 x 24 art px cells (`scale` texels per art px,
+// 8 by default), each standing on the cell's foot point, art px (8, 23). AI sprites are fitted to fill the cell (sizes
+// are applied when drawing); pixel-art fallbacks keep their natural size. skins: [{ key, sprites: [4 sprites] }] ->
+// canvas, meta, cells { key: first cell }.
+// opts.scales: texels per art px to try, sharpest first: the first whose atlas fits in maxSide x maxSide is used (the
+// big items' atlas: trees drawn several times bigger than a pebble need many more texels)
+export function buildItemAtlas(skins, { scales = [8], maxSide = 4096 } = {}) {
+  const n = Math.max(1, skins.length * 4);
+  let HD_SCALE = scales[scales.length - 1], HD_COLS = 0;
+  for (const sc of scales) {
+    const cols = Math.floor(maxSide / (16 * sc));
+    if (cols >= 1 && Math.ceil(n / cols) * 24 * sc <= maxSide) { HD_SCALE = sc; break; }
+  }
+  const CELL_W = 16 * HD_SCALE, CELL_H = 24 * HD_SCALE;
+  HD_COLS = Math.max(1, Math.min(Math.floor(maxSide / CELL_W), n));
+  const rows = Math.max(1, Math.ceil(n / HD_COLS));
   const c = canvas(HD_COLS * CELL_W, rows * CELL_H), g = c.getContext('2d');
   g.imageSmoothingQuality = 'high';
   const cells = {};
@@ -224,7 +233,8 @@ export function buildItemAtlas(skins) {
       g.beginPath(); g.rect(ax, ay, CELL_W, CELL_H); g.clip();
       if (s.pixel) {
         g.imageSmoothingEnabled = false;
-        g.drawImage(s.img, ax + 8 * HD_SCALE - s.footX, ay + 23 * HD_SCALE - s.footY);
+        const k = HD_SCALE / 8;                          // pixel art is drawn for 8 texels per art px
+        g.drawImage(s.img, ax + 8 * HD_SCALE - s.footX * k, ay + 23 * HD_SCALE - s.footY * k, s.w * k, s.h * k);
       } else {
         g.imageSmoothingEnabled = true;
         const half = Math.max(s.footX, s.w - s.footX);
@@ -300,4 +310,25 @@ export async function loadAll(progress) {
   }));
 
   return { manifest, sheets, textures, pixel };
+}
+
+// The big items' sheets at full size (art/props/hd/, made by tools/builder_catalog.py), for their sharp atlas: loaded
+// after starting up, each sheet's sprites put in sheets[file].hd. onEach(n, total) after each one
+export async function loadHd(A, onEach) {
+  const files = (await listFiles('props/hd/', 'propsHd', 'webp')).filter(f => A.sheets[f.replace(/\.webp$/i, '.png')]);
+  let n = 0;
+  await Promise.all(files.map(async f => {
+    const sh = A.sheets[f.replace(/\.webp$/i, '.png')];
+    try {
+      const keyed = keyOut(await loadImage(ART + 'props/hd/' + encodeURIComponent(f)), Infinity);
+      const [gx, gy] = sh.grid, cells = [];
+      for (let r = 0; r < gy; r++) for (let c = 0; c < gx; c++) {
+        cells.push(cutCell(keyed, Math.floor(c * keyed.w / gx), Math.floor(r * keyed.h / gy),
+          Math.floor((c + 1) * keyed.w / gx), Math.floor((r + 1) * keyed.h / gy)));
+      }
+      sh.hd = cells;
+    } catch (e) { console.warn('could not load the full-size sheet', f, e); }
+    if (onEach) onEach(++n, files.length);
+  }));
+  return n;
 }

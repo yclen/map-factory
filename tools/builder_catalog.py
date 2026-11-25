@@ -5,6 +5,8 @@
 The raw images from ChatGPT are 2-4 MB each, far more than the Builder draws, so the Builder loads small copies instead:
   art/props/web/<sheet>.webp     the sheet at 60% size with its magenta background already cut out (transparent)
   art/ground/web/<texture>.webp  the centre square at 512 x 512 (the Builder makes it seamless itself)
+  art/props/hd/<sheet>.webp      big items' sheets (trees, boulders: the kinds in art/props/props.json) at full size,
+                                 cut out too, for the sharp big-item atlas the Builder loads after starting up
 Copies are only made for images that don't have one yet; the raw files stay the source. builder_server.py runs this on
 start, and the Builder falls back to the raw image for anything without a copy.
 
@@ -33,6 +35,11 @@ def sheet_copy(src, dst):
     img.save(dst, 'WEBP', quality=90, alpha_quality=100, method=6)
 
 
+def hd_copy(src, dst):
+    rgba = cut_out(Image.open(src)).clip(0, 255).astype(np.uint8)
+    Image.fromarray(rgba).save(dst, 'WEBP', quality=88, alpha_quality=100, method=6)
+
+
 def ground_copy(src, dst):
     img = Image.open(src).convert('RGB')
     s = min(img.size)
@@ -53,6 +60,16 @@ def main(quiet=False):
                 made += 1
         listing[key] = files
         listing[key + 'Web'] = sorted(p.name for p in web.glob('*.webp'))
+    # full-size copies of the big items' sheets
+    big = set(json.loads((ROOT / 'art' / 'props' / 'props.json').read_text(encoding='utf-8'))['kinds'])
+    raw, hd = ROOT / 'art' / 'props' / 'raw', ROOT / 'art' / 'props' / 'hd'
+    hd.mkdir(exist_ok=True)
+    for f in listing['props']:
+        dst = hd / (f[:-4] + '.webp')
+        if f.rsplit('_v', 1)[0] in big and not dst.exists():
+            hd_copy(raw / f, dst)
+            made += 1
+    listing['propsHd'] = sorted(p.name for p in hd.glob('*.webp'))
     (ROOT / 'biome-builder' / 'catalog.json').write_text(json.dumps(listing, indent=1) + '\n', encoding='utf-8')
     if made or not quiet:
         print(f"Biome Builder art: {len(listing['props'])} item sheets, {len(listing['ground'])} ground textures "

@@ -132,5 +132,30 @@
   "snow_v1.webp",
   "sulfur_v1.webp",
   "tundra_v1.webp"
+ ],
+ "propsHd": [
+  "acacia_v1.webp",
+  "acacia_v2.webp",
+  "birch_v1.webp",
+  "blossom_v1.webp",
+  "boulder_v1.webp",
+  "columns_v1.webp",
+  "darkrock_v1.webp",
+  "deadtree_v1.webp",
+  "fir_v1.webp",
+  "iceblock_v1.webp",
+  "jungle_v1.webp",
+  "mossy_v1.webp",
+  "oak2_v1.webp",
+  "oak_v1.webp",
+  "palm_v1.webp",
+  "pine_v1.webp",
+  "redrock_v1.webp",
+  "saguaro_v1.webp",
+  "sandrock_v1.webp",
+  "snowpine_v1.webp",
+  "snowrock_v1.webp",
+  "sulfrock_v1.webp",
+  "willow_v1.webp"
  ]
 }
