@@ -1,4 +1,4 @@
-import { SLOPE_K } from './terrain.js?v=20261124193000';
+import { SLOPE_K } from './terrain.js?v=20261124222346';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -102,6 +102,9 @@ uniform sampler2D u_fld; uniform int u_fx; uniform float u_tpp; uniform vec3 u_d
 // 1 = plain forest floor under the trees, share of big-prop spots used, -), 4 small-decoration atlas slots and
 // 4 big props to pick from. Packed into vec4s to stay well inside phones' uniform limits
 uniform vec4 u_biome[32]; uniform ivec4 u_decoK[32]; uniform ivec4 u_propK[32];
+// high-resolution props (tools/pack_props.py): per prop kind, the atlas cell of variant 0 (-1 = pixel art), and the
+// atlas layout (cell width and height in texels, cells per row, texels per art pixel) and size. Premultiplied alpha
+uniform sampler2D u_hd; uniform ivec4 u_hdK[8]; uniform vec4 u_hdInfo; uniform vec2 u_hdSize;
 // deposits, per overlay id: soil stain (rgb, strength) and (glint, pulse)
 uniform vec4 u_oreStain[16]; uniform vec2 u_oreFx[16];
 out vec4 o;
@@ -113,6 +116,8 @@ vec2 g_warp = vec2(0.0);  // how far this pixel's ground lookup is nudged (art p
 vec3 g_land = vec3(1.0);  // hill shading x colour variation, for land
 float g_depth = 0.0;      // water depth (elevation units)
 vec2 g_off = vec2(0.0);   // this chunk's first art pixel on the whole map (so noise lines up across chunks)
+vec2 g_ap = vec2(0.0);    // this screen pixel's exact spot on the whole map, in art pixels (high-resolution props)
+float g_hdLod = 0.0;      // mip level for high-resolution props at the current zoom
 
 uint hashu(uvec2 p) { uint h = (p.x * 0x27d4eb2du) ^ (p.y * 0x165667b1u); h ^= h >> 15; h *= 0x85ebca6bu; h ^= h >> 13; return h; }
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -184,32 +189,53 @@ vec3 decorate(ivec2 a, vec3 c) {
 
 // Big props (trees, boulders): 16 x 24 art px sprites (art.js), one spot per 12 x 12 cell of global art pixels,
 // nudged 0..11 px, standing on the ground under its foot (sprite pixel (8, 22)). Lower rows are nearer, so they're
-// looked at first and the first prop pixel found wins. Each sprite carries its own shadow (alpha ~0.38), which only
-// counts where no prop covers the spot. Returns the colour with alpha 1 on a hit
+// looked at first and layered front to back until something fully covers the spot. A pixel-art sprite carries its
+// own shadow (alpha ~0.38); a high-resolution one casts its own outline, softened, down and to the right. Returns
+// premultiplied colour + coverage, and how much shadow falls on the ground here (0..1)
 const int PG = 12;
-vec4 props(ivec2 a, out bool shade) {
+const vec2 HD_SHADOW = vec2(3.0, 2.0);   // how far a high-resolution prop's shadow falls (art px)
+// a high-resolution prop's texel at s (art px inside its 16 x 24 box); nothing outside the box
+vec4 hdTex(int cell, vec2 s, float lod) {
+  if (any(lessThan(s, vec2(0.0))) || any(greaterThanEqual(s, vec2(16.0, 24.0)))) return vec4(0.0);
+  int cols = int(u_hdInfo.z);
+  vec2 p = vec2(float(cell % cols), float(cell / cols)) * u_hdInfo.xy + s * u_hdInfo.w;
+  return textureLod(u_hd, p / u_hdSize, lod);
+}
+vec4 props(ivec2 a, out float shade) {
   ivec2 ga = a + ivec2(g_off);
-  ivec2 cA = ivec2(floor(vec2(ga - ivec2(27, 35)) / float(PG))), cB = ivec2(floor(vec2(ga) / float(PG)));
-  shade = false;
+  ivec2 cA = ivec2(floor(vec2(ga - ivec2(30, 37)) / float(PG))), cB = ivec2(floor(vec2(ga) / float(PG)));
+  shade = 0.0;
+  vec4 acc = vec4(0.0);
   for (int cy = cB.y; cy >= cA.y; cy--) for (int cx = cB.x; cx >= cA.x; cx--) {
     uint hh = hashu(uvec2(ivec2(cx, cy)) ^ uvec2(0x2b9fu, 0x6d31u));
     ivec2 A = ivec2(cx, cy) * PG + ivec2(int(hh & 15u) % PG, int((hh >> 4) & 15u) % PG);
     ivec2 q = ga - A;
-    if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(16, 24)))) continue;
+    if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(19, 26)))) continue;   // past sprite and shadow
     ivec2 foot = clamp(((A + ivec2(8, 22)) - ivec2(g_off)) >> 3, ivec2(0), ivec2(u_map) - 1);
     uvec2 id = texelFetch(u_ids, foot, 0).rg;
     if (id.g != 0u || float((hh >> 8) & 1023u) / 1023.0 >= u_biome[int(id.r)].z) continue;
     int k = u_propK[int(id.r)][int((hh >> 18) & 3u)];
     if (k < 0) continue;
-    int b = k + int((hh >> 20) & 3u);
-    vec4 sp = texelFetch(u_atlas, ivec2((b & 15) * 16 + q.x, 256 + (b >> 4) * 24 + q.y), 0);
-    if (sp.a > 0.7) {
-      float t = float((hh >> 22) & 255u) / 255.0 - 0.5;   // each one a little lighter or darker, warmer or cooler
-      return vec4(sp.rgb * g_land * (1.0 + t * 0.2) * vec3(1.0 + t * 0.08, 1.0, 1.0 - t * 0.08), 1.0);
+    int v = int((hh >> 20) & 3u);
+    float t = float((hh >> 22) & 255u) / 255.0 - 0.5;     // each one a little lighter or darker, warmer or cooler
+    vec3 tint = g_land * (1.0 + t * 0.2) * vec3(1.0 + t * 0.08, 1.0, 1.0 - t * 0.08);
+    int hd = u_hdK[k >> 4][(k >> 2) & 3];                  // k = prop kind * 4
+    if (hd >= 0) {
+      vec2 s = g_ap - vec2(A);
+      vec4 sp = hdTex(hd + v, s, g_hdLod);
+      if (sp.a > 0.003) {
+        acc += (1.0 - acc.a) * vec4(sp.rgb * tint, sp.a);
+        if (acc.a > 0.98) return vec4(acc.rgb / acc.a, 1.0);
+      }
+      shade = max(shade, hdTex(hd + v, s - HD_SHADOW, g_hdLod + 1.5).a);
+      continue;
     }
-    if (sp.a > 0.2) shade = true;
+    if (any(greaterThanEqual(q, ivec2(16, 24)))) continue;
+    vec4 sp = texelFetch(u_atlas, ivec2(((k + v) & 15) * 16 + q.x, 256 + ((k + v) >> 4) * 24 + q.y), 0);
+    if (sp.a > 0.7) return vec4(acc.rgb + (1.0 - acc.a) * sp.rgb * tint, 1.0);
+    if (sp.a > 0.2) shade = 1.0;
   }
-  return vec4(0.0);
+  return acc;
 }
 
 // Cliffs: the land's height (field map B, smooth between tiles) is cut into steps. Where a step drops toward the
@@ -327,11 +353,11 @@ vec3 finish(ivec2 a, vec3 c) {
     if (r > 0.955 && !shore) c += vec3(0.32) * smoothstep(0.0, 0.06, ph) * smoothstep(0.22, 0.06, ph);
     if (g_depth > 0.01) return c;
   } else if (gq.a > 0u && gq.r != 20u) c = cliff(a, c);
-  bool sh;
+  float sh;
   vec4 pr = props(a, sh);
-  if (pr.a > 0.0) return pr.rgb;
+  if (pr.a >= 1.0) return pr.rgb;
   if (!water) c = decorate(a, c);
-  return sh ? c * 0.62 : c;
+  return pr.rgb + (1.0 - pr.a) * c * (1.0 - 0.38 * sh);
 }
 
 void main() {
@@ -404,6 +430,9 @@ void main() {
           // per screen pixel: the border wiggle, and shading + water depth at the nearest art pixel's centre
           g_off = floor(u_page.xy * u_map / u_page.zw + 0.5) * 8.0;
           vec2 g = ap + g_off;
+          g_ap = g + 0.5;
+          // art pixels per screen pixel (u_pix > 1 draws blocks of pixels alike) x texels per art pixel
+          g_hdLod = max(0.0, log2(u_map.x * 4.0 / (u_R * u_page.z) * max(u_pix, 1.0) * u_hdInfo.w));
           uint wj = hashu(uvec2(ivec2(floor(g))) ^ uvec2(0x7f4au, 0x1b3du));
           g_warp = (vec2(vn2(g / 11.0, 1u), vn2(g / 11.0, 2u)) - 0.5) * 6.5
                  + (vec2(float(wj & 255u), float((wj >> 8) & 255u)) / 255.0 - 0.5) * 1.6;

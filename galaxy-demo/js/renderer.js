@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261124193000';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261124193000';
+import * as S from './shaders.js?v=20261124222346';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261124222346';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -80,6 +80,29 @@ export class Renderer {
     gl.useProgram(p);
     gl.uniform4fv(u['u_biome[0]'], t.B); gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform4iv(u['u_propK[0]'], t.PK);
     gl.uniform4fv(u['u_oreStain[0]'], t.S); gl.uniform2fv(u['u_oreFx[0]'], t.X);
+    gl.uniform4iv(u['u_hdK[0]'], new Int32Array(32).fill(-1));   // no high-resolution props until setHdProps
+  }
+  // High-resolution props (tools/pack_props.py): an image atlas of 4 variants per prop kind, drawn smoothly instead
+  // of the pixel-art props. hdK = per prop kind (skin order), the atlas cell of its variant 0, or -1 = keep pixel art
+  setHdProps(img, meta, hdK) {
+    const gl = this.gl, t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);    // premultiplied, so smooth edges and mipmaps stay clean
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 5);   // past this, neighbouring cells would blur together
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    if (this.hdProps) gl.deleteTexture(this.hdProps);
+    this.hdProps = t; this.texBytes += img.width * img.height * 4 * 1.34;
+    const { p, u } = this.progBody;
+    gl.useProgram(p);
+    gl.uniform4iv(u['u_hdK[0]'], hdK);
+    gl.uniform4f(u.u_hdInfo, meta.cell[0], meta.cell[1], meta.cols, meta.scale);
+    gl.uniform2f(u.u_hdSize, img.width, img.height);
   }
   makeAtlas(data) {
     const gl = this.gl, t = gl.createTexture();
@@ -178,6 +201,7 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.col : this.dummyCol); gl.uniform1i(u.u_col, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.atlas); gl.uniform1i(u.u_atlas, 2);
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, b.map ? b.map.fld : this.dummyFld); gl.uniform1i(u.u_fld, 3);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.hdProps || this.dummyCol); gl.uniform1i(u.u_hd, 4);
     gl.uniform1i(u.u_fx, b.fx ? 1 : 0); gl.uniform1f(u.u_tpp, b.tpp || 0);
     const [wd, ws] = this.water;
     gl.uniform3f(u.u_deep, wd[0] / 255, wd[1] / 255, wd[2] / 255); gl.uniform3f(u.u_shallow, ws[0] / 255, ws[1] / 255, ws[2] / 255);

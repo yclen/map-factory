@@ -1,0 +1,11 @@
+{
+  "kinds": {
+    "oak": {
+      "sheet": "oak_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    }
+  }
+}
