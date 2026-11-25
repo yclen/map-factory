@@ -3,14 +3,14 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125140842';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125140842';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125140842';
-import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125140842';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125140842';
-import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125140842';
-import { splash } from './splash.js?v=20261125140842';
-import { createSystem } from './system.js?v=20261125140842';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125141207';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125141207';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125141207';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125141207';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125141207';
+import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125141207';
+import { splash } from './splash.js?v=20261125141207';
+import { createSystem } from './system.js?v=20261125141207';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it

@@ -29,69 +29,6 @@ main { flex: 1; display: flex; min-height: 0; }
 #gl:active { cursor: grabbing; }
 #overlay { pointer-events: none; }
 
-/* ---------- the loading screen (splash.js) ---------- */
-#splash { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 24px 16px; background: radial-gradient(ellipse at 50% 42%, #10203f 0%, #070b16 55%, #020308 100%);
-  transition: opacity 0.7s ease, transform 0.7s ease; overflow: hidden; }
-#splash.done { opacity: 0; transform: scale(1.04); pointer-events: none; }
-#splash .sky { position: absolute; inset: -50%; pointer-events: none; opacity: 0.85;
-  background-image:
-    radial-gradient(1.2px 1.2px at 12% 18%, #fff, transparent), radial-gradient(1px 1px at 27% 64%, #cfe0ff, transparent),
-    radial-gradient(1.5px 1.5px at 41% 32%, #fff, transparent), radial-gradient(1px 1px at 58% 81%, #ffe9c4, transparent),
-    radial-gradient(1.3px 1.3px at 69% 22%, #fff, transparent), radial-gradient(1px 1px at 83% 57%, #cfe0ff, transparent),
-    radial-gradient(1px 1px at 91% 12%, #fff, transparent), radial-gradient(1.4px 1.4px at 6% 88%, #fff, transparent),
-    radial-gradient(ellipse 40% 25% at 30% 70%, rgba(80, 110, 220, 0.12), transparent),
-    radial-gradient(ellipse 35% 22% at 75% 30%, rgba(160, 90, 200, 0.10), transparent);
-  background-size: 260px 260px, 330px 330px, 410px 410px, 290px 290px, 370px 370px, 230px 230px, 450px 450px, 310px 310px, 100% 100%, 100% 100%;
-  animation: splash-drift 90s linear infinite; }
-@keyframes splash-drift { to { transform: translate(-6%, -4%); } }
-.splash-main { position: relative; width: min(440px, 100%); text-align: center; }
-
-.orrery { position: relative; width: 230px; height: 230px; margin: 0 auto 22px; }
-.orrery .star { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%;
-  background: radial-gradient(circle at 42% 40%, #ffffff 0%, #cfe2ff 28%, #8fb6ff 60%, #4f7fe6 100%);
-  box-shadow: 0 0 22px 6px rgba(130, 175, 255, 0.55), 0 0 70px 20px rgba(90, 140, 255, 0.25);
-  animation: splash-pulse 2.6s ease-in-out infinite; }
-@keyframes splash-pulse { 50% { box-shadow: 0 0 30px 10px rgba(130, 175, 255, 0.7), 0 0 95px 30px rgba(90, 140, 255, 0.3); } }
-.orrery .orbit { position: absolute; left: 50%; top: 50%; border-radius: 50%; border: 1px solid rgba(150, 185, 255, 0.16);
-  animation: splash-spin linear infinite; }
-.orrery .o1 { width: 96px; height: 96px; margin: -48px; animation-duration: 5s; }
-.orrery .o2 { width: 140px; height: 140px; margin: -70px; animation-duration: 8s; }
-.orrery .o3 { width: 186px; height: 186px; margin: -93px; animation-duration: 12s; animation-delay: -4s; }
-.orrery .o4 { width: 228px; height: 228px; margin: -114px; animation-duration: 18s; animation-delay: -11s; }
-@keyframes splash-spin { to { transform: rotate(360deg); } }
-.orrery .planet { position: absolute; left: 50%; top: 0; border-radius: 50%; transform: translate(-50%, -50%);
-  box-shadow: inset -3px -3px 5px rgba(0, 0, 0, 0.55); }
-/* the mix planet: a slice of each biome round an ocean */
-.orrery .mix { width: 24px; height: 24px;
-  background: radial-gradient(circle, #2b6fc2 0 30%, #1d4f99 33%, transparent 35%),
-    conic-gradient(#d8b56a 0 30deg, #c4683c 0 60deg, #c9b24a 0 90deg, #2f7d32 0 120deg, #e8d9a0 0 150deg, #4f5a2e 0 180deg,
-      #5f9e3a 0 210deg, #2f5e2a 0 240deg, #8a8a86 0 270deg, #3d5a45 0 300deg, #9aa58a 0 330deg, #eef3f8 0 360deg); }
-.orrery .p2 { width: 13px; height: 13px; background: radial-gradient(circle, #2b6fc2 0 30%, #d8b56a 34%); }
-.orrery .p3 { width: 15px; height: 15px; background: radial-gradient(circle, #2b6fc2 0 30%, #2f6b2c 34%); }
-.orrery .p4 { width: 12px; height: 12px; background: radial-gradient(circle, #2b6fc2 0 30%, #e9eef5 34%); }
-
-#splash h1 { margin: 0; font-size: clamp(26px, 6vw, 38px); font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase;
-  color: #eaf1ff; text-shadow: 0 0 18px rgba(120, 165, 255, 0.45); }
-#splash h1 span { color: var(--accent); text-shadow: 0 0 18px rgba(242, 193, 78, 0.4); }
-#splash .line { height: 1.4em; margin: 10px 0 16px; color: #b9c6dc; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#splash .bar { position: relative; height: 12px; border-radius: 7px; overflow: hidden; background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(150, 185, 255, 0.22); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6); }
-#splash .fill { position: relative; height: 100%; width: 0; border-radius: 6px; overflow: hidden;
-  background: linear-gradient(90deg, #3d6fe0, #7fb0ff 55%, #f2c14e); box-shadow: 0 0 14px rgba(127, 176, 255, 0.6);
-  transition: width 0.35s ease-out; }
-#splash .fill::after { content: ''; position: absolute; inset: 0;
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
-  background-size: 200% 100%; animation: splash-shine 1.6s linear infinite; }
-@keyframes splash-shine { from { background-position: 150% 0; } to { background-position: -50% 0; } }
-#splash .meta { display: flex; justify-content: space-between; margin-top: 7px; color: var(--dim); font-size: 12px;
-  font-variant-numeric: tabular-nums; }
-#splash .tip { position: absolute; bottom: 22px; left: 16px; right: 16px; margin: 0; text-align: center; color: #7f8ba0;
-  font-size: 12px; transition: opacity 0.3s; }
-#splash .tip.out { opacity: 0; }
-#splash.failed .line { color: #ff9b8a; white-space: normal; height: auto; }
-#splash.failed .fill { background: #b5493a; box-shadow: none; }
-@media (prefers-reduced-motion: reduce) { #splash *, #splash *::after { animation: none !important; } }
 #status { position: absolute; left: 10px; bottom: 8px; padding: 2px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.55);
   color: #dfe6f0; font-size: 12px; pointer-events: none; }
 #status:empty { display: none; }
