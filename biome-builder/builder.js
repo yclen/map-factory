@@ -3,13 +3,14 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125135241';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125135241';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125135241';
-import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125135241';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125135241';
-import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125135241';
-import { createSystem } from './system.js?v=20261125135241';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125140842';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125140842';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125140842';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125140842';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125140842';
+import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125140842';
+import { splash } from './splash.js?v=20261125140842';
+import { createSystem } from './system.js?v=20261125140842';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
@@ -586,7 +587,7 @@ document.getElementById('fit').addEventListener('click', () => sys.overview());
 // ---------- start ----------
 
 async function start() {
-  const bar = document.getElementById('loading');
+  splash.step('Waking the blue star', 0.02);
   sys = createSystem(document.getElementById('gl'), document.getElementById('overlay'), {
     tap: hit => {
       const far = hit.planet.W * sys.zoom < Math.min(innerWidth, innerHeight) * 0.6 * sys.dpr;
@@ -601,16 +602,19 @@ async function start() {
     perf: p => { fps = `${Math.round(p.fps)} fps` + (p.quality < 1 ? ` · ${Math.round(p.quality * 100)}% resolution` : ''); status(); },
   });
   window.biomeBuilder = { sys };                // for poking at from the browser console, e.g. biomeBuilder.sys.bench()
-  A = await loadAll((n, total, label) => { bar.textContent = `Loading art ${n} / ${total}: ${label}`; });
+  A = await loadAll((n, total, label) => splash.art(n, total, label));
+  splash.step('Reading the saved biomes', 0.91);
   try {
     const idx = await (await fetch('../art/biomes/index.json', { cache: 'no-store' })).json();
     if (idx.look) savedLook = { ...SHADOW, ...idx.look };
     await Promise.all((idx.saved || []).map(async n => { saved[n] = await (await fetch(`../art/biomes/${n}.json`, { cache: 'no-store' })).json(); }));
   } catch { /* nothing saved yet */ }
-  bar.remove();
+  splash.step('Building the planets', 0.95);
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r)));   // let that line show before the busy part
   sys.R.setDecor(decorTables(SKIN));
   syncToolbar();
   apply('all');
   renderPanel();
+  splash.done();
 }
-start().catch(e => { document.getElementById('loading').textContent = 'Could not start: ' + e.message; console.error(e); });
+start().catch(e => { splash.fail('Could not start: ' + e.message); console.error(e); });

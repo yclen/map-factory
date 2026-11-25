@@ -20,7 +20,6 @@
     <div id="stage">
       <canvas id="gl"></canvas>
       <canvas id="overlay"></canvas>
-      <div id="loading">Loading art…</div>
       <div id="status"></div>
     </div>
     <aside>
@@ -32,6 +31,24 @@
       <div id="panel"></div>
     </aside>
   </main>
+  <!-- the loading screen (splash.js), in the page so it shows straight away -->
+  <div id="splash" role="status" aria-live="polite">
+    <div class="sky"></div>
+    <div class="splash-main">
+      <div class="orrery" aria-hidden="true">
+        <div class="orbit o1"><div class="planet mix"></div></div>
+        <div class="orbit o2"><div class="planet p2"></div></div>
+        <div class="orbit o3"><div class="planet p3"></div></div>
+        <div class="orbit o4"><div class="planet p4"></div></div>
+        <div class="star"></div>
+      </div>
+      <h1>Biome <span>Builder</span></h1>
+      <p class="line" id="splashLine">Waking the blue star…</p>
+      <div class="bar"><div class="fill" id="splashFill"></div></div>
+      <div class="meta"><span id="splashDetail">Starting up</span><span id="splashPct">0%</span></div>
+    </div>
+    <p class="tip" id="splashTip"></p>
+  </div>
   <script type="module">
     // load the current release even if the browser kept old copies: the Galaxy demo's version.txt is never cached,
     // and every script the Builder loads carries that stamp (tools/stamp_galaxy.py)

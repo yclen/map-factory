@@ -7,7 +7,7 @@
 //     items: [ { kind: 'oak', layer: 'big' | 'small', density (share of spots), size (1 = a 2 x 3 tile box),
 //                sizeVar (0..1 random size spread), clump (0..1), clumpSize (tiles), skin: { sheet, pick } } ] }
 // Big items stand on one spot per 1.5 x 1.5 tiles, small items on one spot per tile; up to ITEM_SLOTS per layer.
-import { BASE } from './ids.js?v=20261125135241';
+import { BASE } from './ids.js?v=20261125140842';
 
 export const ITEM_SLOTS = 8;
 // the look shared by every biome: item shadows (renderer.js this.shadow) and the ground relief a template without one gets
