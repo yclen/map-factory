@@ -1,6 +1,8 @@
 """The Biome Builder's local server: serves the project (like python -m http.server) and saves biome designs.
 
   python tools/builder_server.py            then open http://localhost:8170/biome-builder/
+  python tools/builder_server.py 8172 --idle-exit 15    another port; stop after 15 minutes without a Builder page
+Or just double-click the Biome Builder shortcut on the desktop (tools/launch_builder.pyw), which runs this for you.
 
 Save in the Builder sends the biome's template and a fresh bake for the game. This writes:
   art/biomes/<GROUND>.json      the template you saved (the source, kept in git)
@@ -10,14 +12,19 @@ Revert to the game's defaults sends no template, which deletes the biome's file.
 it only re-bakes (for new AI art).
 Only listens on this computer (127.0.0.1).
 """
-import base64, http.server, json, re, sys
+import argparse, base64, http.server, json, re, sys, threading, time
 from functools import partial
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = ROOT / 'art' / 'biomes'
 BAKE = ROOT / 'galaxy-demo' / 'biomes'
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8170
+_args = argparse.ArgumentParser()
+_args.add_argument('port', nargs='?', type=int, default=8170)
+_args.add_argument('--idle-exit', type=float, default=0, help='stop after this many minutes without any request (0 = never)')
+ARGS = _args.parse_args()
+PORT = ARGS.port
+last_request = time.time()           # an open Builder page pings every minute, so this stays fresh while one is open
 BIOME_NAME = re.compile(r'^[A-Z_]{2,20}$')
 FILE_NAME = re.compile(r'^[\w-]{1,40}\.(webp|png)$')
 
@@ -43,6 +50,22 @@ def write_bake(bake):
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def setup(self):
+        global last_request
+        last_request = time.time()
+        super().setup()
+
+    def do_GET(self):
+        if self.path.startswith('/api/biome-builder/ping'):         # the launcher and open Builder pages check in
+            body = json.dumps({'ok': True, 'app': 'biome-builder', 'idleExit': ARGS.idle_exit}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
+
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store')          # always the latest files while designing
         super().end_headers()
@@ -86,11 +109,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    try:                                                        # small copies of any new AI art, for fast loading
-        import builder_catalog
-        builder_catalog.main(quiet=True)
-    except Exception as e:                                      # the Builder still works from the raw images
-        print(f'could not make web copies of the art: {e}', flush=True)
-    server =http.server.ThreadingHTTPServer(('127.0.0.1', PORT), partial(Handler, directory=str(ROOT)))
+    def catalog():                                              # small copies of any new AI art, for fast loading
+        try:
+            import builder_catalog
+            builder_catalog.main(quiet=True)
+        except Exception as e:                                  # the Builder still works from the raw images
+            print(f'could not make web copies of the art: {e}', flush=True)
+    threading.Thread(target=catalog, daemon=True).start()       # in the background: serve straight away
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', PORT), partial(Handler, directory=str(ROOT)))
     print(f'Biome Builder: http://localhost:{PORT}/biome-builder/  (saving to art/biomes/ and galaxy-demo/biomes/)', flush=True)
+    if ARGS.idle_exit > 0:                                      # started by the launcher: stop once nobody's using it
+        def watch():
+            while time.time() - last_request < ARGS.idle_exit * 60:
+                time.sleep(20)
+            print('no Builder page for a while: stopping', flush=True)
+            server.shutdown()
+        threading.Thread(target=watch, daemon=True).start()
     server.serve_forever()

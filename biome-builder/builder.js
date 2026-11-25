@@ -3,14 +3,14 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125143024';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125143024';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125143024';
-import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125143024';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125143024';
-import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125143024';
-import { splash } from './splash.js?v=20261125143024';
-import { createSystem } from './system.js?v=20261125143024';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125143831';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125143831';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125143831';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125143831';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125143831';
+import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125143831';
+import { splash } from './splash.js?v=20261125143831';
+import { createSystem } from './system.js?v=20261125143831';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
@@ -26,7 +26,8 @@ const TREES = new Set(['oak', 'oak2', 'birch', 'blossom', 'willow', 'deadtree', 
 const TREE_SIZE = 3.5, TREE_DENSITY = 0.08;
 // the big items' own sharp atlas: texels per art px to try, sharpest first, within 4096 x 4096 (safe on phones too)
 const BIG_ATLAS = { scales: [24, 20, 16, 12], maxSide: 4096 };
-const MIX = 'MIX';                                       // the mix planet's name (every other planet is named by its biome)
+const MIX = 'MIX';
+const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);   // opened by the desktop launcher (saving works)                                       // the mix planet's name (every other planet is named by its biome)
 const SIZES = [512, 1024, 2048, 4096];
 
 // which ground texture names suit which biome (the first one with art is the default); any texture can be picked
@@ -337,7 +338,8 @@ async function save(name, template) {
       : template ? `Saved to ${out.template}. The Galaxy demo uses it now.` : `${BASE_NAME[name]} uses the game's defaults again.`;
   } catch (e) {
     saveMsg = /no save server|Failed to fetch/.test(e.message)
-      ? 'Saving needs the local Builder server: run  python tools/builder_server.py  and open http://localhost:8170/biome-builder/. Your changes are kept in this browser meanwhile.'
+      ? (LOCAL ? 'The save program has stopped. Double-click the Biome Builder icon on your desktop to start it again, then press Save.'
+        : 'Saving works in the desktop version: double-click the Biome Builder icon on your desktop (it opens the Builder with saving switched on). Your changes here stay in this browser.')
       : 'Could not save: ' + e.message;
   }
   saving = false;
@@ -645,6 +647,8 @@ async function start() {
   apply('all');
   renderPanel();
   splash.done();
+  // tell the save program this page is still open (it stops by itself a while after the last one closes)
+  if (LOCAL) setInterval(() => fetch('/api/biome-builder/ping', { cache: 'no-store' }).catch(() => {}), 60000);
   // then the big items' full-size sheets, in the background: their atlas sharpens once they're in
   hdNote = 'Sharpening trees…'; status();
   hdLoaded = await loadHd(A, (n, total) => { hdNote = `Sharpening trees ${n} / ${total}`; status(); });

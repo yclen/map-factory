@@ -23,14 +23,13 @@ biome, hottest nearest the star, each one that biome all round an ocean. Planets
 planet twice the others). Pick a biome (click its planet, or its slice on the mix planet), design it, press **Save**,
 and the Galaxy demo generates that biome from your design wherever it appears.
 
-**Run it locally** (saving needs this server; it also serves the project like a plain file server):
-
-```powershell
-python tools/builder_server.py
-```
-
-then open http://localhost:8170/biome-builder/ (or start the **biome-builder** preview, the same server on port 8171). On GitHub
-Pages (`/map-factory/biome-builder/`) you can look and try things, but Save only works locally.
+**Run it with saving on:** double-click **Biome Builder** on the desktop. It runs `tools/launch_builder.pyw`, which
+starts the save server in the background (no window) and opens http://localhost:8170/biome-builder/ (the next free port
+if 8170 is busy). Save is then one click. The server stops by itself 15 minutes after the last Builder page closes; its
+log is `%TEMP%/biome-builder-server.log`. To make the shortcut again: `python tools/launch_builder.pyw --shortcut`.
+By hand: `python tools/builder_server.py` (or the **biome-builder** preview, the same server on port 8171).
+On GitHub Pages (`/map-factory/biome-builder/`) you can look and try things, but Save only works through the desktop
+icon. Unsaved changes are kept per address, so changes made online don't show up in the desktop version.
 
 **A biome design** (galaxy-demo/js/biomes.js has the exact format):
 - **Ground:** a texture from `art/ground/raw/` (or the old tile art), its scale, brightness, saturation, hue and
