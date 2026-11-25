@@ -36,8 +36,11 @@ icon. Unsaved changes are kept per address, so changes made online don't show up
   **relief** (0-2, 0.8 by default): the texture's light parts stand up as bumps and its dark parts sink, lit by the
   same sun as the hills, so flat AI textures look raised and cracked without new art.
 - **Shadows** (shared by every biome, System tab; kept in `art/biomes/index.json`): each item casts its own outline
-  flat along the ground from its foot, the way Factorio does, so no separate shadow pictures are needed. Length (per
-  unit of the item's height), angle below the horizontal, and darkness.
+  flat along the ground, the way Factorio does, so no separate shadow pictures are needed, plus a soft **contact
+  shadow** on the ground right under it so it sits on the ground. Both start from the picture's **base** (the part
+  touching the ground, measured from the art when the atlas is built: a tree's trunk, most of a boulder's width), so
+  the cast shadow grows out from under the item instead of starting beside it. Length (per unit of the item's
+  height), angle below the horizontal (12 by default, mostly sideways like Factorio's), darkness and contact.
 - **Items:** up to 8 **big** ones (trees, boulders; one spot per 1.5 x 1.5 tiles) and 8 **small** ones (shrubs,
   grass tufts, flowers, pebbles; one spot per tile, drawn under the big ones). Each has a **density** (share of spots
   it fills), **size** (1 = a 2 x 3 tile box, up to 20x), **size spread**, **clumping** and clump size, and its

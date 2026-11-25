@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125143831';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125143831';
+import * as S from './shaders.js?v=20261125145354';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125145354';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -52,6 +52,8 @@ export class Renderer {
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 16); gl.vertexAttribDivisor(2, 1);
 
     this.qm = qm; this.q01 = q01;
+    // the cast shadow's strip: bottom, the top of the item's base (y = 0.5 marks it), top
+    this.q6 = buf(new Float32Array([0, 1, 1, 1, 0, 0.5, 1, 0.5, 0, 0, 1, 0]));
     gl.bindVertexArray(null);
 
     gl.enable(gl.BLEND);
@@ -68,7 +70,8 @@ export class Renderer {
     this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8); this.gR = new Float32Array(32);
     // item shadows, Factorio style: len = shadow length per unit of an item's height, angle = degrees below the
     // horizontal (to the right), dark = how dark (0..1). biomes.js SHADOW has the defaults
-    this.shadow = { len: 1.1, angle: 25, dark: 0.45 };
+    this.shadow = { len: 1.1, angle: 12, dark: 0.45, contact: 0.55 };
+    this.itemCells = null; this.bigCells = null;   // per atlas cell, its picture's base (u_cells)
     this.items = null; this.itemTex = null; this.itemTable = null; this.itemInfo = [128, 192, 8, 8]; this.itemSize = [1, 1];
     // big items (trees, boulders) can have their own sharper atlas (setBigItems); until then they come from itemTex
     this.bigTex = null; this.bigInfo = null; this.bigSize = null;
@@ -120,6 +123,7 @@ export class Renderer {
       if (this.itemTex) gl.deleteTexture(this.itemTex);
       this.itemTex = this.uploadSpriteAtlas(img);
       this.itemInfo = [meta.cell[0], meta.cell[1], meta.cols, meta.scale]; this.itemSize = [img.width, img.height];
+      this.itemCells = this.makeCellTexture(meta.base, this.itemCells);
     }
     if (table) {
       if (!this.itemTable) {
@@ -142,6 +146,22 @@ export class Renderer {
     this.bigTex = img ? this.uploadSpriteAtlas(img) : null;
     this.bigInfo = img ? [meta.cell[0], meta.cell[1], meta.cols, meta.scale] : null;
     this.bigSize = img ? [img.width, img.height] : null;
+    this.bigCells = this.makeCellTexture(img && meta.base, this.bigCells);
+  }
+  // per atlas cell, its picture's base, [left, right, height] (art px) after each other, as a 256-wide float texture
+  // the prop shader reads (u_cells). null if the atlas came without (an old bake): the shader assumes a typical base
+  makeCellTexture(base, old) {
+    const gl = this.gl;
+    if (old) gl.deleteTexture(old);
+    if (!base || !base.length) return null;
+    const n = base.length / 3, rows = Math.ceil(n / 256), data = new Float32Array(256 * rows * 4);
+    for (let i = 0; i < n; i++) data.set([base[i * 3], base[i * 3 + 1], base[i * 3 + 2], 0], i * 4);
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 256, rows);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, rows, gl.RGBA, gl.FLOAT, data);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    return t;
   }
   uploadSpriteAtlas(img) {
     const gl = this.gl, t = gl.createTexture();
@@ -191,13 +211,20 @@ export class Renderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, P.buf);
     gl.bufferData(gl.ARRAY_BUFFER, u32, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_INT, 16, 0); gl.vertexAttribDivisor(1, 1);
+    // the same spots with the cast shadow's 6-point strip
+    P.vao6 = gl.createVertexArray();
+    gl.bindVertexArray(P.vao6);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.q6); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, P.buf);
+    gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_INT, 16, 0); gl.vertexAttribDivisor(1, 1);
     gl.bindVertexArray(null);
     this.texBytes += P.bytes;
     return P;
   }
-  freePropBuffer(P) { this.gl.deleteBuffer(P.buf); this.gl.deleteVertexArray(P.vao); this.texBytes -= P.bytes; }
+  freePropBuffer(P) { this.gl.deleteBuffer(P.buf); this.gl.deleteVertexArray(P.vao); this.gl.deleteVertexArray(P.vao6); this.texBytes -= P.bytes; }
   // Draw the items of some chunks (listed top to bottom, so nearer ones end up in front; small items under big ones):
-  // first every item's silhouette, laid down flat from its foot (this.shadow), onto a shadow layer (overlaps keep the darkest, never add up),
+  // first the shadows onto a shadow layer (overlaps keep the darkest, never add up): every item's silhouette laid down
+  // flat from its base (this.shadow), and a soft contact shadow under each base,
   // laid over the ground once; then the items themselves. chunks: [{ big, small (spot buffers), fld,
   // chunk: [x0, y0, w, h] in tiles }]; q: { cx, cy, R (device px), W8 (art px across the disk's square), tpp, alpha, shadows }
   // how far shadows reach from an item's foot, in tiles per unit of item size (it's 3 tiles tall): [sideways, down]
@@ -208,10 +235,11 @@ export class Renderer {
   drawProps(chunks, q) {
     if (!chunks.length || !this.items) return;
     const gl = this.gl, { p, u } = this.progProps;
-    const pass = shadow => {
+    const pass = shadow => {                               // 0 the items, 1 cast shadows, 2 contact shadows
       gl.useProgram(p);
       gl.uniform2f(u.u_res, this.w, this.h); gl.uniform2f(u.u_center, q.cx, q.cy); gl.uniform1f(u.u_R, q.R);
-      gl.uniform1f(u.u_W8, q.W8); gl.uniform1f(u.u_tpp, q.tpp); gl.uniform1i(u.u_shadow, shadow ? 1 : 0);
+      gl.uniform1f(u.u_W8, q.W8); gl.uniform1f(u.u_tpp, q.tpp); gl.uniform1i(u.u_shadow, shadow);
+      gl.uniform1i(u.u_cells, 3);
       const sa = this.shadow.angle * Math.PI / 180;
       gl.uniform2f(u.u_shadowDir, Math.cos(sa) * this.shadow.len, Math.sin(sa) * this.shadow.len);
       gl.uniform1f(u.u_alpha, q.alpha);
@@ -223,13 +251,16 @@ export class Renderer {
         const big = layer === 'big' && this.bigTex;           // big items from their own sharper atlas, if there is one
         gl.uniform4f(u.u_hdInfo, ...(big ? this.bigInfo : this.itemInfo)); gl.uniform2f(u.u_hdSize, ...(big ? this.bigSize : this.itemSize));
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, big ? this.bigTex : this.itemTex);
+        const cellTex = big ? this.bigCells : this.itemCells;
+        gl.uniform1i(u.u_hasCells, cellTex ? 1 : 0);
+        gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, cellTex || this.dummyCol);
         for (const c of chunks) {
           const buf = c[layer];
           if (!buf || !buf.n) continue;
           gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, c.fld);
           gl.uniform4f(u.u_chunk, c.chunk[0], c.chunk[1], c.chunk[2], c.chunk[3]);
-          gl.bindVertexArray(buf.vao);
-          gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, buf.n); this.draws++;
+          gl.bindVertexArray(shadow === 1 ? buf.vao6 : buf.vao);
+          gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, shadow === 1 ? 6 : 4, buf.n); this.draws++;
         }
       }
     };
@@ -251,7 +282,8 @@ export class Renderer {
       gl.viewport(0, 0, sw, sh);
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
       gl.blendEquation(gl.MAX);
-      pass(true);
+      pass(1);
+      pass(2);
       gl.blendEquation(gl.FUNC_ADD);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.w, this.h);
@@ -260,11 +292,12 @@ export class Renderer {
       gl.uniform4f(sp.u.u_rect, 0, 0, this.w, this.h); gl.uniform2f(sp.u.u_res, this.w, this.h);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.shadowTex); gl.uniform1i(sp.u.u_tex, 0);
       gl.uniform1f(sp.u.u_alpha, q.alpha); gl.uniform1f(sp.u.u_dark, this.shadow.dark);
+      gl.uniform1f(sp.u.u_contact, this.shadow.contact ?? 0.55);
       gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.draws++;
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     }
-    pass(false);
+    pass(0);
   }
   // High-resolution props (tools/pack_props.py): an image atlas of 4 variants per prop kind, drawn smoothly instead
   // of the pixel-art props. hdK = per prop kind (skin order), the atlas cell of its variant 0, or -1 = keep pixel art

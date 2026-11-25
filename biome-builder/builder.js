@@ -3,14 +3,14 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125143831';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125143831';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125143831';
-import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125143831';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125143831';
-import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125143831';
-import { splash } from './splash.js?v=20261125143831';
-import { createSystem } from './system.js?v=20261125143831';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125145354';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125145354';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125145354';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF } from '../galaxy-demo/js/biomes.js?v=20261125145354';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125145354';
+import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125145354';
+import { splash } from './splash.js?v=20261125145354';
+import { createSystem } from './system.js?v=20261125145354';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
@@ -424,7 +424,7 @@ function select(name, fly) {
 
 // --- System tab ---
 function shadowSlider(label, key, min, max, step, tip) {
-  return slider(label, look()[key], min, max, step, v => { S.look = { ...look(), [key]: v }; sys.R.shadow = { ...S.look }; },
+  return slider(label, look()[key] ?? SHADOW[key], min, max, step, v => { S.look = { ...look(), [key]: v }; sys.R.shadow = { ...S.look }; },
     { tip, after: () => { persist(); renderPanel(); } });
 }
 function systemPanel() {
@@ -450,10 +450,11 @@ function systemPanel() {
     slider('Orbits', S.spread, 0.1, 1, 0.01, x => { S.spread = x; }, { after: relayout, tip: "how far apart the orbits are: 1 = the Galaxy demo's rules for a blue giant" }),
     h('div', { class: 'row' }, h('button', { onclick: () => sys.overview() }, 'Show the whole system')),
     h('h3', {}, 'Shadows', S.look ? h('span', { class: 'pill unsaved' }, 'unsaved') : null),
-    h('p', { class: 'hint' }, 'Every item casts its outline flat along the ground from its foot, like Factorio. Shared by all biomes; the game gets them with the next Save or Update the game.'),
+    h('p', { class: 'hint' }, 'Every item casts its outline flat along the ground from its base, like Factorio, and darkens the ground right under it. Shared by all biomes; the game gets them with the next Save or Update the game.'),
     shadowSlider('Length', 'len', 0, 2.5, 0.05, 'shadow length per unit of an item\'s height'),
     shadowSlider('Angle', 'angle', 0, 80, 1, 'degrees below the horizontal, falling to the right'),
-    shadowSlider('Darkness', 'dark', 0, 0.9, 0.01, 'how dark the shadows are'),
+    shadowSlider('Darkness', 'dark', 0, 0.9, 0.01, 'how dark the cast shadows are'),
+    shadowSlider('Contact', 'contact', 0, 1, 0.01, 'the soft dark patch on the ground right under each item, so it sits on the ground'),
     S.look ? h('div', { class: 'row' }, h('button', { onclick: () => { delete S.look; persist(); syncToolbar(); renderPanel(); } }, 'Back to the saved shadows')) : null,
     h('h3', {}, 'Saving'),
     h('div', { class: 'row' }, h('button', { disabled: saving, onclick: () => save(null, null),

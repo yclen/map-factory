@@ -116,7 +116,10 @@ if __name__ == '__main__':
         except Exception as e:                                  # the Builder still works from the raw images
             print(f'could not make web copies of the art: {e}', flush=True)
     threading.Thread(target=catalog, daemon=True).start()       # in the background: serve straight away
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', PORT), partial(Handler, directory=str(ROOT)))
+    class Server(http.server.ThreadingHTTPServer):
+        request_queue_size = 128        # the Builder asks for dozens of files at once; the default 5 drops some
+        daemon_threads = True
+    server = Server(('127.0.0.1', PORT), partial(Handler, directory=str(ROOT)))
     print(f'Biome Builder: http://localhost:{PORT}/biome-builder/  (saving to art/biomes/ and galaxy-demo/biomes/)', flush=True)
     if ARGS.idle_exit > 0:                                      # started by the launcher: stop once nobody's using it
         def watch():

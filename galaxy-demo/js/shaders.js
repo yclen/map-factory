@@ -1,5 +1,5 @@
-import { SLOPE_K } from './terrain.js?v=20261125143831';
-import { ITEM_SLOTS } from './biomes.js?v=20261125143831';
+import { SLOPE_K } from './terrain.js?v=20261125145354';
+import { ITEM_SLOTS } from './biomes.js?v=20261125145354';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -524,15 +524,20 @@ void main() {
 // What grows there comes from the item table (biomes.js itemTable): the row for this ground type and layer lists up
 // to 8 items with their density, clumping, atlas cell, size and size spread; a spot's random number picks one in
 // proportion to their densities (or none). So designs change instantly, without rebuilding maps. Sizes scale the
-// 16 x 24 art px box (2 x 3 tiles) about its foot. u_shadow = 1 draws the shadow pass: each picture's silhouette laid
-// down flat from its foot, the way Factorio casts shadows, its top reaching out along u_shadowDir (art px per art px of
-// height: down and to the right, away from the sun in the top left)
+// 16 x 24 art px box (2 x 3 tiles) about its foot. The shadow passes draw into the shadow layer:
+//   u_shadow = 1, the cast shadow: each picture's silhouette laid down flat, the way Factorio casts shadows, its top
+//     reaching out along u_shadowDir (art px per art px of height). Its base (the part touching the ground, u_cells)
+//     stays where it is, so the shadow grows out from under the item instead of starting beside it. Drawn as a strip
+//     of 6 points: bottom, top of the base (a_pos.y = 0.5), top
+//   u_shadow = 2, the contact shadow: a soft dark oval on the ground under the base, so things sit on the ground
+// u_cells: per atlas cell, its picture's base: (left, right, height) in art px across the cell (assets.js baseSpan)
 export const PROPS_VS = `#version 300 es
 precision highp float; precision highp int; precision highp sampler2D;
 in vec2 a_pos; in uvec4 a_t;
 uniform vec2 u_res; uniform vec2 u_center; uniform float u_R; uniform float u_W8;
 uniform sampler2D u_items; uniform int u_layer;
 uniform sampler2D u_fld; uniform vec4 u_chunk; uniform float u_tpp; uniform int u_shadow; uniform vec2 u_shadowDir;
+uniform sampler2D u_cells; uniform int u_hasCells;
 out vec2 v_s; out vec3 v_tint; flat out int v_cell;
 const float SLOPE_K = ${SLOPE_K}.0;
 const vec3 SUN = vec3(-0.55, -0.65, 0.75);
@@ -569,15 +574,31 @@ void main() {
   if (it.x <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }   // nothing grows here: off screen
   uint h2 = hashu(uvec2(hh, 0x5bd1u));
   float sc = it.z * (1.0 + it.w * (float(h2 & 1023u) / 1023.0 * 2.0 - 1.0));
-  vec2 s = a_pos * vec2(16.0, 24.0);                    // art px inside the sprite's box
-  vec2 d = (s - vec2(8.0, 23.0)) * sc;                  // art px from the foot (d.y < 0 above it)
-  vec2 g = A + vec2(8.0, 23.0) + d;
-  // the shadow: each point of the picture moves from its height above the foot out along the shadow's direction
-  if (u_shadow == 1) g = A + vec2(8.0, 23.0) + vec2(d.x, 0.0) - d.y * u_shadowDir;
+  int cell = int(it.y) + int((hh >> 20) & 3u);
+  // the picture's base: left and right edge and how high it touches the ground (art px), else a typical one
+  vec4 ci = u_hasCells == 1 ? texelFetch(u_cells, ivec2(cell & 255, cell >> 8), 0) : vec4(4.0, 12.0, 2.0, 0.0);
+  vec2 FT = A + vec2(8.0, 23.0);                        // the foot, global art px
+  vec2 s = a_pos * vec2(16.0, 24.0), g;                 // art px inside the sprite's box
+  if (u_shadow == 2) {
+    // the contact shadow: an oval a little wider than the base, mostly behind its front edge
+    float rx = (ci.y - ci.x) * 0.6 + 0.8, ry = rx * 0.42;
+    v_s = a_pos * 2.0 - 1.0;
+    g = FT + (vec2((ci.x + ci.y) * 0.5 - 8.0, -ry * 0.4) + v_s * vec2(rx, ry)) * sc;
+  } else {
+    if (u_shadow == 1 && a_pos.y > 0.25 && a_pos.y < 0.75) s.y = 23.0 - ci.z;   // the middle row: the top of the base
+    vec2 d = (s - vec2(8.0, 23.0)) * sc;                // art px from the foot (d.y < 0 above it)
+    g = FT + d;
+    // the cast shadow: the base stays put (it's on the ground); above it, each point moves out along the shadow's
+    // direction by its height above the base. Nudged a touch down-right so a thin dark rim shows along the base
+    if (u_shadow == 1) {
+      float b = ci.z * sc, hgt = -d.y;
+      g = FT + vec2(d.x, -min(hgt, b)) + max(hgt - b, 0.0) * u_shadowDir + vec2(0.8, 0.5) * sc;
+    }
+    v_s = s;
+  }
   vec2 px = u_center + (g / u_W8 * 2.0 - 1.0) * u_R;    // device px, y down
   gl_Position = vec4(px.x / u_res.x * 2.0 - 1.0, 1.0 - px.y / u_res.y * 2.0, 0.0, 1.0);
-  v_s = s;
-  v_cell = int(it.y) + int((hh >> 20) & 3u);
+  v_cell = cell;
   // each one a little lighter or darker, warmer or cooler, and lit like the ground under its foot
   float t = float((hh >> 22) & 255u) / 255.0 - 0.5;
   vec2 foot = floor((A + vec2(8.0, 22.0)) / 8.0);
@@ -592,10 +613,12 @@ uniform sampler2D u_hd; uniform vec4 u_hdInfo; uniform vec2 u_hdSize;
 uniform int u_shadow; uniform float u_alpha;
 out vec4 o;
 void main() {
+  // the shadow layer keeps the cast shadow in red and the contact shadow in green (blended by MAX, each its own)
+  if (u_shadow == 2) { float a = 1.0 - smoothstep(0.1, 1.0, length(v_s)); o = vec4(0.0, a * a, 0.0, a * a); return; }
   int cols = int(u_hdInfo.z);
   vec2 s = clamp(v_s, vec2(0.25), vec2(15.75, 23.75));
   vec2 p = vec2(float(v_cell % cols), float(v_cell / cols)) * u_hdInfo.xy + s * u_hdInfo.w;
-  if (u_shadow == 1) { o = vec4(0.0, 0.0, 0.0, texture(u_hd, p / u_hdSize, 1.5).a); return; }   // softened
+  if (u_shadow == 1) { float a = texture(u_hd, p / u_hdSize, 1.5).a; o = vec4(a, 0.0, 0.0, a); return; }   // softened
   vec4 c = texture(u_hd, p / u_hdSize);                 // premultiplied
   if (c.a < 0.003) discard;
   o = vec4(c.rgb * v_tint, c.a) * u_alpha;
@@ -604,7 +627,10 @@ void main() {
 // the shadow layer laid down once over the ground: darkens what's under it, never doubles up where shadows overlap
 export const SHADE_FS = `#version 300 es
 precision highp float;
-in vec2 v_uv; uniform sampler2D u_tex; uniform float u_alpha; uniform float u_dark;
+in vec2 v_uv; uniform sampler2D u_tex; uniform float u_alpha; uniform float u_dark; uniform float u_contact;
 out vec4 o;
-void main() { o = vec4(0.0, 0.0, 0.0, u_dark * u_alpha * texture(u_tex, vec2(v_uv.x, 1.0 - v_uv.y)).a); }`;
+void main() {
+  vec4 t = texture(u_tex, vec2(v_uv.x, 1.0 - v_uv.y));   // r: cast shadows, g: contact shadows
+  o = vec4(0.0, 0.0, 0.0, u_alpha * (1.0 - (1.0 - u_dark * t.r) * (1.0 - u_contact * t.g)));
+}`;
 

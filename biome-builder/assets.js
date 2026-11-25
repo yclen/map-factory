@@ -1,9 +1,9 @@
 // Loading art for the Biome Builder: the raw AI sheets (cut into sprites here in the browser, the same way
 // tools/pack_props.py does it), the AI ground textures (made seamless here), and the game's pixel-art fallbacks.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125143831';
-import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125143831';
-import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125143831';
-import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125143831';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125145354';
+import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125145354';
+import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125145354';
+import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125145354';
 
 const ART = '../art/';
 const SHEET_W = 922;            // sheets are cut at most this wide (60% of ChatGPT's 1536 px): plenty for the closest zoom
@@ -123,6 +123,29 @@ export function spriteStats(s) {
   return st;
 }
 
+// a sprite's base, the part that touches the ground: its left and right edge (sprite px) in the bottom 12% of the
+// picture, and how high that reaches (sprite px: the lower of a third of its height and a third of its width).
+// A tree's base is its trunk, a boulder's most of its width. Cached per sprite
+const baseCache = new WeakMap();
+export function baseSpan(s) {
+  let b = baseCache.get(s);
+  if (b) return b;
+  const g = canvas(s.w, s.h).getContext('2d', { willReadFrequently: true });
+  g.drawImage(s.img, 0, 0);
+  const bottom = s.footY, band = Math.max(2, Math.round(bottom * 0.12)), y0 = Math.max(0, bottom - band);
+  const d = g.getImageData(0, y0, s.w, bottom - y0).data, rows = bottom - y0;
+  let l = -1, r = -1;
+  for (let x = 0; x < s.w; x++) {
+    let n = 0;
+    for (let y = 0; y < rows; y++) if (d[(y * s.w + x) * 4 + 3] > 128) n++;
+    if (n >= 2) { if (l < 0) l = x; r = x + 1; }
+  }
+  if (l < 0) { l = s.footX - 1; r = s.footX + 1; }
+  b = { l, r, h: Math.min(bottom / 3, (r - l) / 3) };
+  baseCache.set(s, b);
+  return b;
+}
+
 // ---------- ground textures ----------
 
 // square crop -> TEX x TEX, then made seamless: blend with a copy shifted by half, first across x, then across y
@@ -224,11 +247,16 @@ export function buildItemAtlas(skins, { scales = [8], maxSide = 4096 } = {}) {
   const rows = Math.max(1, Math.ceil(n / HD_COLS));
   const c = canvas(HD_COLS * CELL_W, rows * CELL_H), g = c.getContext('2d');
   g.imageSmoothingQuality = 'high';
-  const cells = {};
+  const cells = {}, base = [];                     // base: per cell, its picture's base [left, right, height] in art px
   skins.forEach((k, n) => {
     cells[k.key] = n * 4;
     k.sprites.forEach((s, v) => {
       const i = n * 4 + v, ax = (i % HD_COLS) * CELL_W, ay = Math.floor(i / HD_COLS) * CELL_H;
+      const bs = baseSpan(s), k8 = s.pixel ? 1 / 8 : (() => {
+        const half = Math.max(s.footX, s.w - s.footX);
+        return Math.min(15.5 * HD_SCALE / (2 * half), 22.5 * HD_SCALE / s.h) / HD_SCALE;
+      })();                                      // art px per sprite px, as drawn below
+      base.push(+(8 + (bs.l - s.footX) * k8).toFixed(2), +(8 + (bs.r - s.footX) * k8).toFixed(2), +(bs.h * k8).toFixed(2));
       g.save();
       g.beginPath(); g.rect(ax, ay, CELL_W, CELL_H); g.clip();
       if (s.pixel) {
@@ -244,7 +272,7 @@ export function buildItemAtlas(skins, { scales = [8], maxSide = 4096 } = {}) {
       g.restore();
     });
   });
-  return { canvas: c, meta: { scale: HD_SCALE, cell: [CELL_W, CELL_H], cols: HD_COLS, size: [c.width, c.height] }, cells };
+  return { canvas: c, meta: { scale: HD_SCALE, cell: [CELL_W, CELL_H], cols: HD_COLS, size: [c.width, c.height], base }, cells };
 }
 
 // one ground-texture layer: the seamless texture with the Builder's colour adjustments, and its average colour
