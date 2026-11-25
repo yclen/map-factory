@@ -67,7 +67,7 @@ def main():
     ap.add_argument('--size', type=float, help='how much of the prop space it fills, 0..1 (stored in props.json)')
     ap.add_argument('--small', action='store_true',
                     help='a small item (grass tuft, pebbles, shell...): ground-level wording, and props.json is left '
-                         'alone (it lists the big props the demo packs); the Biome Lab sets small items\' sizes')
+                         'alone (it lists the big props the demo packs); the Biome Builder sets small items\' sizes')
     ap.add_argument('--note', default='', help='extra instructions for this sheet')
     ap.add_argument('--dry-run', action='store_true', help='print the prompt instead of calling Codex')
     args = ap.parse_args()
@@ -134,7 +134,7 @@ this project at {rel} (create folders if needed). Do not create, change or delet
             sys.exit(f'Codex did not produce {rel}')
 
     if args.small:
-        print(f'saved {rel}. Reload the Biome Lab: small items named "{args.kind}" use it.')
+        print(f'saved {rel}. Reload the Biome Builder: small items named "{args.kind}" use it.')
         return
     manifest = json.loads(MANIFEST.read_text(encoding='utf-8')) if MANIFEST.exists() else {'kinds': {}}
     entry = manifest.setdefault('kinds', {}).setdefault(args.kind, {})

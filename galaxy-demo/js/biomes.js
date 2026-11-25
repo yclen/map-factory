@@ -1,4 +1,4 @@
-// Biome templates: how each ground type looks and what grows on it. Designed in the Biome Lab (biome-lab/), saved
+// Biome templates: how each ground type looks and what grows on it. Designed in the Biome Builder (biome-builder/), saved
 // as art/biomes/<GROUND>.json, and baked for the game into galaxy-demo/biomes/ (biomes.json, items.webp, ground
 // textures). A template:
 //   { biome: 'FOREST',
@@ -6,7 +6,7 @@
 //     items: [ { kind: 'oak', layer: 'big' | 'small', density (share of spots), size (1 = a 2 x 3 tile box),
 //                sizeVar (0..1 random size spread), clump (0..1), clumpSize (tiles), skin: { sheet, pick } } ] }
 // Big items stand on one spot per 1.5 x 1.5 tiles, small items on one spot per tile; up to ITEM_SLOTS per layer.
-import { BASE } from './ids.js?v=20261125133053';
+import { BASE } from './ids.js?v=20261125134458';
 
 export const ITEM_SLOTS = 8;
 export const LAYERS = ['big', 'small'];

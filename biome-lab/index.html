@@ -2,42 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Biome Lab</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Biome Builder</title>
+  <!-- the Biome Lab is now the Biome Builder: old links land there -->
+  <meta http-equiv="refresh" content="0; url=../biome-builder/">
+  <script>location.replace('../biome-builder/' + location.search + location.hash);</script>
 </head>
 <body>
-  <header id="toolbar">
-    <b class="title">Biome Lab</b>
-    <div class="group">
-      <button data-view="items" title="Show items (trees, rocks, shrubs, grass)">Items</button>
-      <button data-view="shadows" title="Item shadows">Shadows</button>
-      <button data-view="ruler" title="Show a 3×3 machine footprint under the cursor">Size ref</button>
-      <button id="fit" title="Show the whole system">Overview</button>
-    </div>
-  </header>
-  <main>
-    <div id="stage">
-      <canvas id="gl"></canvas>
-      <canvas id="overlay"></canvas>
-      <div id="loading">Loading art…</div>
-      <div id="status"></div>
-    </div>
-    <aside>
-      <nav id="tabs">
-        <button data-tab="system" class="on">System</button>
-        <button data-tab="biome">Biome</button>
-        <button data-tab="art">Art</button>
-      </nav>
-      <div id="panel"></div>
-    </aside>
-  </main>
-  <script type="module">
-    // load the current release even if the browser kept old copies: the Galaxy demo's version.txt is never cached,
-    // and every script the lab loads carries that stamp (tools/stamp_galaxy.py)
-    let v = '';
-    try { v = (await (await fetch('../galaxy-demo/version.txt', { cache: 'no-store' })).text()).trim(); } catch (e) { /* offline */ }
-    import('./lab.js?v=' + (v || Date.now()));
-  </script>
+  <p>The Biome Lab is now the <a href="../biome-builder/">Biome Builder</a>.</p>
 </body>
 </html>

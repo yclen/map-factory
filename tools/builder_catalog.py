@@ -1,12 +1,12 @@
-"""Get the AI art ready for the Biome Lab: small web copies of every sheet and texture, plus biome-lab/catalog.json.
+"""Get the AI art ready for the Biome Builder: small web copies of every sheet and texture, plus biome-builder/catalog.json.
 
-  python tools/lab_catalog.py
+  python tools/builder_catalog.py
 
-The raw images from ChatGPT are 2-4 MB each, far more than the lab draws, so the lab loads small copies instead:
+The raw images from ChatGPT are 2-4 MB each, far more than the Builder draws, so the Builder loads small copies instead:
   art/props/web/<sheet>.webp     the sheet at 60% size with its magenta background already cut out (transparent)
-  art/ground/web/<texture>.webp  the centre square at 512 x 512 (the lab makes it seamless itself)
-Copies are only made for images that don't have one yet; the raw files stay the source. lab_server.py runs this on
-start, and the lab falls back to the raw image for anything without a copy.
+  art/ground/web/<texture>.webp  the centre square at 512 x 512 (the Builder makes it seamless itself)
+Copies are only made for images that don't have one yet; the raw files stay the source. builder_server.py runs this on
+start, and the Builder falls back to the raw image for anything without a copy.
 
 catalog.json lists the files, for GitHub Pages, which can't list folders. Run this before pushing new art.
 """
@@ -20,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pack_props import cut_out          # noqa: E402  (the same background cut as the game's packer)
 
 ROOT = Path(__file__).resolve().parent.parent
-SHEET_W = 922                           # biome-lab/assets.js SHEET_W: 60% of ChatGPT's 1536 px wide sheets
-TEX = 512                               # biome-lab/assets.js TEX
+SHEET_W = 922                           # biome-builder/assets.js SHEET_W: 60% of ChatGPT's 1536 px wide sheets
+TEX = 512                               # biome-builder/assets.js TEX
 
 
 def sheet_copy(src, dst):
@@ -53,10 +53,10 @@ def main(quiet=False):
                 made += 1
         listing[key] = files
         listing[key + 'Web'] = sorted(p.name for p in web.glob('*.webp'))
-    (ROOT / 'biome-lab' / 'catalog.json').write_text(json.dumps(listing, indent=1) + '\n', encoding='utf-8')
+    (ROOT / 'biome-builder' / 'catalog.json').write_text(json.dumps(listing, indent=1) + '\n', encoding='utf-8')
     if made or not quiet:
-        print(f"Biome Lab art: {len(listing['props'])} item sheets, {len(listing['ground'])} ground textures "
-              f"({made} new web copies); biome-lab/catalog.json written")
+        print(f"Biome Builder art: {len(listing['props'])} item sheets, {len(listing['ground'])} ground textures "
+              f"({made} new web copies); biome-builder/catalog.json written")
 
 
 if __name__ == '__main__':

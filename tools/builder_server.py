@@ -1,8 +1,8 @@
-"""The Biome Lab's local server: serves the project (like python -m http.server) and saves biome designs.
+"""The Biome Builder's local server: serves the project (like python -m http.server) and saves biome designs.
 
-  python tools/lab_server.py            then open http://localhost:8170/biome-lab/
+  python tools/builder_server.py            then open http://localhost:8170/biome-builder/
 
-Save in the lab sends the biome's template and a fresh bake for the game. This writes:
+Save in the Builder sends the biome's template and a fresh bake for the game. This writes:
   art/biomes/<GROUND>.json      the template you saved (the source, kept in git)
   art/biomes/index.json         which biomes have saved templates
   galaxy-demo/biomes/           what the Galaxy demo loads: biomes.json, the item atlas and ground textures
@@ -48,7 +48,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_POST(self):
-        if self.path != '/api/biome-lab/save':
+        if self.path != '/api/biome-builder/save':
             return self.send_error(404)
         try:
             req = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
@@ -69,7 +69,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = json.dumps({'ok': True, 'template': str(path.relative_to(ROOT).as_posix()), 'saved': saved,
                                'bake': [f'galaxy-demo/biomes/{n}' for n in wrote]}).encode()
             self.send_response(200)
-        except Exception as e:                                  # report it to the lab instead of failing silently
+        except Exception as e:                                  # report it to the Builder instead of failing silently
             body = json.dumps({'ok': False, 'error': str(e)}).encode()
             self.send_response(400)
         self.send_header('Content-Type', 'application/json')
@@ -80,10 +80,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     try:                                                        # small copies of any new AI art, for fast loading
-        import lab_catalog
-        lab_catalog.main(quiet=True)
-    except Exception as e:                                      # the lab still works from the raw images
+        import builder_catalog
+        builder_catalog.main(quiet=True)
+    except Exception as e:                                      # the Builder still works from the raw images
         print(f'could not make web copies of the art: {e}', flush=True)
     server =http.server.ThreadingHTTPServer(('127.0.0.1', PORT), partial(Handler, directory=str(ROOT)))
-    print(f'Biome Lab: http://localhost:{PORT}/biome-lab/  (saving to art/biomes/ and galaxy-demo/biomes/)', flush=True)
+    print(f'Biome Builder: http://localhost:{PORT}/biome-builder/  (saving to art/biomes/ and galaxy-demo/biomes/)', flush=True)
     server.serve_forever()

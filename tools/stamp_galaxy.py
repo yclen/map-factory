@@ -3,7 +3,7 @@
 GitHub Pages lets browsers reuse files for up to 10 minutes, so a new index.html can end up running old scripts.
 Adding ?v=<stamp> to every import (the same stamp everywhere, so each module still loads once) avoids that, and
 index.html fetches version.txt uncached to learn the stamp, so even a stale copy of the page loads fresh code.
-Run before committing a galaxy-demo or biome-lab change:  python tools/stamp_galaxy.py
+Run before committing a galaxy-demo or biome-builder change:  python tools/stamp_galaxy.py
 """
 import re, sys, time
 from pathlib import Path
@@ -21,8 +21,8 @@ for path in sorted((root / 'js').glob('*.js')):
     new = stamp_text(text, r"('\./[\w-]+\.js)(\?v=\w+)?(')")
     if new != text:
         path.write_text(new, encoding='utf-8'); changed += 1
-# the Biome Lab loads the demo's modules too (and its own): same stamp, so it never mixes old and new files
-for path in sorted((root.parent / 'biome-lab').glob('*.js')):
+# the Biome Builder loads the demo's modules too (and its own): same stamp, so it never mixes old and new files
+for path in sorted((root.parent / 'biome-builder').glob('*.js')):
     text = path.read_text(encoding='utf-8')
     new = stamp_text(text, r"('(?:\./|\.\./galaxy-demo/js/)[\w-]+\.js)(\?v=\w+)?(')")
     if new != text:

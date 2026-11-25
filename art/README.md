@@ -8,25 +8,29 @@ Images are made by **Codex's built-in image tool**, which runs on the ChatGPT su
 per-image cost). The scripts call Codex for you; you never open it yourself.
 
 Every biome now has AI art for its **ground**, its **big items** (trees, boulders) and its **small items** (grass
-tufts, flowers, shrubs, pebbles, shells...), and the Galaxy demo draws all of it through the Biome Lab's bake. Soft
+tufts, flowers, shrubs, pebbles, shells...), and the Galaxy demo draws all of it through the Biome Builder's bake. Soft
 biome borders, colour matching and moving things are next, see [Roadmap](#roadmap).
 
 ---
 
-## Biome Lab: design each biome, save it, and the game uses it
+## Biome Builder: design each biome, save it, and the game uses it
 
-`biome-lab/` is a little solar system: a blue star with one planet per biome, each planet entirely that biome, drawn
-by the game's own renderer. Pick a planet, design its biome, press **Save**, and the Galaxy demo generates that
-biome from your design wherever it appears.
+`biome-builder/` (it used to be the Biome Lab; `biome-lab/` now redirects here) is a solar system drawn by the game's
+own renderer, laid out by the Galaxy demo's rules for a blue giant (`RULES.stars.blue`: first orbit, then each orbit
+1.13-1.22x the last; the **Orbits** slider shrinks the distances, 1 = the rules' own). The innermost planet is the
+**mix planet**: an ocean in the middle and the land cut like a pizza, one slice per biome. Further out, one planet per
+biome, hottest nearest the star, each one that biome all round an ocean. Planets are 512-4096 tiles across (the mix
+planet twice the others). Pick a biome (click its planet, or its slice on the mix planet), design it, press **Save**,
+and the Galaxy demo generates that biome from your design wherever it appears.
 
 **Run it locally** (saving needs this server; it also serves the project like a plain file server):
 
 ```powershell
-python tools/lab_server.py
+python tools/builder_server.py
 ```
 
-then open http://localhost:8170/biome-lab/ (or start the **biome-lab** preview, which runs the same thing). On GitHub
-Pages (`/map-factory/biome-lab/`) you can look and try things, but Save only works locally.
+then open http://localhost:8170/biome-builder/ (or start the **biome-builder** preview, the same server on port 8171). On GitHub
+Pages (`/map-factory/biome-builder/`) you can look and try things, but Save only works locally.
 
 **A biome design** (galaxy-demo/js/biomes.js has the exact format):
 - **Ground:** a texture from `art/ground/raw/` (or the old tile art), its scale, brightness, saturation and hue.
@@ -56,13 +60,14 @@ Biomes nobody has saved keep the look from `galaxy-demo/js/skin.js` (`propsFor`,
 **How it runs:** items are pictures, one per spot (`PROPS_VS` in `shaders.js`). The map workers list every spot per
 chunk (`propSpots` in `terrain.js`), and the GPU picks what grows there from the item table, so slider changes show
 instantly. Items fade in once tiles are about 7 px across; further out a biome is just the map's colour.
-`biomeLab.sys.bench()` in the browser console times the current view.
+`biomeBuilder.sys.bench()` in the browser console times the current view.
 
-How the lab plugs into the game's code:
-- `galaxy-demo/js/terrain.js` has a `lab` planet type: `lab.mono` makes a single-biome planet.
+How the Builder plugs into the game's code:
+- `galaxy-demo/js/terrain.js` has a `lab` planet type: `lab.mono` makes a single-biome planet and `lab.slices` the
+  mix planet, both round an ocean in the middle (`lab.lake`).
 - `galaxy-demo/js/biomes.js` turns designs into the table the prop shader reads; `renderer.js` `setItems` and
   `setGroundTextures` load them; `main.js` loads `galaxy-demo/biomes/` at startup.
-- `biome-lab/system.js` is the demo's chunk and drawing code for a set of planets (from `main.js`): keep them in step.
+- `biome-builder/system.js` is the demo's chunk and drawing code for a set of planets (from `main.js`): keep them in step.
 
 ### Make lots of art at once: the wishlist
 
@@ -84,7 +89,7 @@ python tools/gen_ground.py grass "short green meadow grass with a little clover"
 ```
 
 It lands in `art/ground/raw/<name>_vN.png` (a square, about 8 x 8 tiles of ground). Same options as `gen_props.py`.
-The lab makes the edges seamless itself, and pairs ground names with biomes by `GROUND_FOR` in `biome-lab/lab.js`
+The Builder makes the edges seamless itself, and pairs ground names with biomes by `GROUND_FOR` in `biome-builder/builder.js`
 (grass for grassland and forest, sand for desert and beach, snow for snowfields, ...). Any texture can be tried on
 any biome from the Biome tab.
 
@@ -97,16 +102,16 @@ python tools/gen_props.py tuft "tufts of wild meadow grass" --small --biome fore
 ```
 
 `--small` asks for small ground-level things drawn large in each cell, and leaves `props.json` alone (that lists the
-big props the demo packs). The lab uses the newest sheet named after the item, and its starting size comes from
-`ITEM_IDEAS` in `biome-lab/lab.js`. A small item named like a big one uses sheets called `<kind>-small` (the small
+big props the demo packs). The Builder uses the newest sheet named after the item, and its starting size comes from
+`ITEM_IDEAS` in `biome-builder/builder.js`. A small item named like a big one uses sheets called `<kind>-small` (the small
 `deadtree` is a dead shrub, from `deadtree-small_v1.png`).
 
-### How the lab loads the art
+### How the Builder loads the art
 
-The raw sheets are 2-4 MB each, so `tools/lab_catalog.py` makes small copies the lab loads instead: sheets at 60%
+The raw sheets are 2-4 MB each, so `tools/builder_catalog.py` makes small copies the Builder loads instead: sheets at 60%
 with the background already cut out (`art/props/web/`, WebP) and ground textures at 512 x 512 (`art/ground/web/`),
-about 5 MB for everything. `lab_server.py` runs it on start; run it yourself before pushing new art (it also writes
-`biome-lab/catalog.json` for GitHub Pages). Anything without a copy loads from the raw file.
+about 5 MB for everything. `builder_server.py` runs it on start; run it yourself before pushing new art (it also writes
+`biome-builder/catalog.json` for GitHub Pages). Anything without a copy loads from the raw file.
 
 **Far-away colour:** once items aren't drawn (zoomed out), a biome shows one colour: its ground texture's average
 mixed with its items' average colours, by how much of the ground they cover. So a dense forest shows its tree
@@ -164,8 +169,8 @@ To pick other cells from a sheet, edit `art/props/props.json`: `"pick": [0, 2, 3
 | `art/ground/raw/` | every ground texture Codex made (`<name>_v1.png`, ...) |
 | `tools/gen_ground.py` | asks Codex for a seamless ground texture |
 | `art/wishlist.json` | every item and ground the game needs, with prompts; `tools/gen_batch.py` makes what's missing |
-| `art/props/web/`, `art/ground/web/` | small copies the Biome Lab loads (generated by `tools/lab_catalog.py`) |
-| `biome-lab/` | the Biome Lab sandbox (see above); `tools/lab_catalog.py` writes its `catalog.json` |
+| `art/props/web/`, `art/ground/web/` | small copies the Biome Builder loads (generated by `tools/builder_catalog.py`) |
+| `biome-builder/` | the Biome Builder sandbox (see above); `tools/builder_catalog.py` writes its `catalog.json` |
 
 How the game uses it: each prop kind gets 4 variants, each 16 x 24 art pixels (2 x 3 tiles) at 8 texels per art
 pixel, standing on its foot point (bottom middle). They're drawn as **pictures**, one quad per prop (`PROPS_VS` in
@@ -228,7 +233,7 @@ tiles (for example 512 x 512 px = 8 x 8 tiles), which the shader samples by worl
 mixed in through noise so it never visibly repeats. AI images aren't seamless by default, so a packer step
 (`pack_ground.py`) will make them tileable (offset-and-blend). Prompts ask for a straight-down view of the surface
 only, with no objects and no shadows. **Done for every biome:** 21 textures (`gen_ground.py`), made seamless by the
-Biome Lab (offset-and-blend in `biome-lab/assets.js`) and drawn by the game's shader through the bake. Next: a second
+Biome Builder (offset-and-blend in `biome-builder/assets.js`) and drawn by the game's shader through the bake. Next: a second
 variant per biome mixed in through noise, so large areas never repeat visibly.
 
 ### Soft biome borders
@@ -243,7 +248,7 @@ mushrooms, fallen branches, termite mounds) and second versions for variety.
 
 ### Edge fringe
 Some sheets keep a thin pink edge where the image model blended magenta into dark leaves (visible on the oak when
-zoomed right in). `cut_out` in `pack_props.py` (and `keyOut` in the lab) could treat reddish pixels next to the
+zoomed right in). `cut_out` in `pack_props.py` (and `keyOut` in the Builder) could treat reddish pixels next to the
 background as background.
 
 ### Things that move (units, vehicles, items on belts)

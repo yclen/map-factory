@@ -1,5 +1,5 @@
-import { SLOPE_K } from './terrain.js?v=20261125133053';
-import { ITEM_SLOTS } from './biomes.js?v=20261125133053';
+import { SLOPE_K } from './terrain.js?v=20261125134458';
+import { ITEM_SLOTS } from './biomes.js?v=20261125134458';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -108,7 +108,7 @@ uniform vec4 u_biome[32]; uniform ivec4 u_decoK[32]; uniform ivec4 u_propK[32];
 uniform sampler2D u_hd; uniform ivec4 u_hdK[8]; uniform vec4 u_hdInfo; uniform vec2 u_hdSize;
 // deposits, per overlay id: soil stain (rgb, strength) and (glint, pulse)
 uniform vec4 u_oreStain[16]; uniform vec2 u_oreFx[16];
-// ground textures (the Biome Lab, for now): per ground type, the texture layer that replaces its tile art (-1 = tile
+// ground textures (the Biome Builder, for now): per ground type, the texture layer that replaces its tile art (-1 = tile
 // art) and how many tiles one copy of the texture covers. Sampled at every screen pixel, so they keep full detail
 uniform mediump sampler2DArray u_gtex; uniform ivec4 u_gtexK[8]; uniform vec4 u_gtexS[8];
 // 1 = draw big props here, per pixel (the old way); 0 = they're drawn as pictures on top (PROPS_VS), the default

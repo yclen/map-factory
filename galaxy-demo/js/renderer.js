@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125133053';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125133053';
+import * as S from './shaders.js?v=20261125134458';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125134458';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -144,7 +144,7 @@ export class Renderer {
     this.texBytes += img.width * img.height * 4 * 1.34;
     return t;
   }
-  // Ground textures (Biome Lab): `layers` = square images (canvases) of `size` px, one texture-array layer each;
+  // Ground textures (Biome Builder): `layers` = square images (canvases) of `size` px, one texture-array layer each;
   // K = per ground type, its layer or -1 (tile art); S = per ground type, tiles covered by one copy of its texture
   makeGroundTextures(layers, size) {
     const gl = this.gl, t = gl.createTexture(), n = Math.max(1, layers.length);

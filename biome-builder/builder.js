@@ -1,18 +1,27 @@
-// Biome Lab: a blue star with one single-biome planet per biome. Pick a planet, design its biome (ground texture and
-// the items that grow on it: trees, rocks, shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
+// Biome Builder: a blue star's solar system. The innermost planet mixes every biome, in slices like a pizza round an
+// ocean; further out, one planet per biome, each round an ocean of its own, the hot biomes nearest the star and the
+// cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
+// shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125133053';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125133053';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125133053';
-import { skinKey, itemTable, ITEM_SLOTS } from '../galaxy-demo/js/biomes.js?v=20261125133053';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125133053';
-import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125133053';
-import { createSystem } from './system.js?v=20261125133053';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125134458';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125134458';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125134458';
+import { skinKey, itemTable, ITEM_SLOTS } from '../galaxy-demo/js/biomes.js?v=20261125134458';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125134458';
+import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125134458';
+import { createSystem } from './system.js?v=20261125134458';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
-const DESIGNABLE = BASE.filter(n => !NO_DESIGN.has(n));
-const DEFAULT_PLANETS = ['GRASS', 'FOREST', 'JUNGLE', 'SWAMP', 'SAVANNA', 'DESERT', 'BEACH', 'TUNDRA', 'TAIGA', 'SNOW', 'MOUNTAIN', 'MESA'];
+// every designable biome, hottest first: the order the planets go out from the star (like the Galaxy demo's climate
+// zones) and the order of the mix planet's slices
+const HEAT_ORDER = ['OBSIDIAN', 'ASH', 'SULFUR', 'BASALT', 'CANYON', 'DUNES', 'DESERT', 'MESA', 'SALT', 'RUST', 'SAVANNA',
+  'JUNGLE', 'BEACH', 'SWAMP', 'GRASS', 'FOREST', 'HIGHLAND', 'MOUNTAIN', 'CRATER', 'REGOLITH', 'TAIGA', 'TUNDRA', 'PEAK',
+  'SNOW', 'ICE_CRACK', 'SEA_ICE', 'ICE'];
+const DESIGNABLE = [...HEAT_ORDER, ...BASE.filter(n => !NO_DESIGN.has(n) && !HEAT_ORDER.includes(n))];
+const DEFAULT_PLANETS = ['DESERT', 'MESA', 'SAVANNA', 'JUNGLE', 'BEACH', 'SWAMP', 'GRASS', 'FOREST', 'MOUNTAIN', 'TAIGA', 'TUNDRA', 'SNOW'];
+const MIX = 'MIX';                                       // the mix planet's name (every other planet is named by its biome)
+const SIZES = [512, 1024, 2048, 4096];
 
 // which ground texture names suit which biome (the first one with art is the default); any texture can be picked
 const GROUND_FOR = {
@@ -73,9 +82,15 @@ const ITEM_IDEAS = {
 
 // ---------- state ----------
 
-const STORE = 'biomeLab.v3';
-let S = { planets: DEFAULT_PLANETS, size: 128, hills: 0.4, drafts: {}, items: true, shadows: true, ruler: false };
-try { S = { ...S, ...JSON.parse(localStorage.getItem(STORE) || '{}') }; } catch { /* private window */ }
+const STORE = 'biomeBuilder.v1';
+// size: planet width in tiles (the mix planet is twice that); ocean: the ocean's share of a planet's radius;
+// spread: orbit distances, 1 = the Galaxy demo's rules for a blue giant
+let S = { planets: DEFAULT_PLANETS, size: 1024, ocean: 0.35, spread: 0.25, hills: 0.4, drafts: {}, items: true, shadows: true, ruler: false };
+try {
+  const old = localStorage.getItem(STORE) ? null : JSON.parse(localStorage.getItem('biomeLab.v3') || 'null');
+  if (old) S.drafts = old.drafts || {};                  // unsaved designs from when this was the Biome Lab
+  S = { ...S, ...JSON.parse(localStorage.getItem(STORE) || '{}') };
+} catch { /* private window */ }
 let saveTimer = 0;
 const persist = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch { /* blocked */ } }, 300); };
 
@@ -226,14 +241,34 @@ function apply(what = 'items') {
   liveAvg = farAvgs(templates, groundAvg);
   showPlanets();
 }
+const shownBiomes = () => DESIGNABLE.filter(n => S.planets.includes(n));
+// a spot on dry land: halfway across the ring of land round the ocean, at angle a (clockwise from the top)
+const landAt = a => { const r = (S.ocean + 1) / 2; return [Math.sin(a) * r, -Math.cos(a) * r]; };
+// where a biome's slice is on the mix planet: [u, v] across its disk
+function sliceSpot(name) {
+  const list = shownBiomes(), i = list.indexOf(name);
+  return i < 0 ? null : landAt((i + 0.5) / list.length * Math.PI * 2);
+}
 function showPlanets() {
-  sys.setPlanets(S.planets.filter(n => DESIGNABLE.includes(n)).map(n => {
+  const list = shownBiomes(), avg = {};
+  for (const n of list) if (liveAvg[ID[n]]) avg[ID[n]] = liveAvg[ID[n]];
+  const colour = n => liveAvg[ID[n]] || SKIN.base[n].c;
+  const base = { type: 'lab', r: 1, heat: 1, settle: 0, home: false };
+  const planets = [];
+  if (list.length) {
+    const W = Math.min(4096, S.size * 2), dot = [0, 1, 2].map(i => Math.round(list.reduce((t, n) => t + colour(n)[i], 0) / list.length));
+    planets.push({ name: MIX, label: 'Mix planet', badge: '', W, dot, land: landAt(Math.PI / list.length),
+      desc: { ...base, id: 'builder-mix', seed: 4242, W, avg: Object.keys(avg).length ? avg : null,
+        lab: { slices: list.map(n => ID[n]), lake: S.ocean, hills: S.hills } } });
+  }
+  for (const n of list) {
     const id = ID[n];
-    return { name: n, label: BASE_NAME[n], badge: statusOf(n) === 'unsaved' ? 'unsaved' : '', W: S.size,
-      dot: liveAvg[id] || SKIN.base[n].c,
-      desc: { id: 'lab-' + n, seed: hash32(id, 4242) % 100000, type: 'lab', r: 1, W: S.size, heat: 1, settle: 0, home: false,
-        avg: liveAvg[id] ? { [id]: liveAvg[id] } : null, lab: { mono: id, hills: S.hills } } };
-  }));
+    planets.push({ name: n, label: BASE_NAME[n], badge: statusOf(n) === 'unsaved' ? 'unsaved' : '', W: S.size,
+      dot: colour(n), land: landAt(0),
+      desc: { ...base, id: 'builder-' + n, seed: hash32(id, 4242) % 100000, W: S.size,
+        avg: liveAvg[id] ? { [id]: liveAvg[id] } : null, lab: { mono: id, lake: S.ocean, hills: S.hills } } });
+  }
+  sys.setPlanets(planets, { su: S.size / 2, spread: S.spread });
 }
 
 // ---------- saving ----------
@@ -256,7 +291,7 @@ async function save(name, template) {
       grounds: grounds.layers.map((l, i) => ({ file: `ground_${i}.webp`, ids: l.ids, scale: l.scale })), avg: farAvgs(templates, grounds.avg),
       propMax: maxSize(templates),
     };
-    const res = await fetch('/api/biome-lab/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const res = await fetch('/api/biome-builder/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ biome: name || '', template: template || null, bake: { json, files } }) });
     const out = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null;
     if (!out || !out.ok) throw new Error(out ? out.error : 'no save server');
@@ -266,7 +301,7 @@ async function save(name, template) {
       : template ? `Saved to ${out.template}. The Galaxy demo uses it now.` : `${BASE_NAME[name]} uses the game's defaults again.`;
   } catch (e) {
     saveMsg = /no save server|Failed to fetch/.test(e.message)
-      ? 'Saving needs the local lab server: run  python tools/lab_server.py  and open http://localhost:8170/biome-lab/. Your changes are kept in this browser meanwhile.'
+      ? 'Saving needs the local Builder server: run  python tools/builder_server.py  and open http://localhost:8170/biome-builder/. Your changes are kept in this browser meanwhile.'
       : 'Could not save: ' + e.message;
   }
   saving = false;
@@ -292,7 +327,8 @@ function drawOverlay(g, view) {
 function status() {
   const el = document.getElementById('status');
   const z = sys.zoom / sys.dpr;
-  el.textContent = (hover ? `${BASE_NAME[hover.planet.name]} planet · tile ${Math.floor(hover.x)}, ${Math.floor(hover.y)} · ` : '') +
+  const where = hover ? `${hover.planet.label}${hover.planet.name === MIX ? ' · ' + BASE_NAME[BASE[sys.groundAt(hover)]] : ''} · ` : '';
+  el.textContent = (hover ? `${where}tile ${Math.floor(hover.x)}, ${Math.floor(hover.y)} · ` : '') +
     `${z >= 1 ? Math.round(z) : z.toFixed(2)} px per tile · ${fps}`;
 }
 
@@ -352,9 +388,11 @@ function select(name, fly) {
 function systemPanel() {
   const shown = new Set(S.planets);
   const nSaved = Object.keys(saved).length;
+  const relayout = () => { persist(); showPlanets(); };
   return h('div', {},
-    h('h3', {}, 'Biome planets'),
-    h('p', { class: 'hint' }, 'One planet per biome, all of it that biome. Click a planet (or a name below) to fly there and design it.'),
+    h('h3', {}, 'Planets'),
+    h('p', { class: 'hint' }, 'The mix planet circles closest to the star, with a slice of every biome ticked below. Then one planet per biome, hottest nearest the star. Click a planet (or a name) to fly there and design it; on the mix planet, click a slice.'),
+    h('div', { class: 'row' }, h('button', { onclick: () => sys.frame(MIX) }, 'Fly to the mix planet')),
     h('div', { class: 'biomes' }, DESIGNABLE.map(n => h('div', { class: 'planetrow' },
       toggle(swatch(n), shown.has(n), on => {
         S.planets = DESIGNABLE.filter(x => x === n ? on : shown.has(x)); persist(); showPlanets(); renderPanel();
@@ -362,9 +400,12 @@ function systemPanel() {
       h('button', { class: 'linkish', onclick: () => { if (!shown.has(n)) { S.planets = DESIGNABLE.filter(x => x === n || shown.has(x)); persist(); showPlanets(); } select(n, true); } }, BASE_NAME[n]),
       statusOf(n) !== 'default' ? pill(n) : null))),
     h('div', { class: 'row' }, h('span', { class: 'lab' }, 'Size'),
-      ...[64, 128, 192, 256].map(n => h('button', { class: S.size === n ? 'on' : '', onclick: () => { S.size = n; persist(); showPlanets(); renderPanel(); } }, `${n}`)),
-      h('span', { class: 'hint' }, 'tiles across')),
-    slider('Hills', S.hills, 0, 1, 0.01, x => { S.hills = x; }, { after: () => { persist(); showPlanets(); }, tip: 'hill shading on every planet' }),
+      ...SIZES.map(n => h('button', { class: S.size === n ? 'on' : '', onclick: () => { S.size = n; persist(); showPlanets(); renderPanel(); } }, `${n}`)),
+      h('span', { class: 'hint' }, 'tiles')),
+    h('p', { class: 'hint' }, `Each biome planet is ${S.size} tiles across; the mix planet ${Math.min(4096, S.size * 2)}.`),
+    slider('Ocean', S.ocean, 0, 0.7, 0.01, x => { S.ocean = x; }, { after: relayout, tip: 'the ocean in the middle of every planet, as a share of its radius (0 = none)' }),
+    slider('Hills', S.hills, 0, 1, 0.01, x => { S.hills = x; }, { after: relayout, tip: 'hill shading on every planet' }),
+    slider('Orbits', S.spread, 0.1, 1, 0.01, x => { S.spread = x; }, { after: relayout, tip: "how far apart the orbits are: 1 = the Galaxy demo's rules for a blue giant" }),
     h('div', { class: 'row' }, h('button', { onclick: () => sys.overview() }, 'Show the whole system')),
     h('h3', {}, 'Saving'),
     h('div', { class: 'row' }, h('button', { disabled: saving, onclick: () => save(null, null),
@@ -450,14 +491,15 @@ function biomePanel() {
   };
 
   return h('div', {},
-    h('div', { class: 'chips' }, S.planets.filter(n => DESIGNABLE.includes(n)).map(n => h('button', {
+    h('div', { class: 'chips' }, shownBiomes().map(n => h('button', {
       class: 'chip' + (n === name ? ' on' : ''), onclick: () => select(n, true) }, swatch(n), BASE_NAME[n], statusOf(n) === 'unsaved' ? ' •' : ''))),
     h('h2', {}, swatch(name), BASE_NAME[name], pill(name)),
     h('div', { class: 'row savebar' },
       h('button', { class: 'primary', disabled: saving || st !== 'unsaved', onclick: () => save(name, clone(effective(name))) }, 'Save'),
       h('button', { disabled: st !== 'unsaved', onclick: () => { delete S.drafts[name]; persist(); apply('all'); renderPanel(); } }, saved[name] ? 'Revert to saved' : 'Discard changes'),
       h('button', { disabled: saving || st === 'default', onclick: () => { if (confirm(`Delete the saved design for ${BASE_NAME[name]} and go back to the game's defaults?`)) { delete S.drafts[name]; save(name, null); } } }, 'Use game defaults'),
-      h('button', { onclick: () => sys.visit(name) }, 'Fly to')),
+      h('button', { onclick: () => sys.visit(name) }, 'Fly to'),
+      sliceSpot(name) ? h('button', { title: 'its slice on the mix planet', onclick: () => sys.visit(MIX, ...sliceSpot(name)) }, 'On the mix planet') : null),
     saveMsg ? h('p', { class: 'note' }, saveMsg) : null,
     h('h3', {}, 'Ground'),
     h('div', { class: 'skins' }, groundChip(null, 'pixel art', A.pixel.ground[name]),
@@ -488,7 +530,7 @@ function artPanel() {
   });
   // what the shown planets still draw in pixel art
   const needItems = new Map(), needGround = new Map();
-  for (const n of S.planets.filter(x => DESIGNABLE.includes(x))) {
+  for (const n of shownBiomes()) {
     const t = effective(n);
     for (const it of t.items) if (!it.skin.sheet) { const k = sheetKind(it.kind, it.layer) + (it.layer === 'small' ? ' --small' : ''); needItems.set(k, [...(needItems.get(k) || []), BASE_NAME[n]]); }
     if (!t.ground.texture) { const g = (GROUND_FOR[n] || [])[0]; if (g) needGround.set(g, [...(needGround.get(g) || []), BASE_NAME[n]]); }
@@ -527,13 +569,19 @@ document.getElementById('fit').addEventListener('click', () => sys.overview());
 async function start() {
   const bar = document.getElementById('loading');
   sys = createSystem(document.getElementById('gl'), document.getElementById('overlay'), {
-    tap: hit => select(hit.planet.name, hit.planet.W * sys.zoom < Math.min(innerWidth, innerHeight) * 0.6 * sys.dpr),
+    tap: hit => {
+      const far = hit.planet.W * sys.zoom < Math.min(innerWidth, innerHeight) * 0.6 * sys.dpr;
+      if (hit.planet.name !== MIX) return select(hit.planet.name, far);
+      if (far) return sys.frame(MIX);                    // the mix planet: first show all of it, then pick a slice
+      const n = BASE[sys.groundAt(hit)];
+      if (DESIGNABLE.includes(n)) select(n, false);
+    },
     hover: t => { hover = t; status(); },
     focusPlanet: () => sys && sys.planets.find(p => p.name === selected),
     overlay: drawOverlay,
     perf: p => { fps = `${Math.round(p.fps)} fps` + (p.quality < 1 ? ` · ${Math.round(p.quality * 100)}% resolution` : ''); status(); },
   });
-  window.biomeLab = { sys };                // for poking at from the browser console, e.g. biomeLab.sys.bench()
+  window.biomeBuilder = { sys };                // for poking at from the browser console, e.g. biomeBuilder.sys.bench()
   A = await loadAll((n, total, label) => { bar.textContent = `Loading art ${n} / ${total}: ${label}`; });
   try {
     const idx = await (await fetch('../art/biomes/index.json', { cache: 'no-store' })).json();

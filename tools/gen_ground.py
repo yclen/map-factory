@@ -4,12 +4,12 @@
   python tools/gen_ground.py sand "fine pale desert sand with soft wind ripples"
   python tools/gen_ground.py snow "fresh packed snow with faint wind-carved ridges" --note "a hint of blue in the shade"
 
-The texture lands in art/ground/raw/<name>_vN.png (never overwriting an older one). The Biome Lab (biome-lab/) picks
+The texture lands in art/ground/raw/<name>_vN.png (never overwriting an older one). The Biome Builder (biome-builder/) picks
 it up on its next load and offers it as a ground skin for every biome; it makes the edges seamless itself, so a
 slightly visible seam in the raw image is fine.
 
-<name> is a short ground name (grass, sand, snow, needles, mud, ...). The lab's default pairing of ground names
-with biomes is GROUND_FOR in biome-lab/lab.js; any texture can be tried on any biome there.
+<name> is a short ground name (grass, sand, snow, needles, mud, ...). The Builder's default pairing of ground names
+with biomes is GROUND_FOR in biome-builder/builder.js; any texture can be tried on any biome there.
 
 Same options as gen_props.py: --biome adds that biome's theme and reference images, --ref attaches more images,
 --note adds a one-off instruction, --dry-run prints the prompt without calling Codex.
@@ -98,7 +98,7 @@ game.
             log.seek(0)
             sys.stdout.write(log.read().decode('utf-8', 'replace')[-3000:])
             sys.exit(f'Codex did not produce {rel}')
-    print(f'saved {rel}. Open the Biome Lab to try it on a biome.')
+    print(f'saved {rel}. Open the Biome Builder to try it on a biome.')
 
 
 if __name__ == '__main__':

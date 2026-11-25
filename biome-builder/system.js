@@ -1,18 +1,21 @@
-// The Biome Lab's little solar system: a blue star with one single-biome planet per biome around it, drawn exactly
-// the way the Galaxy demo draws planets (the same WebGL renderer and shaders, maps built in background workers as a
+// The Biome Builder's solar system: a blue star with the mix planet on the inside and one planet per biome further out,
+// laid out by the Galaxy demo's rules for a blue giant's system (rules.js stars.blue), and drawn exactly the way the Galaxy demo draws planets (the same WebGL renderer and shaders, maps built in background workers as a
 // pyramid of 256 x 256 chunks, items drawn as pictures). The chunk and drawing code follows galaxy-demo/js/main.js
 // (wantPage, pump, onPage, drawBody, setPage, drawPropsOn): keep them in step when one changes.
 // World coordinates are tiles, with the star at (0, 0).
-import { Renderer } from '../galaxy-demo/js/renderer.js?v=20261125133053';
-import { buildAtlas } from '../galaxy-demo/js/art.js?v=20261125133053';
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125133053';
-import { RULES } from '../galaxy-demo/js/rules.js?v=20261125133053';
-import { makeSampler } from '../galaxy-demo/js/terrain.js?v=20261125133053';
+import { Renderer } from '../galaxy-demo/js/renderer.js?v=20261125134458';
+import { buildAtlas } from '../galaxy-demo/js/art.js?v=20261125134458';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125134458';
+import { RULES } from '../galaxy-demo/js/rules.js?v=20261125134458';
+import { hash32, mulberry32, range } from '../galaxy-demo/js/rng.js?v=20261125134458';
+import { makeSampler } from '../galaxy-demo/js/terrain.js?v=20261125134458';
 
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 const PAGE = 256;
 const ATMO = RULES.planetTypes.terran.atmo;
-const STAR = { r: 70, color: [150, 190, 255] };          // a blue star, 140 tiles across
+const BLUE = RULES.stars.blue;
+const STAR = { r: 70, color: BLUE.color };               // r (tiles) is set by setPlanets
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));             // each planet this far round from the last: they never line up
 const PROP_REACH = [1.5, 3];                             // how far a size-1 item reaches from its foot, in tiles
 
 export function createSystem(canvas, overlay, hooks) {
@@ -23,13 +26,13 @@ export function createSystem(canvas, overlay, hooks) {
   const og = overlay.getContext('2d');
 
   // ---------- planets and their map chunks ----------
-  let planets = [];                                      // { name, x, y, W, desc, version, prevVersion, again, sampler }
+  let planets = [];                                      // { name, x, y, W, orbit, desc, version, prevVersion, again, sampler }
   const pages = new Map(), jobs = [];
   let frameNo = 0, buildMs = 0;
   const workers = [];
   const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
   for (let i = 0; i < NW; i++) {
-    const w = new Worker(new URL('../galaxy-demo/js/mapworker.js?v=20261125133053', import.meta.url), { type: 'module' });
+    const w = new Worker(new URL('../galaxy-demo/js/mapworker.js?v=20261125134458', import.meta.url), { type: 'module' });
     w.busy = null;
     w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
     w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -138,8 +141,10 @@ export function createSystem(canvas, overlay, hooks) {
   }
   function clampCam() { cam.x = clamp(cam.x, -extent, extent); cam.y = clamp(cam.y, -extent, extent); }
   // a smooth flight to (x, y) at zoom logZ
-  function flyTo(x, y, logZ, ms = 900) {
-    cam.fly = { t0: performance.now(), ms, from: [cam.x, cam.y, cam.logZ], to: [x, y, clamp(logZ, minLogZ(), maxLogZ())] };
+  function flyTo(x, y, logZ, ms) {
+    const to = [x, y, clamp(logZ, minLogZ(), maxLogZ())];
+    ms = ms || clamp(700 + Math.abs(to[2] - cam.logZ) * 110, 900, 2200);   // longer for a big change of zoom
+    cam.fly = { t0: performance.now(), ms, from: [cam.x, cam.y, cam.logZ], to };
     cam.vx = cam.vy = 0;
   }
   function stepFly(now) {
@@ -267,12 +272,12 @@ export function createSystem(canvas, overlay, hooks) {
     const z = zoom();
     og.setTransform(1, 0, 0, 1, 0, 0);
     og.clearRect(0, 0, overlay.width, overlay.height);
-    // the orbit, faintly, while the system is in view
+    // the orbits, faintly, while the system is in view
     const ringA = clamp(1.6 - Math.log2(z * extent / Math.min(R.w, R.h)), 0, 1) * 0.22;
     if (ringA > 0.01 && planets.length) {
       const [cx, cy] = toScreen(0, 0);
       og.strokeStyle = `rgba(160, 190, 255, ${ringA})`; og.lineWidth = dpr;
-      og.beginPath(); og.arc(cx, cy, planets[0].orbit * z, 0, Math.PI * 2); og.stroke();
+      for (const pl of planets) { og.beginPath(); og.arc(cx, cy, pl.orbit * z, 0, Math.PI * 2); og.stroke(); }
     }
     for (const pl of planets) {
       const Rp = pl.W / 2 * z;
@@ -401,27 +406,37 @@ export function createSystem(canvas, overlay, hooks) {
   new ResizeObserver(resize).observe(canvas);
   resize();
 
-  // ---------- what the lab calls ----------
+  // ---------- what the Builder calls ----------
   const view = {
     R, hover: null, items: true, shadows: true,
     propMax: 1,                          // the largest item size in use: how far beyond the view to look for items
     get planets() { return planets; },
     get zoom() { return zoom(); },
     get dpr() { return dpr; },
-    // The planets to show: [{ name, label, badge, W, desc, dot }]. Planets already shown keep their maps unless their
-    // description changed (then they rebuild in the background, the old map shown until the new one is ready)
-    setPlanets(list) {
-      const n = list.length, W = Math.max(...list.map(p => p.W), 64);
-      const orbit = Math.max(STAR.r * 3.2 + W, n * W * 1.9 / (2 * Math.PI));
+    // The planets to show, innermost first: [{ name, label, badge, W, desc, dot, land: [u, v] }] (land = a spot on
+    // dry land, -1..1 across the disk, for visit). Planets already shown keep their maps unless their description
+    // changed (then they rebuild in the background, the old map shown until the new one is ready).
+    // Layout: a blue giant's system from the Galaxy demo's rules (rules.js stars.blue): the first orbit at firstOrbit
+    // system units and each one 1.13-1.22x the one before, in units of su tiles (about a planet's radius). spread
+    // shrinks the distances and the star (1 = the rules' own distances); planets keep their size.
+    setPlanets(list, { su = 512, spread = 0.25 } = {}) {
       const first = !planets.length;
       const old = new Map(planets.map(p => [p.name, p]));
+      const rnd = mulberry32(hash32(20261125, 7));
+      STAR.r = BLUE.radius * spread * su;
+      let orbit = 0, prevW = 0;
       planets = list.map((p, i) => {
-        const a = -Math.PI / 2 + i / n * Math.PI * 2;
+        const gap = (prevW + p.W) / 2 + su;              // never closer than a planet radius between neighbours' edges
+        orbit = i === 0 ? Math.max(BLUE.firstOrbit * spread * su, STAR.r + p.W / 2 + su * 2)
+          : Math.max(orbit * range(rnd, BLUE.spacing[0], BLUE.spacing[1]), orbit + gap);
+        prevW = p.W;
+        const a = -Math.PI / 2 + i * GOLDEN;
         let pl = old.get(p.name);
         const changed = !pl || pl.W !== p.W || JSON.stringify(pl.desc) !== JSON.stringify(p.desc);
         if (!pl) pl = { name: p.name, version: 0, prevVersion: -1, again: false };
         else old.delete(p.name);
-        Object.assign(pl, { label: p.label, badge: p.badge, dot: p.dot, orbit, x: Math.cos(a) * orbit, y: Math.sin(a) * orbit });
+        Object.assign(pl, { label: p.label, badge: p.badge, dot: p.dot, land: p.land || [0, 0], orbit,
+          x: Math.cos(a) * orbit, y: Math.sin(a) * orbit });
         if (changed) {
           const resized = pl.W !== p.W;
           pl.W = p.W; pl.desc = p.desc; pl.sampler = null;
@@ -432,7 +447,7 @@ export function createSystem(canvas, overlay, hooks) {
         return pl;
       });
       for (const pl of old.values()) for (const q of [...pages.values()]) if (q.pl === pl) freePage(q);
-      extent = orbit + W;
+      extent = orbit + prevW;
       if (first) { cam.logZ = cam.tz = minLogZ() + 0.15; }
     },
     groundAt(hit) {
@@ -440,10 +455,17 @@ export function createSystem(canvas, overlay, hooks) {
       if (!pl.sampler) pl.sampler = makeSampler(pl.desc);
       return pl.sampler.classify(hit.x / pl.W * 2 - 1, hit.y / pl.W * 2 - 1);
     },
-    // fly to a planet, close enough to see its items
-    visit(name) {
+    // fly to a planet, close enough to see its items: to (u, v) on it (-1..1 across the disk), else its dry land
+    visit(name, u, v) {
       const pl = planets.find(p => p.name === name);
-      if (pl) flyTo(pl.x, pl.y, Math.log2(Math.max(Math.min(R.w, R.h) * 0.9 / pl.W, 14 * dpr)));
+      if (!pl) return;
+      if (u === undefined) [u, v] = pl.land;
+      flyTo(pl.x + u * pl.W / 2, pl.y + v * pl.W / 2, Math.log2(Math.max(Math.min(R.w, R.h) * 0.9 / pl.W, 14 * dpr)));
+    },
+    // fly out until the whole planet shows
+    frame(name) {
+      const pl = planets.find(p => p.name === name);
+      if (pl) flyTo(pl.x, pl.y, Math.log2(Math.min(R.w, R.h) * 0.8 / pl.W));
     },
     overview,
     // the planet nearest the middle of the screen, if one fills a good part of it

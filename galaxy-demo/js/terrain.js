@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125133053';
-import { RULES } from './rules.js?v=20261125133053';
-import { makeNoise } from './noise.js?v=20261125133053';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125133053';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125134458';
+import { RULES } from './rules.js?v=20261125134458';
+import { makeNoise } from './noise.js?v=20261125134458';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125134458';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -170,15 +170,34 @@ export function makeSampler(desc) {
   return { classify, deposit, elev, detail, sea };
 }
 
-// The Biome Lab's planet (biome-lab/): a lake in the middle, biome regions around it, and tiles painted by hand.
-// desc.lab = { lake: lake radius (share of the disk's radius), beach (tiles), regions, warp (0..1.5), hills (0..1),
-//   biomes: [ground ids], paint: null or Uint8Array(W * W) of ground ids (255 = not painted) }
+// The Biome Builder's planets (biome-builder/). desc.lab is one of:
+//   { mono: ground id, lake, hills }        one biome all round an ocean in the middle
+//   { slices: [ground ids], lake, hills, warp }   the mix planet: an ocean in the middle and the land cut like a pizza,
+//                                           one slice per biome, clockwise from the top, meeting in wavy lines
+//   { lake, beach (tiles), regions, warp, hills, biomes: [ground ids], paint: null or Uint8Array(W * W) of ground ids
+//     (255 = not painted) }                 the older lab planet: a lake, biome regions around it, tiles painted by hand
+// lake = the ocean's radius as a share of the disk's (0 = no ocean); hills 0..1; warp 0..1.5
 function labSampler(desc, N, r, detail, sea) {
   const L = desc.lab, W = desc.W;
-  if (L.mono !== undefined) {
-    // a planet of one biome (the Biome Lab's biome planets): gentle hills, no water
-    const elev = (x, y) => sea + 0.02 + (N.fbm(x * 3 + 11, y * 3 + 7, 5.5, 4) * 0.5 + 0.5) * (L.hills || 0) * 0.16;
-    return { classify: () => L.mono, deposit: () => 0, elev, detail, sea };
+  if (L.mono !== undefined || L.slices) {
+    const lake = L.lake || 0, hills = L.hills || 0, K = L.slices ? L.slices.length : 1, warp = (L.warp ?? 1) * 0.2;
+    const shoreD = (x, y) => Math.hypot(x, y) + N.fbm(x * 3 + 3.1, y * 3 - 1.7, 1.3, 4) * 0.1;   // a wobbly coast
+    const hill = (x, y) => (N.fbm(x * 3 + 11, y * 3 + 7, 5.5, 4) * 0.5 + 0.5) * hills * 0.16;
+    // the sea bed drops away from the shore; the land rises gently from it into hills
+    function elev(x, y) {
+      if (lake <= 0) return sea + 0.02 + hill(x, y);
+      const d = shoreD(x, y) - lake;
+      if (d < 0) return sea - 0.004 - Math.min(1, -d / 0.12) * 0.09;
+      return sea + 0.004 + Math.min(1, d / 0.1) * (0.016 + hill(x, y));
+    }
+    function classify(x, y, z = 0, e = elev(x, y)) {
+      if (e < sea) return e < sea - 0.03 ? T.DEEP : T.SHALLOW;
+      if (K === 1) return L.slices ? L.slices[0] : L.mono;
+      // the angle clockwise from the top (y runs down), pushed about by noise so neighbouring slices meet in wavy lines
+      const a = Math.atan2(x, -y) + N.fbm(x * 4 + 5.3, y * 4 - 2.9, 8.1, 4) * warp;
+      return L.slices[Math.floor(((a / TAU) % 1 + 1) % 1 * K) % K];
+    }
+    return { classify, deposit: () => 0, elev, detail, sea };
   }
   const list = L.biomes.length ? L.biomes.slice() : [T.GRASS];
   for (let i = list.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; const t = list[i]; list[i] = list[j]; list[j] = t; }
@@ -319,7 +338,7 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     if (u * u + v * v <= 1) { counts[base]++; if (ov) counts[32 + ov]++; }
     const vv = tileHash(x0 + x, y0 + y) & 3, bi = (base * 4 + vv) * 3;
     let r = art.baseAvg[bi], g = art.baseAvg[bi + 1], b = art.baseAvg[bi + 2], e = art.baseEmis[base];
-    const avg = desc.avg && desc.avg[base];             // a ground drawn with a texture (Biome Lab): its own average
+    const avg = desc.avg && desc.avg[base];             // a ground drawn with a texture (Biome Builder): its own average
     if (avg) { r = avg[0]; g = avg[1]; b = avg[2]; }
     if (ov && art.overStain[ov * 4 + 3] > 0) {
       const k = art.overStain[ov * 4 + 3] * (0.35 + 0.65 * rich);

@@ -1,9 +1,9 @@
-// Loading art for the Biome Lab: the raw AI sheets (cut into sprites here in the browser, the same way
+// Loading art for the Biome Builder: the raw AI sheets (cut into sprites here in the browser, the same way
 // tools/pack_props.py does it), the AI ground textures (made seamless here), and the game's pixel-art fallbacks.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125133053';
-import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125133053';
-import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125133053';
-import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125133053';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125134458';
+import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125134458';
+import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125134458';
+import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125134458';
 
 const ART = '../art/';
 const SHEET_W = 922;            // sheets are cut at most this wide (60% of ChatGPT's 1536 px): plenty for the closest zoom
@@ -18,7 +18,7 @@ async function loadImage(url) {
   return img;
 }
 
-// file names in a folder: the local server's directory listing, else biome-lab/catalog.json (for GitHub Pages)
+// file names in a folder: the local server's directory listing, else biome-builder/catalog.json (for GitHub Pages)
 let catalog = null;
 async function listFiles(folder, key, ext = 'png') {
   try {
@@ -237,7 +237,7 @@ export function buildItemAtlas(skins) {
   return { canvas: c, meta: { scale: HD_SCALE, cell: [CELL_W, CELL_H], cols: HD_COLS, size: [c.width, c.height] }, cells };
 }
 
-// one ground-texture layer: the seamless texture with the lab's colour adjustments, and its average colour
+// one ground-texture layer: the seamless texture with the Builder's colour adjustments, and its average colour
 export function groundLayer(img, bright, sat, hue) {
   const c = canvas(TEX, TEX), g = c.getContext('2d', { willReadFrequently: true });
   if (bright !== 1 || sat !== 1 || hue !== 0) g.filter = `brightness(${bright}) saturate(${sat}) hue-rotate(${hue}deg)`;
@@ -260,7 +260,7 @@ export async function loadAll(progress) {
 
   const propFiles = (await listFiles('props/raw/', 'props')).map(f => ({ file: f, ...parseName(f) })).filter(f => f.name);
   const groundFiles = (await listFiles('ground/raw/', 'ground')).map(f => ({ file: f, ...parseName(f) })).filter(f => f.name);
-  // small web copies made by tools/lab_catalog.py (the raw images are 2-4 MB each); the raw image if there's none
+  // small web copies made by tools/builder_catalog.py (the raw images are 2-4 MB each); the raw image if there's none
   const webProps = new Set(await listFiles('props/web/', 'propsWeb', 'webp'));
   const webGround = new Set(await listFiles('ground/web/', 'groundWeb', 'webp'));
   const src = (folder, web, f) => {

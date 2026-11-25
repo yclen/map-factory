@@ -79,7 +79,7 @@ def main():
 
     with ThreadPoolExecutor(args.jobs) as pool:
         results = list(pool.map(run, todo))
-    print(f'{sum(results)} made, {len(results) - sum(results)} failed. Then: python tools/lab_catalog.py', flush=True)
+    print(f'{sum(results)} made, {len(results) - sum(results)} failed. Then: python tools/builder_catalog.py', flush=True)
 
 
 if __name__ == '__main__':
