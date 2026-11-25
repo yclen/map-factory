@@ -7,7 +7,7 @@
  "cols": 8,
  "size": [
   1024,
-  1344
+  2112
  ],
  "kinds": {
   "oak": 0,
@@ -22,6 +22,15 @@
   "snowpine": 36,
   "boulder": 40,
   "mossy": 44,
-  "snowrock": 48
+  "snowrock": 48,
+  "deadtree": 52,
+  "blossom": 56,
+  "willow": 60,
+  "saguaro": 64,
+  "redrock": 68,
+  "darkrock": 72,
+  "iceblock": 76,
+  "sulfrock": 80,
+  "columns": 84
  }
 }

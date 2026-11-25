@@ -1,13 +1,13 @@
 // Biome Lab: a blue star with one single-biome planet per biome. Pick a planet, design its biome (ground texture and
 // the items that grow on it: trees, rocks, shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125004141';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125004141';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125004141';
-import { skinKey, itemTable, ITEM_SLOTS } from '../galaxy-demo/js/biomes.js?v=20261125004141';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125004141';
-import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX } from './assets.js?v=20261125004141';
-import { createSystem } from './system.js?v=20261125004141';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125133053';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125133053';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125133053';
+import { skinKey, itemTable, ITEM_SLOTS } from '../galaxy-demo/js/biomes.js?v=20261125133053';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125133053';
+import { loadAll, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125133053';
+import { createSystem } from './system.js?v=20261125133053';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
@@ -28,41 +28,47 @@ const GROUND_IDEAS = {
   grass: ['short green meadow grass with a little clover', 'forest'],
   forestfloor: ['forest floor of brown leaf litter, moss and small twigs on dark soil', 'forest'],
   junglefloor: ['dark damp jungle floor of wet fallen leaves, roots and moss', 'jungle'],
-  mud: ['dark wet swamp mud with moss, a faint wet sheen and a few reeds lying flat', 'forest'],
+  mud: ['dark wet swamp mud with moss, a faint wet sheen and a few reeds lying flat', 'swamp'],
   drygrass: ['dry golden savanna grass, short and trampled, with dusty soil showing between', 'savanna'],
   sand: ['fine pale golden desert sand with soft, shallow wind ripples', 'savanna'],
-  dunes: ['rippled orange-gold dune sand with long parallel wind ripples', 'savanna'],
+  dunes: ['rippled orange-gold dune sand with long parallel wind ripples', 'desert'],
   beachsand: ['damp pale beach sand with tiny shell fragments', 'jungle'],
-  redsand: ['red-orange desert sand and gravel', 'rocks'],
-  salt: ['a white salt flat crust cracked into irregular plates', 'rocks'],
+  redsand: ['red-orange desert sand and gravel', 'desert'],
+  salt: ['a white salt flat crust cracked into irregular plates', 'desert'],
   tundra: ['tundra of low grey-green moss, lichen and small stones', 'taiga'],
   needles: ['pine forest floor of brown needles and a few cones on dark soil', 'taiga'],
   snow: ['fresh packed snow with faint wind-carved ridges', 'taiga'],
-  ice: ['smooth blue-white glacier ice with faint cracks and trapped bubbles', 'taiga'],
+  ice: ['smooth blue-white glacier ice with faint cracks and trapped bubbles', 'ice'],
   rock: ['bare grey mountain rock with cracks and loose gravel', 'rocks'],
-  ash: ['grey volcanic ash with small dark cinders', 'rocks'], obsidian: ['glossy black obsidian ground with sharp cracks', 'rocks'],
-  basalt: ['dark grey basalt ground with small pits', 'rocks'], sulfur: ['yellow sulfur crust with pale cracks', 'rocks'],
-  regolith: ['grey moon dust with small pebbles and tiny craters', 'rocks'], rust: ['rust-red iron-rich dust and gravel', 'rocks'],
+  ash: ['grey volcanic ash with small dark cinders', 'volcanic'], obsidian: ['glossy black obsidian ground with sharp cracks', 'volcanic'],
+  basalt: ['dark grey basalt ground with small pits', 'volcanic'], sulfur: ['yellow sulfur crust with pale cracks', 'volcanic'],
+  regolith: ['grey moon dust with small pebbles and tiny craters', 'volcanic'], rust: ['rust-red iron-rich dust and gravel', 'volcanic'],
 };
 const ITEM_IDEAS = {
   oak: ['broadleaf oak trees with a rounded leafy crown and a short brown trunk', 'forest'],
   oak2: ['oak trees, one in autumn orange', 'forest'], birch: ['slender white-barked birch trees', 'forest'],
   blossom: ['cherry blossom trees with soft pink flowering crowns', 'forest'],
-  willow: ['weeping willow trees with long drooping branches', 'forest'],
-  deadtree: ['dead leafless trees with bare grey twisted branches', null],
-  saguaro: ['tall saguaro cacti with upturned arms', 'savanna'], palm: ['coconut palm trees', 'jungle'],
+  willow: ['weeping willow trees with long drooping branches', 'swamp'],
+  deadtree: ['dead leafless trees with bare grey twisted branches', 'swamp'],
+  saguaro: ['tall saguaro cacti with upturned arms', 'desert'], palm: ['coconut palm trees', 'jungle'],
   jungle: ['tall jungle trees with dense dark crowns', 'jungle'], acacia: ['flat-topped acacia trees', 'savanna'],
   pine: ['tall pine trees', 'taiga'], fir: ['narrow fir trees', 'taiga'], snowpine: ['pine trees with snow on the branches', 'taiga'],
   boulder: ['grey granite boulders', 'rocks', 0.6], mossy: ['grey boulders with patches of green moss', 'rocks', 0.6],
-  sandrock: ['sandstone boulders', 'rocks', 0.6], redrock: ['red sandstone boulders', 'rocks', 0.6],
-  snowrock: ['grey boulders with snow on top', 'rocks', 0.6], darkrock: ['dark volcanic basalt boulders', 'rocks', 0.6],
-  sulfrock: ['yellow sulfur-crusted rocks', 'rocks', 0.6], iceblock: ['chunky blocks of blue glacier ice', 'rocks', 0.7],
-  columns: ['clusters of dark hexagonal basalt columns', 'rocks', 0.8],
-  tuft: ['small tufts of wild grass', 'forest', 0.35], flowers: ['small clumps of wildflowers', 'forest', 0.35],
-  bush: ['small round leafy shrubs', 'forest', 0.45], reeds: ['clumps of tall swamp reeds', 'forest', 0.5],
-  cactus: ['small round desert cacti', 'savanna', 0.4], pebbles: ['small scattered grey pebbles', 'rocks', 0.3],
-  rock: ['small grey rocks', 'rocks', 0.35], bones: ['bleached animal bones half buried', 'savanna', 0.35],
-  shell: ['small sea shells', 'jungle', 0.25], driftwood: ['pieces of grey driftwood', 'jungle', 0.4],
+  sandrock: ['sandstone boulders', 'rocks', 0.6], redrock: ['red sandstone boulders', 'desert', 0.6],
+  snowrock: ['grey boulders with snow on top', 'rocks', 0.6], darkrock: ['dark volcanic basalt boulders', 'volcanic', 0.6],
+  sulfrock: ['yellow sulfur-crusted rocks', 'volcanic', 0.6], iceblock: ['chunky blocks of blue glacier ice', 'ice', 0.7],
+  columns: ['clusters of dark hexagonal basalt columns', 'volcanic', 0.8],
+  // small items (the full prompts used are in art/wishlist.json); the number is their starting size
+  tuft: ['tufts of wild meadow grass', 'forest', 0.35], flowers: ['small clumps of wildflowers', 'forest', 0.35],
+  bush: ['small round leafy shrubs', 'forest', 0.45], reeds: ['clumps of tall swamp reeds and cattails', 'swamp', 0.5],
+  cactus: ['small desert cacti', 'desert', 0.4], pebbles: ['small groups of smooth grey pebbles', 'rocks', 0.3],
+  rock: ['small grey stones', 'rocks', 0.35], bones: ['sun-bleached animal bones', 'desert', 0.35],
+  shell: ['sea shells and starfish', 'jungle', 0.25], driftwood: ['pieces of grey driftwood', 'jungle', 0.4],
+  rocksand: ['small sandstone stones', 'desert', 0.35], rockred: ['small rust-red sandstone stones', 'desert', 0.35],
+  pebblesr: ['small groups of rust-red pebbles', 'desert', 0.3], rocksnow: ['small stones with a cap of snow', 'ice', 0.35],
+  icechunk: ['small broken chunks of glacier ice', 'ice', 0.35], pebblesd: ['small groups of black volcanic pebbles', 'volcanic', 0.3],
+  spire: ['small jagged volcanic rock spikes', 'volcanic', 0.45], 'deadtree-small': ['small dead leafless shrubs', 'volcanic', 0.45],
+  'sulfrock-small': ['small stones crusted with sulfur', 'volcanic', 0.35],
 };
 
 // ---------- state ----------
@@ -79,6 +85,9 @@ let selected = 'FOREST';
 const clone = o => JSON.parse(JSON.stringify(o));
 
 const sheetsOf = kind => Object.values(A.sheets).filter(s => s.kind === kind).sort((a, b) => a.v - b.v);
+// which sheets an item uses: its own name, except small items named like a big one (the small 'deadtree' is a dead
+// shrub, not a full tree), whose sheets are '<kind>-small'
+const sheetKind = (kind, layer) => layer === 'small' && SKIN.props[kind] ? kind + '-small' : kind;
 function latestTexture(names) {
   for (const n of names || []) {
     const t = Object.values(A.textures).filter(t => t.name === n).sort((a, b) => b.v - a.v)[0];
@@ -86,21 +95,19 @@ function latestTexture(names) {
   }
   return null;
 }
-// an item's starting skin: props.json's choice, else its newest sheet, else pixel art. Small items only use a sheet
-// made for them (an AI oak sheet would make the tiny decorative oak a full tree)
+// an item's starting skin: props.json's choice (big items), else its newest sheet, else pixel art
 function defaultSkin(kind, layer) {
-  if (layer === 'small' && SKIN.props[kind]) return { sheet: null, pick: [0, 1, 2, 3] };
-  const m = A.manifest.kinds[kind], v = sheetsOf(kind);
+  const sk = sheetKind(kind, layer), m = A.manifest.kinds[sk], v = sheetsOf(sk);
   if (m && A.sheets[m.sheet]) return { sheet: m.sheet, pick: m.pick || [0, 1, 2, 3] };
   if (v.length) return { sheet: v[v.length - 1].file, pick: [0, 1, 2, 3] };
   return { sheet: null, pick: [0, 1, 2, 3] };
 }
 function newItem(kind, layer, density) {
   const skin = defaultSkin(kind, layer), m = A.manifest.kinds[kind];
-  const size = layer === 'big' ? (m && m.size) || 1 : skin.sheet ? (ITEM_IDEAS[kind] || [])[2] || 0.4 : 1;
+  const size = layer === 'big' ? (m && m.size) || 1 : skin.sheet ? (ITEM_IDEAS[sheetKind(kind, layer)] || [])[2] || 0.4 : 1;
   return { kind, layer, density: +density.toFixed(4), size, sizeVar: 0.1, clump: 0, clumpSize: 10, skin };
 }
-const hasArt = (kind, layer) => sheetsOf(kind).length > 0 || !!(layer === 'big' ? A.pixel.props[kind] : A.pixel.decor[kind] || A.pixel.props[kind]);
+const hasArt = (kind, layer) => sheetsOf(sheetKind(kind, layer)).length > 0 || !!(layer === 'big' ? A.pixel.props[kind] : A.pixel.decor[kind] || A.pixel.props[kind]);
 // the game's current look for a biome (skin.js propsFor / decorFor), as a template
 function defaultTemplate(name) {
   const items = [];
@@ -160,11 +167,42 @@ function groundsFor(templates) {
   }
   return { layers, avg };
 }
+// the colour a biome shows from far away, where items aren't drawn: its ground's colour mixed with its items' colours,
+// by how much of the ground they cover (a dense forest reads green, a desert with a few rocks stays sandy).
+// Only for textured grounds; pixel-art grounds already have their own far colours
+const SPOT_AREA = { big: 2.25, small: 1 };            // tiles per spot: big items one per 1.5 x 1.5 tiles, small one per tile
+function farAvgs(templates, groundAvg) {
+  const out = {};
+  for (const t of templates) {
+    const id = ID[t.biome], ga = groundAvg[id];
+    if (!ga) continue;
+    let cover = 0;
+    const col = [0, 0, 0];
+    for (const it of t.items) {
+      const sprites = spritesOf(it);
+      if (!sprites || !it.density) continue;
+      let area = 0;
+      const c = [0, 0, 0];
+      for (const s of sprites) {
+        const st = spriteStats(s), k = tilesPerPx(s, it.size || 1), a = s.w * s.h * k * k * st.fill;
+        area += a / sprites.length;
+        for (let i = 0; i < 3; i++) c[i] += st.avg[i] * a;
+      }
+      if (!area) continue;
+      const cv = it.density * area / SPOT_AREA[it.layer];
+      cover += cv;
+      for (let i = 0; i < 3; i++) col[i] += c[i] / (area * sprites.length) * cv;
+    }
+    const k = 1 - Math.exp(-cover);                    // overlapping items: covered share, never quite all of it
+    out[id] = ga.map((g, i) => Math.round(cover ? g + (col[i] / cover - g) * k : g));
+  }
+  return out;
+}
 const maxSize = templates => Math.max(1, ...templates.flatMap(t => t.items.map(it => (it.size || 1) * (1 + (it.sizeVar || 0)))));
 
 // ---------- feeding the renderer ----------
 
-let atlasKey = '', groundKey = '', liveAvg = {}, cells = {};
+let atlasKey = '', groundKey = '', liveAvg = {}, groundAvg = {}, cells = {};
 function apply(what = 'items') {
   const templates = DESIGNABLE.map(effective);
   if (what === 'all' || what === 'skins' || what === 'items') {
@@ -182,9 +220,10 @@ function apply(what = 'items') {
       const K = new Int32Array(32).fill(-1), Sc = new Float32Array(32).fill(8);
       layers.forEach((l, i) => { for (const id of l.ids) { K[id] = i; Sc[id] = l.scale; } });
       sys.R.setGroundTextures(layers.map(l => l.canvas), GROUND_TEX, K, Sc);
-      liveAvg = avg;
+      groundAvg = avg;
     }
   }
+  liveAvg = farAvgs(templates, groundAvg);
   showPlanets();
 }
 function showPlanets() {
@@ -214,7 +253,7 @@ async function save(name, template) {
       version: 1, saved: Object.keys(after).sort(),
       templates: Object.fromEntries(templates.map(t => [t.biome, t])), cells: atlas.cells,
       atlas: { file: 'items.webp', ...atlas.meta }, groundSize: GROUND_TEX,
-      grounds: grounds.layers.map((l, i) => ({ file: `ground_${i}.webp`, ids: l.ids, scale: l.scale })), avg: grounds.avg,
+      grounds: grounds.layers.map((l, i) => ({ file: `ground_${i}.webp`, ids: l.ids, scale: l.scale })), avg: farAvgs(templates, grounds.avg),
       propMax: maxSize(templates),
     };
     const res = await fetch('/api/biome-lab/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -353,7 +392,7 @@ const groundBg = name => rgb(liveAvg[ID[name]] || SKIN.base[name].c);
 
 function itemCard(name, it, index) {
   const set = (field, v) => edit(name, t => { t.items[index][field] = v; });
-  const sprites = spritesOf(it), versions = sheetsOf(it.kind);
+  const sprites = spritesOf(it), versions = sheetsOf(sheetKind(it.kind, it.layer));
   const sel = h('select', {}, h('option', { value: '' }, 'pixel art'),
     ...versions.map(s => h('option', { value: s.file }, s.file.replace('.png', ''))));
   sel.value = it.skin.sheet || '';
@@ -435,7 +474,7 @@ function biomePanel() {
 // --- Art tab ---
 function artPanel() {
   const kinds = [...new Set(Object.values(A.sheets).map(s => s.kind))].sort();
-  const usedBy = kind => DESIGNABLE.filter(n => effective(n).items.some(it => it.kind === kind && it.skin.sheet)).map(n => BASE_NAME[n]);
+  const usedBy = kind => DESIGNABLE.filter(n => effective(n).items.some(it => sheetKind(it.kind, it.layer) === kind && it.skin.sheet)).map(n => BASE_NAME[n]);
   const sheetCards = kinds.map(kind => h('div', { class: 'card' },
     h('div', { class: 'cardhead' }, h('b', {}, kind), h('span', { class: 'hint' }, usedBy(kind).join(', ') || 'not used')),
     sheetsOf(kind).map(s => h('div', { class: 'sheetrow' }, h('span', { class: 'ver' }, 'v' + s.v), s.cells.map(c => thumb(c, 34, '#6b7a4a'))))));
@@ -451,17 +490,20 @@ function artPanel() {
   const needItems = new Map(), needGround = new Map();
   for (const n of S.planets.filter(x => DESIGNABLE.includes(x))) {
     const t = effective(n);
-    for (const it of t.items) if (!it.skin.sheet) needItems.set(it.kind, [...(needItems.get(it.kind) || []), BASE_NAME[n]]);
+    for (const it of t.items) if (!it.skin.sheet) { const k = sheetKind(it.kind, it.layer) + (it.layer === 'small' ? ' --small' : ''); needItems.set(k, [...(needItems.get(k) || []), BASE_NAME[n]]); }
     if (!t.ground.texture) { const g = (GROUND_FOR[n] || [])[0]; if (g) needGround.set(g, [...(needGround.get(g) || []), BASE_NAME[n]]); }
   }
   const cmd = text => h('div', { class: 'cmd' }, h('code', {}, text), h('button', { class: 'small', onclick: e => { navigator.clipboard.writeText(text); e.target.textContent = 'copied'; } }, 'copy'));
-  const itemCmd = k => { const [s, bio, size] = ITEM_IDEAS[k] || [k, null]; return `python tools/gen_props.py ${k} "${s}"` + (bio ? ` --biome ${bio}` : '') + (size ? ` --size ${Math.min(1, size)}` : ''); };
+  const itemCmd = key => {
+    const [k, small] = key.split(' '), [s, bio, size] = ITEM_IDEAS[k] || [k, null];
+    return `python tools/gen_props.py ${k} "${s}"` + (bio ? ` --biome ${bio}` : '') + (small ? ' --small' : size ? ` --size ${Math.min(1, size)}` : '');
+  };
   const groundCmd = g => { const [s, bio] = GROUND_IDEAS[g] || [g, null]; return `python tools/gen_ground.py ${g} "${s}"` + (bio ? ` --biome ${bio}` : ''); };
   return h('div', {},
     h('h3', {}, 'Still needed for these planets'),
     !needItems.size && !needGround.size ? h('p', { class: 'hint' }, 'Everything on these planets has AI art.') : null,
     [...needGround].map(([g, who]) => h('div', { class: 'need' }, h('span', {}, h('b', {}, `ground: ${g}`), ' for ', who.join(', ')), cmd(groundCmd(g)))),
-    [...needItems].map(([k, who]) => h('div', { class: 'need' }, h('span', {}, h('b', {}, `item: ${k}`), ' for ', who.join(', ')), cmd(itemCmd(k)))),
+    [...needItems].map(([k, who]) => h('div', { class: 'need' }, h('span', {}, h('b', {}, `item: ${k.split(' ')[0]}`), ' for ', who.join(', ')), cmd(itemCmd(k)))),
     h('p', { class: 'hint' }, 'Run these in PowerShell from the project folder. New pictures show up after a reload.'),
     h('h3', {}, `Ground textures (${tex.length})`),
     h('p', { class: 'hint' }, 'Each shown as 2 × 2 copies, so seams would show.'),

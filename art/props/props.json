@@ -100,6 +100,74 @@
         2
       ],
       "size": 0.6
+    },
+    "deadtree": {
+      "sheet": "deadtree_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "blossom": {
+      "sheet": "blossom_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "willow": {
+      "sheet": "willow_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "saguaro": {
+      "sheet": "saguaro_v1.png",
+      "grid": [
+        3,
+        2
+      ]
+    },
+    "redrock": {
+      "sheet": "redrock_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.6
+    },
+    "darkrock": {
+      "sheet": "darkrock_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.6
+    },
+    "iceblock": {
+      "sheet": "iceblock_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.7
+    },
+    "sulfrock": {
+      "sheet": "sulfrock_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.6
+    },
+    "columns": {
+      "sheet": "columns_v1.png",
+      "grid": [
+        3,
+        2
+      ],
+      "size": 0.8
     }
   }
 }

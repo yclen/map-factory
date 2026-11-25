@@ -5,7 +5,7 @@
   "BEACH": {
    "biome": "BEACH",
    "ground": {
-    "texture": "sand_v1.png",
+    "texture": "beachsand_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -52,12 +52,12 @@
      "kind": "shell",
      "layer": "small",
      "density": 0.03,
-     "size": 1,
+     "size": 0.25,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "shell_v1.png",
       "pick": [
        0,
        1,
@@ -70,12 +70,12 @@
      "kind": "driftwood",
      "layer": "small",
      "density": 0.015,
-     "size": 1,
+     "size": 0.4,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "driftwood_v1.png",
       "pick": [
        0,
        1,
@@ -88,12 +88,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.015,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -159,7 +159,7 @@
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "blossom_v1.png",
       "pick": [
        0,
        1,
@@ -190,12 +190,12 @@
      "kind": "tuft",
      "layer": "small",
      "density": 0.15,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "tuft_v1.png",
       "pick": [
        0,
        1,
@@ -208,12 +208,12 @@
      "kind": "flowers",
      "layer": "small",
      "density": 0.075,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "flowers_v1.png",
       "pick": [
        0,
        1,
@@ -226,12 +226,12 @@
      "kind": "bush",
      "layer": "small",
      "density": 0.075,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "bush_v1.png",
       "pick": [
        0,
        1,
@@ -245,7 +245,7 @@
   "FOREST": {
    "biome": "FOREST",
    "ground": {
-    "texture": "grass_v1.png",
+    "texture": "forestfloor_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -310,12 +310,12 @@
      "kind": "bush",
      "layer": "small",
      "density": 0.15,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "bush_v1.png",
       "pick": [
        0,
        1,
@@ -328,12 +328,12 @@
      "kind": "tuft",
      "layer": "small",
      "density": 0.075,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "tuft_v1.png",
       "pick": [
        0,
        1,
@@ -346,12 +346,12 @@
      "kind": "flowers",
      "layer": "small",
      "density": 0.075,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "flowers_v1.png",
       "pick": [
        0,
        1,
@@ -365,7 +365,7 @@
   "JUNGLE": {
    "biome": "JUNGLE",
    "ground": {
-    "texture": "grass_v1.png",
+    "texture": "junglefloor_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -412,12 +412,12 @@
      "kind": "bush",
      "layer": "small",
      "density": 0.3375,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "bush_v1.png",
       "pick": [
        0,
        1,
@@ -430,12 +430,12 @@
      "kind": "tuft",
      "layer": "small",
      "density": 0.1125,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "tuft_v1.png",
       "pick": [
        0,
        1,
@@ -449,7 +449,7 @@
   "SWAMP": {
    "biome": "SWAMP",
    "ground": {
-    "texture": null,
+    "texture": "mud_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -465,7 +465,7 @@
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "willow_v1.png",
       "pick": [
        0,
        1,
@@ -483,7 +483,7 @@
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "deadtree_v1.png",
       "pick": [
        0,
        1,
@@ -514,12 +514,12 @@
      "kind": "reeds",
      "layer": "small",
      "density": 0.3,
-     "size": 1,
+     "size": 0.5,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "reeds_v1.png",
       "pick": [
        0,
        1,
@@ -532,12 +532,12 @@
      "kind": "bush",
      "layer": "small",
      "density": 0.1,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "bush_v1.png",
       "pick": [
        0,
        1,
@@ -551,7 +551,7 @@
   "SAVANNA": {
    "biome": "SAVANNA",
    "ground": {
-    "texture": "sand_v1.png",
+    "texture": "drygrass_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -598,12 +598,12 @@
      "kind": "tuft",
      "layer": "small",
      "density": 0.08,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "tuft_v1.png",
       "pick": [
        0,
        1,
@@ -616,12 +616,12 @@
      "kind": "bush",
      "layer": "small",
      "density": 0.04,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "bush_v1.png",
       "pick": [
        0,
        1,
@@ -634,12 +634,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.04,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -669,7 +669,7 @@
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "saguaro_v1.png",
       "pick": [
        0,
        1,
@@ -700,12 +700,12 @@
      "kind": "cactus",
      "layer": "small",
      "density": 0.0125,
-     "size": 1,
+     "size": 0.4,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "cactus_v1.png",
       "pick": [
        0,
        1,
@@ -718,12 +718,12 @@
      "kind": "rocksand",
      "layer": "small",
      "density": 0.0125,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rocksand_v1.png",
       "pick": [
        0,
        1,
@@ -736,12 +736,12 @@
      "kind": "bones",
      "layer": "small",
      "density": 0.0125,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "bones_v1.png",
       "pick": [
        0,
        1,
@@ -754,12 +754,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.0125,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -773,7 +773,7 @@
   "DUNES": {
    "biome": "DUNES",
    "ground": {
-    "texture": "sand_v1.png",
+    "texture": "dunes_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -807,7 +807,7 @@
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "saguaro_v1.png",
       "pick": [
        0,
        1,
@@ -820,12 +820,12 @@
      "kind": "bones",
      "layer": "small",
      "density": 0.005,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "bones_v1.png",
       "pick": [
        0,
        1,
@@ -838,12 +838,12 @@
      "kind": "rocksand",
      "layer": "small",
      "density": 0.005,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rocksand_v1.png",
       "pick": [
        0,
        1,
@@ -856,12 +856,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.01,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -875,7 +875,7 @@
   "MESA": {
    "biome": "MESA",
    "ground": {
-    "texture": "sand_v1.png",
+    "texture": "redsand_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -886,12 +886,12 @@
      "kind": "redrock",
      "layer": "big",
      "density": 0.06,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "redrock_v1.png",
       "pick": [
        0,
        1,
@@ -909,7 +909,7 @@
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "saguaro_v1.png",
       "pick": [
        0,
        1,
@@ -922,12 +922,12 @@
      "kind": "rockred",
      "layer": "small",
      "density": 0.07,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rockred_v1.png",
       "pick": [
        0,
        1,
@@ -940,12 +940,12 @@
      "kind": "pebblesr",
      "layer": "small",
      "density": 0.035,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebblesr_v1.png",
       "pick": [
        0,
        1,
@@ -958,12 +958,12 @@
      "kind": "cactus",
      "layer": "small",
      "density": 0.035,
-     "size": 1,
+     "size": 0.4,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "cactus_v1.png",
       "pick": [
        0,
        1,
@@ -977,7 +977,7 @@
   "SALT": {
    "biome": "SALT",
    "ground": {
-    "texture": null,
+    "texture": "salt_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1024,12 +1024,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.015,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1042,12 +1042,12 @@
      "kind": "bones",
      "layer": "small",
      "density": 0.0075,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "bones_v1.png",
       "pick": [
        0,
        1,
@@ -1060,12 +1060,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.0075,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -1079,7 +1079,7 @@
   "TUNDRA": {
    "biome": "TUNDRA",
    "ground": {
-    "texture": null,
+    "texture": "tundra_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1162,12 +1162,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.04,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -1180,12 +1180,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.08,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1198,12 +1198,12 @@
      "kind": "tuft",
      "layer": "small",
      "density": 0.04,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "tuft_v1.png",
       "pick": [
        0,
        1,
@@ -1217,7 +1217,7 @@
   "TAIGA": {
    "biome": "TAIGA",
    "ground": {
-    "texture": null,
+    "texture": "needles_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1282,12 +1282,12 @@
      "kind": "tuft",
      "layer": "small",
      "density": 0.125,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "tuft_v1.png",
       "pick": [
        0,
        1,
@@ -1300,12 +1300,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.0625,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -1318,12 +1318,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.0625,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1384,12 +1384,12 @@
      "kind": "rocksnow",
      "layer": "small",
      "density": 0.02,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rocksnow_v1.png",
       "pick": [
        0,
        1,
@@ -1402,12 +1402,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.02,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1421,7 +1421,7 @@
   "ICE": {
    "biome": "ICE",
    "ground": {
-    "texture": "snow_v1.png",
+    "texture": "ice_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1432,12 +1432,12 @@
      "kind": "iceblock",
      "layer": "big",
      "density": 0.0112,
-     "size": 1,
+     "size": 0.7,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "iceblock_v1.png",
       "pick": [
        0,
        1,
@@ -1468,12 +1468,12 @@
      "kind": "icechunk",
      "layer": "small",
      "density": 0.0225,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "icechunk_v1.png",
       "pick": [
        0,
        1,
@@ -1486,12 +1486,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.0075,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1505,7 +1505,7 @@
   "SEA_ICE": {
    "biome": "SEA_ICE",
    "ground": {
-    "texture": "snow_v1.png",
+    "texture": "ice_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1516,12 +1516,12 @@
      "kind": "iceblock",
      "layer": "big",
      "density": 0.01,
-     "size": 1,
+     "size": 0.7,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "iceblock_v1.png",
       "pick": [
        0,
        1,
@@ -1534,12 +1534,12 @@
      "kind": "icechunk",
      "layer": "small",
      "density": 0.02,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "icechunk_v1.png",
       "pick": [
        0,
        1,
@@ -1553,7 +1553,7 @@
   "ICE_CRACK": {
    "biome": "ICE_CRACK",
    "ground": {
-    "texture": "snow_v1.png",
+    "texture": "ice_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1564,12 +1564,12 @@
      "kind": "iceblock",
      "layer": "big",
      "density": 0.0225,
-     "size": 1,
+     "size": 0.7,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "iceblock_v1.png",
       "pick": [
        0,
        1,
@@ -1600,12 +1600,12 @@
      "kind": "icechunk",
      "layer": "small",
      "density": 0.03,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "icechunk_v1.png",
       "pick": [
        0,
        1,
@@ -1618,12 +1618,12 @@
      "kind": "rocksnow",
      "layer": "small",
      "density": 0.01,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rocksnow_v1.png",
       "pick": [
        0,
        1,
@@ -1637,7 +1637,7 @@
   "MOUNTAIN": {
    "biome": "MOUNTAIN",
    "ground": {
-    "texture": null,
+    "texture": "rock_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1702,12 +1702,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.11,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -1720,12 +1720,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.11,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1786,12 +1786,12 @@
      "kind": "rocksnow",
      "layer": "small",
      "density": 0.05,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rocksnow_v1.png",
       "pick": [
        0,
        1,
@@ -1804,12 +1804,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.025,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -1822,12 +1822,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.025,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -1841,7 +1841,7 @@
   "OBSIDIAN": {
    "biome": "OBSIDIAN",
    "ground": {
-    "texture": null,
+    "texture": "obsidian_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1852,12 +1852,12 @@
      "kind": "columns",
      "layer": "big",
      "density": 0.02,
-     "size": 1,
+     "size": 0.8,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "columns_v1.png",
       "pick": [
        0,
        1,
@@ -1870,12 +1870,12 @@
      "kind": "darkrock",
      "layer": "big",
      "density": 0.02,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "darkrock_v1.png",
       "pick": [
        0,
        1,
@@ -1888,12 +1888,12 @@
      "kind": "spire",
      "layer": "small",
      "density": 0.03,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "spire_v1.png",
       "pick": [
        0,
        1,
@@ -1906,12 +1906,12 @@
      "kind": "pebblesd",
      "layer": "small",
      "density": 0.03,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebblesd_v1.png",
       "pick": [
        0,
        1,
@@ -1925,7 +1925,7 @@
   "ASH": {
    "biome": "ASH",
    "ground": {
-    "texture": null,
+    "texture": "ash_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -1941,7 +1941,7 @@
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "deadtree_v1.png",
       "pick": [
        0,
        1,
@@ -1954,12 +1954,12 @@
      "kind": "darkrock",
      "layer": "big",
      "density": 0.02,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "darkrock_v1.png",
       "pick": [
        0,
        1,
@@ -1972,12 +1972,12 @@
      "kind": "columns",
      "layer": "big",
      "density": 0.01,
-     "size": 1,
+     "size": 0.8,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "columns_v1.png",
       "pick": [
        0,
        1,
@@ -1990,12 +1990,12 @@
      "kind": "deadtree",
      "layer": "small",
      "density": 0.02,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "deadtree-small_v1.png",
       "pick": [
        0,
        1,
@@ -2008,12 +2008,12 @@
      "kind": "pebblesd",
      "layer": "small",
      "density": 0.04,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebblesd_v1.png",
       "pick": [
        0,
        1,
@@ -2026,12 +2026,12 @@
      "kind": "spire",
      "layer": "small",
      "density": 0.02,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "spire_v1.png",
       "pick": [
        0,
        1,
@@ -2045,7 +2045,7 @@
   "SULFUR": {
    "biome": "SULFUR",
    "ground": {
-    "texture": null,
+    "texture": "sulfur_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -2056,12 +2056,12 @@
      "kind": "sulfrock",
      "layer": "big",
      "density": 0.03,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "sulfrock_v1.png",
       "pick": [
        0,
        1,
@@ -2074,12 +2074,12 @@
      "kind": "darkrock",
      "layer": "big",
      "density": 0.01,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "darkrock_v1.png",
       "pick": [
        0,
        1,
@@ -2092,12 +2092,12 @@
      "kind": "sulfrock",
      "layer": "small",
      "density": 0.035,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "sulfrock-small_v1.png",
       "pick": [
        0,
        1,
@@ -2110,12 +2110,12 @@
      "kind": "pebblesd",
      "layer": "small",
      "density": 0.0175,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebblesd_v1.png",
       "pick": [
        0,
        1,
@@ -2128,12 +2128,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.0175,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -2147,7 +2147,7 @@
   "BASALT": {
    "biome": "BASALT",
    "ground": {
-    "texture": null,
+    "texture": "basalt_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -2158,12 +2158,12 @@
      "kind": "columns",
      "layer": "big",
      "density": 0.03,
-     "size": 1,
+     "size": 0.8,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "columns_v1.png",
       "pick": [
        0,
        1,
@@ -2176,12 +2176,12 @@
      "kind": "darkrock",
      "layer": "big",
      "density": 0.015,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "darkrock_v1.png",
       "pick": [
        0,
        1,
@@ -2212,12 +2212,12 @@
      "kind": "spire",
      "layer": "small",
      "density": 0.02,
-     "size": 1,
+     "size": 0.45,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "spire_v1.png",
       "pick": [
        0,
        1,
@@ -2230,12 +2230,12 @@
      "kind": "pebblesd",
      "layer": "small",
      "density": 0.04,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebblesd_v1.png",
       "pick": [
        0,
        1,
@@ -2248,12 +2248,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.02,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -2267,7 +2267,7 @@
   "REGOLITH": {
    "biome": "REGOLITH",
    "ground": {
-    "texture": null,
+    "texture": "regolith_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -2296,12 +2296,12 @@
      "kind": "darkrock",
      "layer": "big",
      "density": 0.01,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "darkrock_v1.png",
       "pick": [
        0,
        1,
@@ -2314,12 +2314,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.03,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -2332,12 +2332,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.03,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -2351,7 +2351,7 @@
   "HIGHLAND": {
    "biome": "HIGHLAND",
    "ground": {
-    "texture": null,
+    "texture": "rock_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -2398,12 +2398,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.06,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -2416,12 +2416,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.06,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -2435,7 +2435,7 @@
   "CRATER": {
    "biome": "CRATER",
    "ground": {
-    "texture": null,
+    "texture": "regolith_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -2464,12 +2464,12 @@
      "kind": "darkrock",
      "layer": "big",
      "density": 0.025,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "darkrock_v1.png",
       "pick": [
        0,
        1,
@@ -2482,12 +2482,12 @@
      "kind": "pebbles",
      "layer": "small",
      "density": 0.0375,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebbles_v1.png",
       "pick": [
        0,
        1,
@@ -2500,12 +2500,12 @@
      "kind": "rock",
      "layer": "small",
      "density": 0.0125,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rock_v1.png",
       "pick": [
        0,
        1,
@@ -2519,7 +2519,7 @@
   "RUST": {
    "biome": "RUST",
    "ground": {
-    "texture": null,
+    "texture": "rust_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -2530,12 +2530,12 @@
      "kind": "redrock",
      "layer": "big",
      "density": 0.03,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "redrock_v1.png",
       "pick": [
        0,
        1,
@@ -2548,12 +2548,12 @@
      "kind": "darkrock",
      "layer": "big",
      "density": 0.01,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "darkrock_v1.png",
       "pick": [
        0,
        1,
@@ -2566,12 +2566,12 @@
      "kind": "rockred",
      "layer": "small",
      "density": 0.035,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rockred_v1.png",
       "pick": [
        0,
        1,
@@ -2584,12 +2584,12 @@
      "kind": "pebblesr",
      "layer": "small",
      "density": 0.035,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebblesr_v1.png",
       "pick": [
        0,
        1,
@@ -2603,7 +2603,7 @@
   "CANYON": {
    "biome": "CANYON",
    "ground": {
-    "texture": null,
+    "texture": "redsand_v1.png",
     "scale": 8,
     "bright": 1,
     "sat": 1,
@@ -2614,12 +2614,12 @@
      "kind": "redrock",
      "layer": "big",
      "density": 0.07,
-     "size": 1,
+     "size": 0.6,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "redrock_v1.png",
       "pick": [
        0,
        1,
@@ -2632,12 +2632,12 @@
      "kind": "rockred",
      "layer": "small",
      "density": 0.05,
-     "size": 1,
+     "size": 0.35,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "rockred_v1.png",
       "pick": [
        0,
        1,
@@ -2650,12 +2650,12 @@
      "kind": "pebblesr",
      "layer": "small",
      "density": 0.05,
-     "size": 1,
+     "size": 0.3,
      "sizeVar": 0.1,
      "clump": 0,
      "clumpSize": 10,
      "skin": {
-      "sheet": null,
+      "sheet": "pebblesr_v1.png",
       "pick": [
        0,
        1,
@@ -2670,45 +2670,45 @@
  "cells": {
   "palm_v1.png#0,1,2,3": 0,
   "sandrock_v1.png#0,1,2,3": 4,
-  "pixel:small:shell": 8,
-  "pixel:small:driftwood": 12,
-  "pixel:small:pebbles": 16,
+  "shell_v1.png#0,1,2,3": 8,
+  "driftwood_v1.png#0,1,2,3": 12,
+  "pebbles_v1.png#0,1,2,3": 16,
   "oak_v1.png#0,1,2,3": 20,
   "oak2_v1.png#0,1,4,5": 24,
-  "pixel:big:blossom": 28,
+  "blossom_v1.png#0,1,2,3": 28,
   "boulder_v1.png#0,1,2,3": 32,
-  "pixel:small:tuft": 36,
-  "pixel:small:flowers": 40,
-  "pixel:small:bush": 44,
+  "tuft_v1.png#0,1,2,3": 36,
+  "flowers_v1.png#0,1,2,3": 40,
+  "bush_v1.png#0,1,2,3": 44,
   "birch_v1.png#0,1,2,3": 48,
   "jungle_v1.png#0,1,2,3": 52,
-  "pixel:big:willow": 56,
-  "pixel:big:deadtree": 60,
+  "willow_v1.png#0,1,2,3": 56,
+  "deadtree_v1.png#0,1,2,3": 60,
   "mossy_v1.png#0,1,2,3": 64,
-  "pixel:small:reeds": 68,
+  "reeds_v1.png#0,1,2,3": 68,
   "acacia_v2.png#0,1,2,3": 72,
-  "pixel:big:saguaro": 76,
-  "pixel:small:cactus": 80,
-  "pixel:small:rocksand": 84,
-  "pixel:small:bones": 88,
-  "pixel:big:redrock": 92,
-  "pixel:small:rockred": 96,
-  "pixel:small:pebblesr": 100,
-  "pixel:small:rock": 104,
+  "saguaro_v1.png#0,1,2,3": 76,
+  "cactus_v1.png#0,1,2,3": 80,
+  "rocksand_v1.png#0,1,2,3": 84,
+  "bones_v1.png#0,1,2,3": 88,
+  "redrock_v1.png#0,1,2,3": 92,
+  "rockred_v1.png#0,1,2,3": 96,
+  "pebblesr_v1.png#0,1,2,3": 100,
+  "rock_v1.png#0,1,2,3": 104,
   "snowpine_v1.png#0,1,2,3": 108,
   "snowrock_v1.png#0,1,2,3": 112,
   "pine_v1.png#0,1,2,3": 116,
   "fir_v1.png#0,1,2,3": 120,
-  "pixel:small:rocksnow": 124,
-  "pixel:big:iceblock": 128,
-  "pixel:small:icechunk": 132,
-  "pixel:big:columns": 136,
-  "pixel:big:darkrock": 140,
-  "pixel:small:spire": 144,
-  "pixel:small:pebblesd": 148,
-  "pixel:small:deadtree": 152,
-  "pixel:big:sulfrock": 156,
-  "pixel:small:sulfrock": 160
+  "rocksnow_v1.png#0,1,2,3": 124,
+  "iceblock_v1.png#0,1,2,3": 128,
+  "icechunk_v1.png#0,1,2,3": 132,
+  "columns_v1.png#0,1,2,3": 136,
+  "darkrock_v1.png#0,1,2,3": 140,
+  "spire_v1.png#0,1,2,3": 144,
+  "pebblesd_v1.png#0,1,2,3": 148,
+  "deadtree-small_v1.png#0,1,2,3": 152,
+  "sulfrock_v1.png#0,1,2,3": 156,
+  "sulfrock-small_v1.png#0,1,2,3": 160
  },
  "atlas": {
   "file": "items.webp",
@@ -2728,100 +2728,292 @@
   {
    "file": "ground_0.webp",
    "ids": [
-    2,
-    7,
-    8,
-    9,
-    10
+    2
    ],
    "scale": 8
   },
   {
    "file": "ground_1.webp",
    "ids": [
-    3,
-    4,
-    5
+    3
    ],
    "scale": 8
   },
   {
    "file": "ground_2.webp",
    "ids": [
+    4
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_3.webp",
+   "ids": [
+    5
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_4.webp",
+   "ids": [
+    6
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_5.webp",
+   "ids": [
+    7
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_6.webp",
+   "ids": [
+    8
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_7.webp",
+   "ids": [
+    9
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_8.webp",
+   "ids": [
+    10,
+    29
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_9.webp",
+   "ids": [
+    11
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_10.webp",
+   "ids": [
+    12
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_11.webp",
+   "ids": [
+    13
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_12.webp",
+   "ids": [
     14,
+    19
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_13.webp",
+   "ids": [
     15,
     16,
-    17,
-    19
+    17
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_14.webp",
+   "ids": [
+    18,
+    26
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_15.webp",
+   "ids": [
+    21
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_16.webp",
+   "ids": [
+    22
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_17.webp",
+   "ids": [
+    23
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_18.webp",
+   "ids": [
+    24
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_19.webp",
+   "ids": [
+    25,
+    27
+   ],
+   "scale": 8
+  },
+  {
+   "file": "ground_20.webp",
+   "ids": [
+    28
    ],
    "scale": 8
   }
  ],
  "avg": {
   "2": [
-   230,
-   176,
-   104
+   159,
+   151,
+   135
   ],
   "3": [
-   86,
-   111,
-   25
+   88,
+   112,
+   28
   ],
   "4": [
-   86,
-   111,
-   25
+   102,
+   89,
+   49
   ],
   "5": [
-   86,
-   111,
-   25
+   67,
+   72,
+   33
+  ],
+  "6": [
+   65,
+   61,
+   39
   ],
   "7": [
-   230,
-   176,
-   104
+   177,
+   128,
+   59
   ],
   "8": [
-   230,
+   229,
    176,
    104
   ],
   "9": [
-   230,
-   176,
-   104
+   226,
+   147,
+   63
   ],
   "10": [
-   230,
-   176,
-   104
+   190,
+   107,
+   54
+  ],
+  "11": [
+   228,
+   214,
+   198
+  ],
+  "12": [
+   78,
+   89,
+   62
+  ],
+  "13": [
+   68,
+   74,
+   58
   ],
   "14": [
-   210,
-   221,
-   235
+   209,
+   220,
+   233
   ],
   "15": [
-   210,
-   221,
-   235
+   154,
+   192,
+   217
   ],
   "16": [
-   210,
-   221,
-   235
+   154,
+   192,
+   217
   ],
   "17": [
-   210,
-   221,
-   235
+   153,
+   191,
+   216
+  ],
+  "18": [
+   116,
+   115,
+   111
   ],
   "19": [
-   210,
-   221,
-   235
+   208,
+   219,
+   231
+  ],
+  "21": [
+   39,
+   34,
+   37
+  ],
+  "22": [
+   103,
+   96,
+   94
+  ],
+  "23": [
+   197,
+   168,
+   79
+  ],
+  "24": [
+   66,
+   61,
+   62
+  ],
+  "25": [
+   117,
+   111,
+   107
+  ],
+  "26": [
+   117,
+   115,
+   112
+  ],
+  "27": [
+   117,
+   111,
+   107
+  ],
+  "28": [
+   129,
+   75,
+   49
+  ],
+  "29": [
+   191,
+   107,
+   53
   ]
  },
  "propMax": 1.1

@@ -1,12 +1,12 @@
 // Loading art for the Biome Lab: the raw AI sheets (cut into sprites here in the browser, the same way
 // tools/pack_props.py does it), the AI ground textures (made seamless here), and the game's pixel-art fallbacks.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125004141';
-import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125004141';
-import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125004141';
-import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125004141';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125133053';
+import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125133053';
+import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125133053';
+import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125133053';
 
 const ART = '../art/';
-const SHEET_SCALE = 0.6;        // sheets are cut at 60% of their size: plenty for the lab's closest zoom
+const SHEET_W = 922;            // sheets are cut at most this wide (60% of ChatGPT's 1536 px): plenty for the closest zoom
 const TEX = 512;                // ground textures are made seamless at 512 x 512
 
 export const canvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
@@ -20,12 +20,12 @@ async function loadImage(url) {
 
 // file names in a folder: the local server's directory listing, else biome-lab/catalog.json (for GitHub Pages)
 let catalog = null;
-async function listPngs(folder, key) {
+async function listFiles(folder, key, ext = 'png') {
   try {
     const r = await fetch(ART + folder, { cache: 'no-store' });
     const t = r.ok ? await r.text() : '';
     if (t.includes('Directory listing')) {
-      return [...t.matchAll(/href="([^"?/]+\.png)"/gi)].map(m => decodeURIComponent(m[1]));
+      return [...t.matchAll(new RegExp(`href="([^"?/]+\\.${ext})"`, 'gi'))].map(m => decodeURIComponent(m[1]));
     }
   } catch { /* fall through */ }
   if (!catalog) {
@@ -40,7 +40,7 @@ const parseName = f => { const m = /^(.+?)_v(\d+)\.png$/i.exec(f); return m ? { 
 
 // magenta background -> transparent, pink fringes pulled back to neutral (same maths as pack_props.py cut_out)
 function keyOut(img) {
-  const w = Math.round(img.width * SHEET_SCALE), h = Math.round(img.height * SHEET_SCALE);
+  const k = Math.min(1, SHEET_W / img.width), w = Math.round(img.width * k), h = Math.round(img.height * k);
   const c = canvas(w, h), g = c.getContext('2d', { willReadFrequently: true });
   g.drawImage(img, 0, 0, w, h);
   const id = g.getImageData(0, 0, w, h), d = id.data;
@@ -105,6 +105,22 @@ export function tilesPerPx(s, size) {
   if (s.pixel) return size / 64;          // pixel art is upscaled 8x: 1 sprite px = 1/8 art px = 1/64 tile
   const half = Math.max(s.footX, s.w - s.footX);
   return Math.min(15.5 * size / (2 * half), 22.5 * size / s.h) / 8;
+}
+
+// a sprite's average colour (of its solid pixels) and how much of it is solid, 0..1; cached per sprite
+const statsCache = new WeakMap();
+export function spriteStats(s) {
+  let st = statsCache.get(s);
+  if (st) return st;
+  const k = Math.min(1, 64 / Math.max(s.w, s.h)), w = Math.max(1, Math.round(s.w * k)), h = Math.max(1, Math.round(s.h * k));
+  const c = canvas(w, h), g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(s.img, 0, 0, w, h);
+  const d = g.getImageData(0, 0, w, h).data;
+  let r = 0, gg = 0, b = 0, a = 0;
+  for (let i = 0; i < d.length; i += 4) { const al = d[i + 3] / 255; r += d[i] * al; gg += d[i + 1] * al; b += d[i + 2] * al; a += al; }
+  st = { avg: a ? [r / a, gg / a, b / a] : [0, 0, 0], fill: a / (w * h) };
+  statsCache.set(s, st);
+  return st;
 }
 
 // ---------- ground textures ----------
@@ -242,8 +258,15 @@ export async function loadAll(progress) {
   let manifest = { kinds: {} };
   try { manifest = await (await fetch(ART + 'props/props.json', { cache: 'no-store' })).json(); } catch { /* none */ }
 
-  const propFiles = (await listPngs('props/raw/', 'props')).map(f => ({ file: f, ...parseName(f) })).filter(f => f.name);
-  const groundFiles = (await listPngs('ground/raw/', 'ground')).map(f => ({ file: f, ...parseName(f) })).filter(f => f.name);
+  const propFiles = (await listFiles('props/raw/', 'props')).map(f => ({ file: f, ...parseName(f) })).filter(f => f.name);
+  const groundFiles = (await listFiles('ground/raw/', 'ground')).map(f => ({ file: f, ...parseName(f) })).filter(f => f.name);
+  // small web copies made by tools/lab_catalog.py (the raw images are 2-4 MB each); the raw image if there's none
+  const webProps = new Set(await listFiles('props/web/', 'propsWeb', 'webp'));
+  const webGround = new Set(await listFiles('ground/web/', 'groundWeb', 'webp'));
+  const src = (folder, web, f) => {
+    const w = f.replace(/\.png$/i, '.webp');
+    return ART + folder + (web.has(w) ? 'web/' + encodeURIComponent(w) : 'raw/' + encodeURIComponent(f));
+  };
   const total = propFiles.length + groundFiles.length;
   let done = 0;
   const tick = label => progress && progress(++done, total, label);
@@ -252,7 +275,7 @@ export async function loadAll(progress) {
   const sheets = {};
   await Promise.all(propFiles.map(async f => {
     try {
-      const img = await loadImage(ART + 'props/raw/' + encodeURIComponent(f.file));
+      const img = await loadImage(src('props/', webProps, f.file));
       const m = manifest.kinds[f.name];
       const grid = (m && m.sheet === f.file && m.grid) || [3, 2];
       const keyed = keyOut(img);
@@ -270,7 +293,7 @@ export async function loadAll(progress) {
   const textures = {};
   await Promise.all(groundFiles.map(async f => {
     try {
-      const img = await loadImage(ART + 'ground/raw/' + encodeURIComponent(f.file));
+      const img = await loadImage(src('ground/', webGround, f.file));
       textures[f.file] = { file: f.file, name: f.name, v: f.v, img: makeSeamless(img), raw: img };
     } catch (e) { console.warn('could not load texture', f.file, e); }
     tick(f.file);

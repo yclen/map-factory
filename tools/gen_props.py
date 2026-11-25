@@ -65,6 +65,9 @@ def main():
     ap.add_argument('--biome', help='theme file in art/style/biomes/ to follow (palette, mood, reference images)')
     ap.add_argument('--ref', action='append', default=[], help='image(s) whose style to match')
     ap.add_argument('--size', type=float, help='how much of the prop space it fills, 0..1 (stored in props.json)')
+    ap.add_argument('--small', action='store_true',
+                    help='a small item (grass tuft, pebbles, shell...): ground-level wording, and props.json is left '
+                         'alone (it lists the big props the demo packs); the Biome Lab sets small items\' sizes')
     ap.add_argument('--note', default='', help='extra instructions for this sheet')
     ap.add_argument('--dry-run', action='store_true', help='print the prompt instead of calling Codex')
     args = ap.parse_args()
@@ -84,12 +87,20 @@ def main():
         if not Path(r).exists():
             sys.exit(f'reference image not found: {r}')
 
+    if args.small:
+        layout = f"""The image: a sprite sheet of 6 different {args.subject}, all the same kind, in a neat grid of
+3 columns x 2 rows with generous empty space between them so they can be cut apart. These are SMALL ground-level
+details of the game world (each only about knee-high or smaller in the world), but draw each one LARGE so it fills
+most of its grid cell and its detail is clearly visible. Each one centred in its cell, resting on or growing out of
+the (invisible) ground, all at the same scale and camera angle, each a little different in shape."""
+    else:
+        layout = f"""The image: a sprite sheet of 6 different individual {args.subject}, all the same species/type, in a neat grid of
+3 columns x 2 rows with generous empty space between them so they can be cut apart. Each one centred in its grid
+cell, standing upright, all at the same scale and camera angle, each a little different in shape."""
     prompt = f"""Use your built-in image generation tool (not the CLI/API fallback) to make ONE image, then save it in
 this project at {rel} (create folders if needed). Do not create, change or delete any other file.
 
-The image: a sprite sheet of 6 different individual {args.subject}, all the same species/type, in a neat grid of
-3 columns x 2 rows with generous empty space between them so they can be cut apart. Each one centred in its grid
-cell, standing upright, all at the same scale and camera angle, each a little different in shape.
+{layout}
 
 {STYLE.read_text(encoding='utf-8').strip()}
 
@@ -122,6 +133,9 @@ cell, standing upright, all at the same scale and camera angle, each a little di
             sys.stdout.write(log.read().decode('utf-8', 'replace')[-3000:])
             sys.exit(f'Codex did not produce {rel}')
 
+    if args.small:
+        print(f'saved {rel}. Reload the Biome Lab: small items named "{args.kind}" use it.')
+        return
     manifest = json.loads(MANIFEST.read_text(encoding='utf-8')) if MANIFEST.exists() else {'kinds': {}}
     entry = manifest.setdefault('kinds', {}).setdefault(args.kind, {})
     entry['sheet'] = out.name

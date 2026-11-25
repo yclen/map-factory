@@ -79,6 +79,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', PORT), partial(Handler, directory=str(ROOT)))
+    try:                                                        # small copies of any new AI art, for fast loading
+        import lab_catalog
+        lab_catalog.main(quiet=True)
+    except Exception as e:                                      # the lab still works from the raw images
+        print(f'could not make web copies of the art: {e}', flush=True)
+    server =http.server.ThreadingHTTPServer(('127.0.0.1', PORT), partial(Handler, directory=str(ROOT)))
     print(f'Biome Lab: http://localhost:{PORT}/biome-lab/  (saving to art/biomes/ and galaxy-demo/biomes/)', flush=True)
     server.serve_forever()
