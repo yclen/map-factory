@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261124130357';
-import { RULES } from './rules.js?v=20261124130357';
-import { makeNoise } from './noise.js?v=20261124130357';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261124130357';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261124191529';
+import { RULES } from './rules.js?v=20261124191529';
+import { makeNoise } from './noise.js?v=20261124191529';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261124191529';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -298,7 +298,9 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     if (rel > 0 && (base === T.DEEP || base === T.SHALLOW)) rel = -0.001;
     fld[t * 4] = sq(dx); fld[t * 4 + 1] = sq(dy);
     const land = Math.max(0, Hs[g] - sampler.sea);
-    fld[t * 4 + 2] = rel < 0 ? Math.max(0, 127.5 + rel * 600) : Math.min(255, 127.5 + land * 300);
+    // (rounded away from the 127.5 shore line: plain truncation stored dry shore-level ground such as frozen seas
+    // as 127, a hair under the sea, and the far view painted it as open water)
+    fld[t * 4 + 2] = rel < 0 ? Math.max(0, Math.min(127, Math.floor(127.5 + rel * 600))) : Math.min(255, Math.ceil(127.5 + land * 300));
     const ov = ids[t * 4 + 1];
     ids[t * 4 + 3] = rel >= 0 && !WATER.has(base) && base !== T.SEA_ICE && !(ov >= O.HUT) && (CLIFF_GROUND.has(base) || Vr[g] > 0.42) ? 255 : 0;
     fld[t * 4 + 3] = Math.max(0, Math.min(255, 127.5 + Vr[g] * 127.5));

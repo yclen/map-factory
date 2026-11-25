@@ -37,3 +37,6 @@ export const SLOT_PIN = 456;       // settlement pins, one per level
 export const SLOT_FLOOR = 128;     // plain forest floor under scattered trees: base tile i, variant v -> 128+i*4+v
 export const SLOT_DECO = 312;      // scattered decoration kind k, variant v -> 312+k*4+v (up to 34 kinds)
 export const SLOT_ORE = 512;       // deposit o at richness level L (0..3), variant v -> 512+o*16+L*4+v
+// big props (trees, boulders): 16 x 24 art px each, in the atlas below the 8x8 slots, 16 per row:
+// prop kind k, variant v -> index k*4+v at atlas pixel ((i % 16) * 16, 256 + floor(i / 16) * 24)
+export const PROP_W = 16, PROP_H = 24, PROP_Y0 = 256, PROP_COLS = 16;

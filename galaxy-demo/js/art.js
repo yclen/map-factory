@@ -1,10 +1,11 @@
-// Placeholder pixel art, drawn from the skin's colours and patterns into one 256x128 atlas of 8x8 tiles.
+// Placeholder pixel art, drawn from the skin's colours and patterns into one 256x512 atlas: 8x8 tiles on top,
+// 16x24 big props (trees, boulders) below.
 // Runs on the main thread (for the GPU) and in the map worker (for each tile's average colour).
 // Hand-drawn art can replace any slot later without touching the generator.
-import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN, SLOT_FLOOR, SLOT_DECO, SLOT_ORE, RESOURCES } from './ids.js?v=20261124130357';
-import { mulberry32, hash32 } from './rng.js?v=20261124130357';
+import { BASE, OVER, ATLAS_COLS, SLOT_OVER, SLOT_WALKER, SLOT_PIN, SLOT_FLOOR, SLOT_DECO, SLOT_ORE, RESOURCES, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from './ids.js?v=20261124191529';
+import { mulberry32, hash32 } from './rng.js?v=20261124191529';
 
-export const ATLAS_W = 256, ATLAS_H = 256;
+export const ATLAS_W = 256, ATLAS_H = 512;
 
 export function buildAtlas(skin) {
   const data = new Uint8ClampedArray(ATLAS_W * ATLAS_H * 4);
@@ -329,6 +330,231 @@ export function buildAtlas(skin) {
     }
   }
 
+  // ---------- big props (the new terrain look): trees and boulders, 16x24 art px, standing on row 22 ----------
+  // Alpha 255 = the prop itself, alpha 96 = its shadow on the ground (cast down and to the right), 0 = nothing.
+  // Everything is lit from the top left: each leaf cluster, tier or rock facet gets its own light and dark side
+  const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  Object.values(skin.props || {}).forEach((d, k) => {
+    for (let v = 0; v < 4; v++) {
+      const idx = k * 4 + v, r = mulberry32(hash32(k, v, 151));
+      const buf = new Array(PROP_W * PROP_H).fill(null);
+      const P = (x, y, col) => { x = Math.floor(x); y = Math.floor(y); if (x >= 0 && y >= 0 && x < PROP_W && y < PROP_H) buf[y * PROP_W + x] = col; };
+      const has = (x, y) => x >= 0 && y >= 0 && x < PROP_W && y < PROP_H && buf[y * PROP_W + x] !== null;
+      const alt = v === 3 && d.alt;                    // the last variant can wear other colours (autumn leaves)
+      const c = alt ? d.alt.c : d.c, c2 = (alt ? d.alt.c2 : d.c2) || c, c3 = (alt ? d.alt.c3 : d.c3) || c;
+      const pal = [shade(c2, 0.62), c2, c, c3, mix3(c3, [255, 250, 215], 0.35)];
+      const tone = lit => pal[lit > 0.62 ? 4 : lit > 0.22 ? 3 : lit > -0.18 ? 2 : lit > -0.55 ? 1 : 0];
+      const bark = d.bark || [104, 76, 54], barkD = shade(bark, 0.62), barkL = mix3(bark, [255, 240, 220], 0.22);
+      const s = [0.88, 1, 0.94, 1.06][v];
+      // a leafy canopy from overlapping round clusters, back to front; each cluster is lit on its top left, and
+      // the whole crown darkens toward its underside
+      const canopy = (blobs, top, bot, rough = 0.3) => {
+        for (const b of blobs) {
+          const ry = b.r * (b.sy || 1);
+          for (let y = Math.floor(b.y - ry - 1); y <= b.y + ry + 1; y++) for (let x = Math.floor(b.x - b.r - 1); x <= b.x + b.r + 1; x++) {
+            const dx = (x + 0.5 - b.x) / b.r, dy = (y + 0.5 - b.y) / ry;
+            if (dx * dx + dy * dy > 1 + (r() - 0.5) * rough) continue;
+            const under = (y + 0.5 - top) / Math.max(1, bot - top);
+            P(x, y, tone(-(dx * 0.62 + dy * 0.78) * 0.85 + 0.22 - under * 0.6 + (r() - 0.5) * 0.42));
+          }
+        }
+      };
+      // clusters around a centre: one in the middle and n in a ring, sorted so the lower (nearer) ones overlap
+      const ring = (cx, cy, R, n = 6, sy = 1) => {
+        const b = [{ x: cx, y: cy, r: R * 0.6, sy }];
+        for (let i = 0; i < n; i++) {
+          const a = i / n * 6.283 + r() * 0.7;
+          b.push({ x: cx + Math.cos(a) * R * 0.5, y: cy + Math.sin(a) * R * 0.44 * sy, r: R * (0.48 + r() * 0.16), sy });
+        }
+        return b.sort((p, q) => p.y - q.y);
+      };
+      const trunk = (x, y0, y1, w = 2) => {
+        for (let y = y0; y <= y1; y++) for (let i = 0; i < w; i++) P(x + i, y, i === 0 ? barkL : i === w - 1 ? barkD : bark);
+        P(x - 1, y1, barkD); P(x + w, y1, barkD);                                      // roots
+      };
+      const line = (x0, y0, x1, y1, col) => {
+        const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+        for (let i = 0; i <= n; i++) P(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, col);
+      };
+      const lowest = x => { for (let y = PROP_H - 1; y >= 0; y--) if (has(x, y)) return y; return -1; };
+      let shadow = [4, 2];
+      switch (d.style) {
+        case 'oak': {                                  // broad round crown of leaf clusters on a short trunk
+          const R = 6.7 * s, cy = 17.6 - R * 0.95;
+          trunk(7, Math.floor(cy + R * 0.4), 22);
+          canopy(ring(8, cy, R, 6), cy - R, cy + R);
+          break;
+        }
+        case 'birch': {                                // tall white trunk with dark marks, a light narrow crown
+          trunk(7, 6, 22);
+          for (let y = 9; y < 22; y++) if (r() < 0.3) P(7 + (r() < 0.5 ? 0 : 1), y, [52, 48, 46]);
+          const b = [];
+          for (let i = 0; i < 6; i++) b.push({ x: 8 + (r() - 0.5) * 4, y: 4 + i * 2 * s, r: (3.1 + r() * 0.9) * s });
+          canopy(b.sort((p, q) => p.y - q.y), 1, 16);
+          break;
+        }
+        case 'pine': {                                 // a cone of drooping tiers, light on the left, dark below each tier
+          const narrow = d.narrow ? 0.72 : 1, top = Math.round(1 + (1.06 - s) * 8), bot = 19, tiers = 4 + (v & 1);
+          trunk(7, bot - 1, 22);
+          for (let t = 0; t < tiers; t++) {
+            const y0 = top + (bot - top) * t / tiers * 0.86, y1 = top + (bot - top) * (t + 1) / tiers + 1;
+            const w1 = (1.3 + (t + 1) / tiers * 5.4) * s * narrow;
+            for (let y = Math.floor(y0); y <= y1; y++) {
+              const f = (y + 0.5 - y0) / (y1 - y0), hw = 0.6 + f * w1;
+              for (let x = 0; x < PROP_W; x++) {
+                const nx = (x + 0.5 - 8) / hw;
+                if (Math.abs(nx) > 1) continue;
+                const lit = -nx * 0.75 + (0.45 - f) * 1.1 + (r() - 0.5) * 0.4;
+                P(x, y, d.snow && f < 0.4 && lit > 0.05 ? (lit > 0.5 ? d.snow : mix3(d.snow, pal[2], 0.3)) : tone(lit));
+              }
+            }
+            // the tier's tips droop one pixel past its bottom edge
+            const hwB = 0.6 + w1;
+            P(8 - hwB, y1 + 1, pal[1]); P(8 + hwB - 1, y1 + 1, pal[0]);
+          }
+          break;
+        }
+        case 'palm': {                                 // a leaning, ringed trunk under a crown of drooping fronds
+          const lean = (v & 1 ? 1 : -1) * (1.2 + r() * 1.6), topY = 6 + (v >> 1);
+          for (let y = 22; y >= topY; y--) {
+            const f = (22 - y) / (22 - topY), x = 7.5 + lean * f * f;
+            P(x, y, (y & 1) ? bark : barkL); P(x + 1, y, barkD);
+          }
+          const cx = 8.5 + lean, cy = topY;
+          for (let i = 0; i < 8; i++) {
+            const a = -Math.PI / 2 + (i - 3.5) * 0.5 + (r() - 0.5) * 0.25, L = (6.4 + r() * 1.8) * s;
+            for (let t = 0; t <= L; t += 0.35) {
+              const x = cx + Math.cos(a) * t, y = cy + Math.sin(a) * t * 0.55 + t * t * 0.085;
+              if (t > 0.8 && t < L - 1) { P(x, y + 1, tone(-0.3 - t / L * 0.4)); P(x, y - 1, tone(0.75 - t / L * 0.6)); }
+              P(x, y, tone(0.5 - t / L * 0.9 - Math.cos(a) * 0.25));
+            }
+          }
+          P(cx - 1, cy, [120, 84, 46]); P(cx, cy + 1, [100, 70, 40]);                    // coconuts
+          shadow = [3, 2];
+          break;
+        }
+        case 'jungle': {                               // a huge dark crown with hanging vines, on buttress roots
+          trunk(6, 13, 22, 3);
+          P(4, 22, barkD); P(5, 21, bark); P(10, 22, barkD); P(9, 21, barkD);
+          const R = 6.8 * s, cy = 17.4 - R * 0.95;
+          canopy(ring(8, cy, R, 7), cy - R, cy + R, 0.45);
+          for (let i = 0; i < 4; i++) {
+            const x = 2 + ((r() * 12) | 0), y0 = lowest(x), L = 2 + ((r() * 4) | 0);
+            if (y0 < 0 || y0 > 17) continue;
+            for (let y = y0 + 1; y <= y0 + L; y++) P(x, y, (y & 1) ? pal[1] : pal[2]);
+          }
+          break;
+        }
+        case 'willow': {                               // a dome with long strands hanging almost to the ground
+          trunk(7, 12, 22);
+          const R = 5.6 * s;
+          canopy(ring(8, 8, R, 6), 8 - R, 8 + R);
+          for (let x = 1; x < 15; x++) {
+            if (r() < 0.3 || x === 7 || x === 8) continue;
+            const y0 = lowest(x);
+            if (y0 < 0) continue;
+            const L = 3 + r() * 5;
+            for (let y = y0 + 1; y < y0 + L; y++) P(x, y, tone((x < 8 ? 0.25 : -0.15) - (y - y0) / L * 0.6));
+          }
+          break;
+        }
+        case 'acacia': {                               // forked trunk under a flat, wide umbrella crown
+          line(8, 22, 8, 15, bark); line(9, 22, 9, 16, barkD);
+          line(8, 15, 4, 9, bark); line(9, 16, 12, 9, barkD); line(8, 13, 8, 9, barkL);
+          canopy(ring(8, 7, 7.2 * s, 7, 0.42), 4, 10, 0.4);
+          shadow = [3, 2];
+          break;
+        }
+        case 'dead': {                                 // bare, forking branches
+          trunk(7, 12, 22);
+          const branch = (x, y, a, L, depth) => {
+            const x1 = x + Math.cos(a) * L, y1 = y + Math.sin(a) * L;
+            line(x, y, x1, y1, depth === 1 ? bark : depth === 2 ? barkL : barkD);
+            if (depth < 3) { branch(x1, y1, a - 0.45 - r() * 0.35, L * 0.62, depth + 1); branch(x1, y1, a + 0.45 + r() * 0.35, L * 0.62, depth + 1); }
+          };
+          branch(8, 12, -Math.PI / 2 + (r() - 0.5) * 0.5, 4.5 * s, 1);
+          branch(8, 15, -Math.PI / 2 - 0.9 - r() * 0.3, 4 * s, 2);
+          shadow = [3, 1];
+          break;
+        }
+        case 'saguaro': {                              // a tall ribbed cactus with arms
+          const top = 5 + ((r() * 4) | 0);
+          const col = (x0, y0, y1) => {
+            for (let y = y0; y <= y1; y++) { P(x0, y, pal[3]); P(x0 + 1, y, (y & 1) ? pal[2] : pal[3]); P(x0 + 2, y, pal[1]); }
+            P(x0 + 1, y0 - 1, pal[3]);
+          };
+          col(7, top, 22);
+          const ay = 12 + ((r() * 4) | 0), ah = 3 + ((r() * 3) | 0);
+          for (let x = 5; x < 7; x++) { P(x, ay, pal[2]); P(x, ay + 1, pal[1]); }
+          col(3, ay - ah, ay + 1);
+          if (v & 1) {
+            const by = 14 + ((r() * 3) | 0), bh = 2 + ((r() * 3) | 0);
+            for (let x = 10; x < 12; x++) { P(x, by, pal[2]); P(x, by + 1, pal[1]); }
+            col(11, by - bh, by + 1);
+          }
+          shadow = [3, 1];
+          break;
+        }
+        case 'boulder': {                              // a chiselled rock: a flat top and a ring of facets around it
+          const cx = 8 + (r() - 0.5), rx = (5 + r() * 1.8) * s * (d.size || 1), ry = rx * (d.tall ? 1.2 : 0.84);
+          const moss = Array.from({ length: 96 }, () => r());                        // moss grows in 2 x 2 clumps
+          const cy = 22.5 - ry;
+          const lump = [0, 1, 2, 3, 4, 5, 6, 7].map(() => 0.84 + r() * 0.28);       // radius per 45 degrees
+          const sect = 5 + ((r() * 3) | 0), rot = r() * 6.283;
+          const L = [-0.485, -0.573, 0.661];
+          const crack = r() < 0.6 ? cx - rx * 0.3 + r() * rx * 0.6 : -99;
+          for (let y = 0; y < PROP_H; y++) for (let x = 0; x < PROP_W; x++) {
+            const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+            const a = Math.atan2(dy, dx), fa = ((a / 6.283) + 1) % 1 * 8, i0 = Math.floor(fa) % 8;
+            const R = lump[i0] + (lump[(i0 + 1) % 8] - lump[i0]) * (fa - Math.floor(fa)), dd = Math.hypot(dx, dy) / R;
+            if (dd > 1) continue;
+            let lit, top = dd < 0.45 && dy < 0.25;
+            if (top) lit = 0.45;
+            else {
+              const fr = ((a - rot) / 6.283 + 2) % 1 * sect, fi = Math.floor(fr), fc = rot + (fi + 0.5) / sect * 6.283;
+              const n = [Math.cos(fc) * 0.8, Math.sin(fc) * 0.8, 0.6];
+              lit = ((n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) - 0.38) * 2.1;
+              const px = Math.hypot(dx * rx, dy * ry);                                 // a dark crease where facets meet
+              if ((fr - fi) * 6.283 / sect * px < 0.75 && px > 1.5) lit -= 0.55;
+              if (dd < 0.55) lit += 0.25;                                               // the rim of the top face
+            }
+            if (dd > 0.86 && dy > 0.2) lit -= 0.5;                                      // contact with the ground
+            if (dd > 0.84 && dx + dy > 0) lit -= 0.4;                                    // a dark outline on the shadow side
+            if (Math.abs(x + 0.5 - crack - (y - cy) * 0.4) < 0.5 && dy > -0.5 && dy < 0.7) lit -= 0.8;
+            lit += (r() - 0.5) * 0.3;
+            let col = tone(lit);
+            if (d.snow && (top || (lit > 0.1 && dy < 0))) col = lit > 0.5 ? d.snow : mix3(d.snow, [170, 190, 214], 0.45);
+            else if (d.moss && (top || dy < -0.1) && moss[(y >> 1) * 8 + (x >> 1)] < 0.55) col = lit > 0.2 ? d.moss : shade(d.moss, 0.75);
+            P(x, y, col);
+          }
+          shadow = [2, 1];
+          break;
+        }
+        case 'columns': {                              // a cluster of basalt columns, each with a lit top
+          const n = 3 + (v & 1), cols = [];
+          for (let i = 0; i < n; i++) cols.push({ x: 2 + i * 3 + ((r() * 2) | 0) - (n > 3 ? 1 : 0), h: 5 + ((r() * 10) | 0), y: 21 + ((r() * 2) | 0) });
+          cols.sort((p, q) => p.y - q.y);
+          for (const cl of cols) {
+            const top = cl.y - cl.h;
+            for (let y = top; y <= cl.y; y++) {
+              const t = y < top + 2;
+              P(cl.x, y, t ? pal[4] : pal[3]); P(cl.x + 1, y, t ? pal[3] : pal[2]); P(cl.x + 2, y, t ? pal[2] : pal[1]);
+            }
+          }
+          shadow = [2, 1];
+          break;
+        }
+      }
+      // write it out, with the shadow wherever the prop's outline shifted down and right falls on bare ground
+      for (let y = 0; y < PROP_H; y++) for (let x = 0; x < PROP_W; x++) {
+        const px = (idx % PROP_COLS) * PROP_W + x, py = PROP_Y0 + Math.floor(idx / PROP_COLS) * PROP_H + y;
+        const i = (py * ATLAS_W + px) * 4, col = buf[y * PROP_W + x];
+        if (col) { data[i] = col[0]; data[i + 1] = col[1]; data[i + 2] = col[2]; data[i + 3] = 255; }
+        else if (has(x - shadow[0], y - shadow[1])) { data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 96; }
+      }
+    }
+  });
+
   // ---------- sprites: a little walking person (2 frames) and settlement pins ----------
   const skinTone = [236, 196, 160], shirt = [70, 150, 230], legs = [50, 50, 70];
   for (let f = 0; f < 2; f++) {
@@ -380,12 +606,13 @@ export function buildAtlas(skin) {
   return { data, baseAvg, baseEmis, overAvg, overEmis, overStain };
 }
 
-// what the shader needs for the new terrain look. Per ground type: D = share of spots with a decoration, K = 4
-// atlas slots to pick from (-1 = none; +4096 = sways in the wind), F = 1 where trees stand on plain forest floor.
+// what the shader needs for the new terrain look. Per ground type: B = (share of spots with a small decoration,
+// 1 where trees stand on plain forest floor, share of spots with a big prop, unused), K = 4 small-decoration atlas
+// slots to pick from (-1 = none), PK = 4 big props to pick from (prop index of variant 0, -1 = none).
 // Per overlay: S = soil stain (r, g, b 0..1, strength), X = (glint, pulse)
 export function decorTables(skin) {
-  const kinds = Object.keys(skin.decor || {});
-  const D = new Float32Array(32), K = new Int32Array(128).fill(-1), F = new Int32Array(32);
+  const kinds = Object.keys(skin.decor || {}), props = Object.keys(skin.props || {});
+  const B = new Float32Array(128), K = new Int32Array(128).fill(-1), PK = new Int32Array(128).fill(-1);
   const S = new Float32Array(64), X = new Float32Array(32);
   OVER.forEach((n, id) => {
     const o = id && skin.over[n];
@@ -396,10 +623,15 @@ export function decorTables(skin) {
   BASE.forEach((name, id) => {
     const t = (skin.decorFor || {})[name];
     if (t) {
-      D[id] = t[0];
-      t[1].forEach((k, i) => { const ki = kinds.indexOf(k); if (ki >= 0) K[id * 4 + i] = SLOT_DECO + ki * 4 + (skin.decor[k].sway ? 4096 : 0); });
+      B[id * 4] = t[0];
+      t[1].forEach((k, i) => { const ki = kinds.indexOf(k); if (ki >= 0) K[id * 4 + i] = SLOT_DECO + ki * 4; });
     }
-    if ((skin.floor || []).includes(name)) F[id] = 1;
+    const pt = (skin.propsFor || {})[name];
+    if (pt) {
+      B[id * 4 + 2] = pt[0];
+      pt[1].forEach((k, i) => { const ki = props.indexOf(k); if (ki >= 0) PK[id * 4 + i] = ki * 4; });
+    }
+    if ((skin.floor || []).includes(name)) B[id * 4 + 1] = 1;
   });
-  return { D, K, F, S, X };
+  return { B, K, PK, S, X };
 }

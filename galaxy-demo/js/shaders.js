@@ -1,4 +1,4 @@
-import { SLOPE_K } from './terrain.js?v=20261124130357';
+import { SLOPE_K } from './terrain.js?v=20261124191529';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -98,9 +98,10 @@ uniform int u_detail;    // 1 = a detail chunk drawn over the whole-planet base:
 // the terrain look (u_fx = 1): a field map per chunk (slopes, height relative to the sea, colour variation),
 // tiles per device pixel (to exaggerate relief when zoomed out) and the skin's deep and shallow water colours
 uniform sampler2D u_fld; uniform int u_fx; uniform float u_tpp; uniform vec3 u_deep, u_shallow;
-// scattered decorations, per ground type (art.js decorTables): share of spots used, 4 atlas slots to pick from,
-// and whether the ground under them is plain forest floor
-uniform float u_decoD[32]; uniform ivec4 u_decoK[32]; uniform int u_floor[32];
+// scattered decorations and big props, per ground type (art.js decorTables): (share of small-decoration spots used,
+// 1 = plain forest floor under the trees, share of big-prop spots used, -), 4 small-decoration atlas slots and
+// 4 big props to pick from. Packed into vec4s to stay well inside phones' uniform limits
+uniform vec4 u_biome[32]; uniform ivec4 u_decoK[32]; uniform ivec4 u_propK[32];
 // deposits, per overlay id: soil stain (rgb, strength) and (glint, pulse)
 uniform vec4 u_oreStain[16]; uniform vec2 u_oreFx[16];
 out vec4 o;
@@ -152,30 +153,26 @@ bool isWater(uint id) { return id <= 1u; }       // DEEP, SHALLOW
 vec4 atlasPix(int s, ivec2 inT) { return texelFetch(u_atlas, ivec2((s & 31) * 8 + inT.x, (s >> 5) * 8 + inT.y), 0); }
 
 // Decorations: one spot per 8x8 cell of global art pixels, nudged 0..6 px so they don't line up with tiles. Each
-// spot looks at the ground under its foot (not nudged by the border wiggle, so trees can spill a little past a
-// forest's edge) and maybe places a sprite there with a one-pixel shadow to the bottom right. An art pixel can be
-// covered by the spots of at most 2 x 2 cells; lower rows are drawn last so they overlap the ones behind
+// spot looks at the ground under its foot (not nudged by the border wiggle, so they can spill a little past a
+// biome's edge; a foot past the chunk's edge uses the edge tile, so neighbouring chunks agree) and maybe places a
+// sprite there with a one-pixel shadow to the bottom right. An art pixel can be covered by the spots of at most
+// 2 x 2 cells; lower rows are looked at first, since they're in front
 vec3 decorate(ivec2 a, vec3 c) {
   ivec2 ga = a + ivec2(g_off);
   ivec2 cA = ivec2(floor(vec2(ga - 7) / 8.0)), cB = ga >> 3;
   bool shade = false;
-  for (int cy = cB.y; cy >= cA.y; cy--) for (int cx = cB.x; cx >= cA.x; cx--) {     // front (lower) rows first
+  for (int cy = cB.y; cy >= cA.y; cy--) for (int cx = cB.x; cx >= cA.x; cx--) {
     uint hh = hashu(uvec2(ivec2(cx, cy)) ^ uvec2(0x51edu, 0x2701u));
     ivec2 A = ivec2(cx, cy) * 8 + ivec2(int(hh & 7u) % 7, int((hh >> 3) & 7u) % 7);
     ivec2 q = ga - A;
     if (any(lessThan(q, ivec2(0))) || any(greaterThan(q, ivec2(8)))) continue;   // too far for sprite or shadow
-    ivec2 foot = ((A + ivec2(4, 6)) - ivec2(g_off)) >> 3;
-    if (any(lessThan(foot, ivec2(0))) || any(greaterThanEqual(foot, ivec2(u_map)))) continue;
+    ivec2 foot = clamp(((A + ivec2(4, 6)) - ivec2(g_off)) >> 3, ivec2(0), ivec2(u_map) - 1);
     uvec2 id = texelFetch(u_ids, foot, 0).rg;
-    if (id.g != 0u || float((hh >> 8) & 1023u) / 1023.0 >= u_decoD[int(id.r)]) continue;
+    if (id.g != 0u || float((hh >> 8) & 1023u) / 1023.0 >= u_biome[int(id.r)].x) continue;
     int k = u_decoK[int(id.r)][int((hh >> 18) & 3u)];
     if (k < 0) continue;
-    int slot = (k & 4095) + int((hh >> 20) & 3u);
-    if (k >= 4096 && q.y < 4) {                    // treetops lean with the wind, each tree in its own rhythm
-      float ph = float((hh >> 22) & 255u) / 40.0;
-      q.x -= int(sin(u_time * 1.7 + ph + float(A.x) * 0.05) > 0.55);
-    }
-    if (all(greaterThanEqual(q, ivec2(0))) && all(lessThan(q, ivec2(8)))) {
+    int slot = k + int((hh >> 20) & 3u);
+    if (all(lessThan(q, ivec2(8)))) {
       vec4 sp = atlasPix(slot, q);
       if (sp.a > 0.5) return sp.rgb * g_land * (0.9 + 0.2 * float((hh >> 26) & 15u) / 15.0);
     }
@@ -185,29 +182,80 @@ vec3 decorate(ivec2 a, vec3 c) {
   return shade ? c * 0.68 : c;
 }
 
+// Big props (trees, boulders): 16 x 24 art px sprites (art.js), one spot per 12 x 12 cell of global art pixels,
+// nudged 0..11 px, standing on the ground under its foot (sprite pixel (8, 22)). Lower rows are nearer, so they're
+// looked at first and the first prop pixel found wins. Each sprite carries its own shadow (alpha ~0.38), which only
+// counts where no prop covers the spot. Returns the colour with alpha 1 on a hit
+const int PG = 12;
+vec4 props(ivec2 a, out bool shade) {
+  ivec2 ga = a + ivec2(g_off);
+  ivec2 cA = ivec2(floor(vec2(ga - ivec2(27, 35)) / float(PG))), cB = ivec2(floor(vec2(ga) / float(PG)));
+  shade = false;
+  for (int cy = cB.y; cy >= cA.y; cy--) for (int cx = cB.x; cx >= cA.x; cx--) {
+    uint hh = hashu(uvec2(ivec2(cx, cy)) ^ uvec2(0x2b9fu, 0x6d31u));
+    ivec2 A = ivec2(cx, cy) * PG + ivec2(int(hh & 15u) % PG, int((hh >> 4) & 15u) % PG);
+    ivec2 q = ga - A;
+    if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(16, 24)))) continue;
+    ivec2 foot = clamp(((A + ivec2(8, 22)) - ivec2(g_off)) >> 3, ivec2(0), ivec2(u_map) - 1);
+    uvec2 id = texelFetch(u_ids, foot, 0).rg;
+    if (id.g != 0u || float((hh >> 8) & 1023u) / 1023.0 >= u_biome[int(id.r)].z) continue;
+    int k = u_propK[int(id.r)][int((hh >> 18) & 3u)];
+    if (k < 0) continue;
+    int b = k + int((hh >> 20) & 3u);
+    vec4 sp = texelFetch(u_atlas, ivec2((b & 15) * 16 + q.x, 256 + (b >> 4) * 24 + q.y), 0);
+    if (sp.a > 0.7) {
+      float t = float((hh >> 22) & 255u) / 255.0 - 0.5;   // each one a little lighter or darker, warmer or cooler
+      return vec4(sp.rgb * g_land * (1.0 + t * 0.2) * vec3(1.0 + t * 0.08, 1.0, 1.0 - t * 0.08), 1.0);
+    }
+    if (sp.a > 0.2) shade = true;
+  }
+  return vec4(0.0);
+}
+
 // Cliffs: the land's height (field map B, smooth between tiles) is cut into steps. Where a step drops toward the
-// viewer, the art pixels below the edge are a rock face up to CLIFF_H tall (lit lip, streaked rock darkening toward
-// the bottom, a shadow at its foot) under a lit edge. Steps that drop away or sideways draw nothing, so cliffs come
-// and go along a slope like real cliff bands instead of tracing every contour. Only where the tile's cliff mask is
-// on. One look CLIFF_H + 2 px up decides whether a face is near at all
+// viewer, the art pixels below the edge are a rock face up to CLIFF_H tall: a lip of the ground above hanging over
+// it, then three courses of rock blocks (see below), with cracks, darkening toward the foot. The face ends at a
+// slightly different height every few pixels, so the foot is jagged, and below it lie a shadow and fallen stones. Steps that drop away or sideways draw only a lit edge
+// on top, so cliffs come and go along a slope like real cliff bands. Only where the tile's cliff mask is on. A few
+// looks up decide whether a face is near at all
 const float CLIFF_STEP = 0.016;
-const int CLIFF_H = 6;
+const int CLIFF_H = 15;
 float cliffLevel(ivec2 p) {
   float b = textureLod(u_fld, (vec2(p) + 0.5 + g_warp) / (u_map * 8.0), 0.0).b * 255.0 - 127.5;
   return floor((b >= 0.0 ? b / 300.0 : b / 600.0) / CLIFF_STEP);
 }
 vec3 cliff(ivec2 a, vec3 c) {
   float L0 = cliffLevel(a);
-  if (cliffLevel(a - ivec2(0, CLIFF_H + 2)) != L0 || cliffLevel(a - ivec2(0, CLIFF_H / 2)) != L0) {
-    for (int k = 1; k <= CLIFF_H + 2; k++) {
-      if (cliffLevel(a - ivec2(0, k)) <= L0) continue;
-      if (k > CLIFF_H) return c * (k == CLIFF_H + 1 ? 0.58 : 0.75);           // shadow at the foot of the face
-      vec3 rock = mix(c, vec3(0.46, 0.41, 0.37), 0.6);
-      int gx = a.x + int(g_off.x);
-      float streak = 0.84 + 0.3 * hf(uvec2(uint(gx), uint(int(L0) + 4096)));
-      float strata = (((a.y + int(g_off.y)) + int(L0) * 3) % 3 == 0) ? 0.9 : 1.0;
-      if (k == 1) return rock * 1.05;                                            // the lip catches the light
-      return rock * streak * strata * (0.86 - 0.36 * float(k - 2) / float(CLIFF_H - 1));
+  if (cliffLevel(a - ivec2(0, CLIFF_H + 3)) != L0 || cliffLevel(a - ivec2(0, CLIFF_H / 2)) != L0 || cliffLevel(a - ivec2(0, 2)) != L0) {
+    ivec2 ga = a + ivec2(g_off);
+    for (int k = 1; k <= CLIFF_H + 3; k++) {
+      float Lk = cliffLevel(a - ivec2(0, k));
+      if (Lk <= L0) continue;
+      int H = CLIFF_H - int(hashu(uvec2(uint(ga.x >> 2), uint(int(Lk)) + 31u)) & 3u);   // a jagged foot
+      vec3 rock = mix(c, vec3(0.42, 0.37, 0.33), 0.62) * 0.9;
+      if (k > H) {                                    // below the face: its shadow, and fallen stones
+        if (k > H + 3) return c;
+        float rr = hf(uvec2(ga) ^ uvec2(0x1234u, 0x5678u));
+        if (rr > 0.84 && k <= H + 2) return rock * (1.0 - 0.3 * rr);
+        return c * (k == H + 1 ? 0.45 : k == H + 2 ? 0.6 : 0.78);
+      }
+      if (k == 1) return c * 0.72;                    // the ground above, hanging over the edge
+      // the face is three courses of rock blocks 3-7 px wide, staggered like rough masonry: each block lighter or
+      // darker, lit along its top and left, creased dark along its right and bottom
+      int cH = (H - 1) / 3, tier = min(2, (k - 2) / cH);
+      int t0 = 2 + tier * cH, t1 = tier == 2 ? H : t0 + cH - 1;
+      uint th = hashu(uvec2(uint(int(Lk) * 3 + tier), 0x9d2cu));
+      int bx = ga.x + int(th % 10u), cell = bx / 10, inC = bx - cell * 10;
+      uint ch = hashu(uvec2(uint(cell), th));
+      int sp = 3 + int(ch % 5u);
+      bool second = inC >= sp;
+      int lx = second ? inC - sp : inC, w = second ? 10 - sp : sp;
+      float f = 0.62 + 0.45 * float((second ? ch >> 8 : ch >> 16) & 255u) / 255.0;
+      if (lx == 0) f += 0.22; else if (lx == w - 1) f -= 0.25;
+      if (k == t0) f += 0.25; else if (k == t1) f -= 0.28;
+      float grad = 1.0 - 0.32 * float(k - 2) / float(H - 1);
+      float crack = hf(uvec2(ga) ^ uvec2(0xbeefu, 0x1ce5u)) > 0.94 ? 0.75 : 1.0;
+      return rock * f * grad * crack;
     }
   }
   if (cliffLevel(a + ivec2(0, 1)) < L0) return c * 1.12 + 0.04;               // top edge of a drop toward the viewer
@@ -224,7 +272,7 @@ vec3 artPix(ivec2 a) {
   uint gid = gq.r, oid = tq.g;
   uint h = hashu(uvec2(gt));
   int gslot = int(gid) * 4 + int(h & 3u);
-  if (u_fx == 1 && u_floor[int(gid)] == 1) gslot += 128;             // forest floor (SLOT_FLOOR) under scattered trees
+  if (u_fx == 1 && u_biome[int(gid)].y > 0.5) gslot += 128;             // forest floor (SLOT_FLOOR) under scattered trees
   vec3 c = atlasPix(gslot, inT).rgb;
   bool water = u_fx == 1 && isWater(gid);
   if (water) {
@@ -260,11 +308,13 @@ vec3 artPix(ivec2 a) {
 }
 
 // The new look's finishing touches, once per screen pixel on the art pixel under it (after the anti-aliasing blend,
-// which only needs the plain ground): surf and glints on water; cliffs and scattered decorations on land
+// which only needs the plain ground): surf and glints on water; cliffs on land; then big props (also just off the
+// shore, so trees can hang over the water), and small decorations on land
 vec3 finish(ivec2 a, vec3 c) {
   a = clamp(a, ivec2(0), ivec2(u_map) * 8 - 1);
   uvec4 gq = texelFetch(u_ids, groundTile(a), 0);
-  if (isWater(gq.r)) {
+  bool water = isWater(gq.r);
+  if (water) {
     // surf: a bright line where the next art pixel is land, and a softer band that washes in and out
     // (open water well away from any coast skips the look)
     bool shore = g_depth < 0.012 && (!isWater(texelFetch(u_ids, groundTile(a + ivec2(1, 0)), 0).r) || !isWater(texelFetch(u_ids, groundTile(a - ivec2(1, 0)), 0).r)
@@ -275,10 +325,13 @@ vec3 finish(ivec2 a, vec3 c) {
     c = mix(c, vec3(0.93, 0.97, 1.0), foam);
     float ph = fract(u_time * 0.3 + r * 17.0);                                     // glints
     if (r > 0.955 && !shore) c += vec3(0.32) * smoothstep(0.0, 0.06, ph) * smoothstep(0.22, 0.06, ph);
-    return c;
-  }
-  if (gq.a > 0u && gq.r != 20u) c = cliff(a, c);
-  return decorate(a, c);
+    if (g_depth > 0.01) return c;
+  } else if (gq.a > 0u && gq.r != 20u) c = cliff(a, c);
+  bool sh;
+  vec4 pr = props(a, sh);
+  if (pr.a > 0.0) return pr.rgb;
+  if (!water) c = decorate(a, c);
+  return sh ? c * 0.62 : c;
 }
 
 void main() {

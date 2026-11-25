@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261124130357';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261124130357';
+import * as S from './shaders.js?v=20261124191529';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261124191529';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -78,7 +78,7 @@ export class Renderer {
   setDecor(t) {
     const gl = this.gl, { p, u } = this.progBody;
     gl.useProgram(p);
-    gl.uniform1fv(u['u_decoD[0]'], t.D); gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform1iv(u['u_floor[0]'], t.F);
+    gl.uniform4fv(u['u_biome[0]'], t.B); gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform4iv(u['u_propK[0]'], t.PK);
     gl.uniform4fv(u['u_oreStain[0]'], t.S); gl.uniform2fv(u['u_oreFx[0]'], t.X);
   }
   makeAtlas(data) {
