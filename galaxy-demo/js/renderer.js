@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125000622';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125000622';
+import * as S from './shaders.js?v=20261125004141';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125004141';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -65,7 +65,8 @@ export class Renderer {
     this.gtex = this.makeGroundTextures([], 1);   // no ground textures until setGroundTextures
     // the tables both the terrain and the prop programs read (kept, so either can be changed alone)
     this.tables = null; this.hdK = new Int32Array(32).fill(-1); this.hdInfo = [128, 192, 8, 8]; this.hdSize = [1, 1];
-    this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8); this.kscale = new Float32Array(32).fill(1);
+    this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8);
+    this.items = null; this.itemTex = null; this.itemTable = null; this.itemInfo = [128, 192, 8, 8]; this.itemSize = [1, 1];
     this.shadowFb = null; this.shadowTex = null; this.shadowW = 0; this.shadowH = 0;
   }
 
@@ -84,30 +85,65 @@ export class Renderer {
   // decoration tables (art.js decorTables): uniforms keep their values, so they're set once
   setDecor(t) {
     this.tables = t;
-    const gl = this.gl;
-    for (const { p, u } of [this.progBody, this.progProps]) {
-      gl.useProgram(p);
-      gl.uniform4fv(u['u_biome[0]'], t.B); gl.uniform4iv(u['u_propK[0]'], t.PK);
-      if (u['u_decoK[0]']) { gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform4fv(u['u_oreStain[0]'], t.S); gl.uniform2fv(u['u_oreFx[0]'], t.X); }
-    }
+    const gl = this.gl, { p, u } = this.progBody;
+    gl.useProgram(p);
+    gl.uniform4fv(u['u_biome[0]'], t.B); gl.uniform4iv(u['u_propK[0]'], t.PK);
+    gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform4fv(u['u_oreStain[0]'], t.S); gl.uniform2fv(u['u_oreFx[0]'], t.X);
     this.applyPropTables();
   }
-  // high-resolution prop cells, prop sizes and ground textures, to whichever program reads them
+  // the old per-pixel props' atlas cells (only used when no item designs are loaded) and the ground textures
   applyPropTables() {
-    const gl = this.gl;
-    for (const { p, u } of [this.progBody, this.progProps]) {
-      gl.useProgram(p);
-      gl.uniform4iv(u['u_hdK[0]'], this.hdK);
-      gl.uniform4f(u.u_hdInfo, this.hdInfo[0], this.hdInfo[1], this.hdInfo[2], this.hdInfo[3]);
-      gl.uniform2f(u.u_hdSize, this.hdSize[0], this.hdSize[1]);
+    const gl = this.gl, { p, u } = this.progBody;
+    gl.useProgram(p);
+    gl.uniform4iv(u['u_hdK[0]'], this.hdK);
+    gl.uniform4f(u.u_hdInfo, this.hdInfo[0], this.hdInfo[1], this.hdInfo[2], this.hdInfo[3]);
+    gl.uniform2f(u.u_hdSize, this.hdSize[0], this.hdSize[1]);
+    gl.uniform4iv(u['u_gtexK[0]'], this.gK); gl.uniform4fv(u['u_gtexS[0]'], this.gS);
+    gl.uniform1i(u.u_shaderProps, this.items ? 0 : 1);
+    if (this.tables) {                                      // items include the small things: no tile-art decorations
+      const B = this.tables.B.slice();
+      if (this.items) for (let i = 0; i < B.length; i += 4) B[i] = 0;
+      gl.uniform4fv(u['u_biome[0]'], B);
     }
-    gl.useProgram(this.progBody.p);
-    gl.uniform4iv(this.progBody.u['u_gtexK[0]'], this.gK); gl.uniform4fv(this.progBody.u['u_gtexS[0]'], this.gS);
-    gl.useProgram(this.progProps.p);
-    gl.uniform4fv(this.progProps.u['u_kscale[0]'], this.kscale);
   }
-  // per prop kind (skin order), its size: 1 = the 2 x 3 tile box the art is packed into
-  setPropScale(kscale) { this.kscale = kscale; this.applyPropTables(); }
+  // Items (biomes.js): the atlas of their pictures (4 variants per skin, 16 x 24 art px cells, premultiplied
+  // alpha) and the table of what grows where. Once set, items are drawn as pictures (drawProps) and the terrain
+  // shader stops drawing props itself. img = null keeps the current atlas
+  setItems(img, meta, table) {
+    const gl = this.gl;
+    if (img) {
+      if (this.itemTex) gl.deleteTexture(this.itemTex);
+      this.itemTex = this.uploadSpriteAtlas(img);
+      this.itemInfo = [meta.cell[0], meta.cell[1], meta.cols, meta.scale]; this.itemSize = [img.width, img.height];
+    }
+    if (table) {
+      if (!this.itemTable) {
+        this.itemTable = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.itemTable);
+        gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, table.width, table.height);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      }
+      gl.bindTexture(gl.TEXTURE_2D, this.itemTable);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, table.width, table.height, gl.RGBA, gl.FLOAT, table.data);
+    }
+    this.items = !!(this.itemTex && this.itemTable);
+    this.applyPropTables();
+  }
+  uploadSpriteAtlas(img) {
+    const gl = this.gl, t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);    // premultiplied, so smooth edges and mipmaps stay clean
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 5);   // past this, neighbouring cells would blur together
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this.texBytes += img.width * img.height * 4 * 1.34;
+    return t;
+  }
   // Ground textures (Biome Lab): `layers` = square images (canvases) of `size` px, one texture-array layer each;
   // K = per ground type, its layer or -1 (tile art); S = per ground type, tiles covered by one copy of its texture
   makeGroundTextures(layers, size) {
@@ -131,8 +167,8 @@ export class Renderer {
     this.applyPropTables();
   }
 
-  // ---------- big props as pictures ----------
-  // one chunk's prop spots (terrain.js propSpots: 4 x uint32 per spot) as an instance buffer
+  // ---------- items as pictures ----------
+  // one chunk's spots for one layer (terrain.js propSpots: 4 x uint32 per spot) as an instance buffer
   makePropBuffer(u32) {
     const gl = this.gl, P = { buf: gl.createBuffer(), vao: gl.createVertexArray(), n: u32.length / 4, bytes: u32.byteLength };
     gl.bindVertexArray(P.vao);
@@ -145,29 +181,35 @@ export class Renderer {
     return P;
   }
   freePropBuffer(P) { this.gl.deleteBuffer(P.buf); this.gl.deleteVertexArray(P.vao); this.texBytes -= P.bytes; }
-  // Draw the props of some chunks (top to bottom, so nearer ones end up in front): first every high-resolution
-  // prop's silhouette, nudged down-right, onto a shadow layer (overlaps keep the darkest, never add up), laid over the
-  // ground once; then the props themselves. items: [{ props, fld, chunk: [x0, y0, w, h] in tiles }];
-  // q: { cx, cy, R (device px), W8 (art px across the disk's square), tpp, alpha, shadows }
-  drawProps(items, q) {
-    if (!items.length) return;
+  // Draw the items of some chunks (listed top to bottom, so nearer ones end up in front; small items under big ones):
+  // first every item's silhouette, nudged down-right, onto a shadow layer (overlaps keep the darkest, never add up),
+  // laid over the ground once; then the items themselves. chunks: [{ big, small (spot buffers), fld,
+  // chunk: [x0, y0, w, h] in tiles }]; q: { cx, cy, R (device px), W8 (art px across the disk's square), tpp, alpha, shadows }
+  drawProps(chunks, q) {
+    if (!chunks.length || !this.items) return;
     const gl = this.gl, { p, u } = this.progProps;
     const pass = shadow => {
       gl.useProgram(p);
       gl.uniform2f(u.u_res, this.w, this.h); gl.uniform2f(u.u_center, q.cx, q.cy); gl.uniform1f(u.u_R, q.R);
       gl.uniform1f(u.u_W8, q.W8); gl.uniform1f(u.u_tpp, q.tpp); gl.uniform1i(u.u_shadow, shadow ? 1 : 0);
       gl.uniform1f(u.u_alpha, q.alpha);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.hdProps || this.dummyCol); gl.uniform1i(u.u_hd, 0);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.atlas); gl.uniform1i(u.u_atlas, 1);
+      gl.uniform4f(u.u_hdInfo, ...this.itemInfo); gl.uniform2f(u.u_hdSize, ...this.itemSize);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.itemTex); gl.uniform1i(u.u_hd, 0);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.itemTable); gl.uniform1i(u.u_items, 1);
       gl.uniform1i(u.u_fld, 2);
-      for (const it of items) {
-        gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, it.fld);
-        gl.uniform4f(u.u_chunk, it.chunk[0], it.chunk[1], it.chunk[2], it.chunk[3]);
-        gl.bindVertexArray(it.props.vao);
-        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, it.props.n); this.draws++;
+      for (const layer of ['small', 'big']) {
+        gl.uniform1i(u.u_layer, layer === 'big' ? 0 : 1);
+        for (const c of chunks) {
+          const buf = c[layer];
+          if (!buf || !buf.n) continue;
+          gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, c.fld);
+          gl.uniform4f(u.u_chunk, c.chunk[0], c.chunk[1], c.chunk[2], c.chunk[3]);
+          gl.bindVertexArray(buf.vao);
+          gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, buf.n); this.draws++;
+        }
       }
     };
-    if (q.shadows !== false && this.hdProps) {
+    if (q.shadows !== false) {
       // the shadow layer is drawn at half resolution: shadows are soft anyway, and it's 4x fewer pixels
       const sw = Math.max(1, this.w >> 1), sh = Math.max(1, this.h >> 1);
       if (!this.shadowFb || this.shadowW !== sw || this.shadowH !== sh) {
@@ -203,19 +245,8 @@ export class Renderer {
   // High-resolution props (tools/pack_props.py): an image atlas of 4 variants per prop kind, drawn smoothly instead
   // of the pixel-art props. hdK = per prop kind (skin order), the atlas cell of its variant 0, or -1 = keep pixel art
   setHdProps(img, meta, hdK) {
-    const gl = this.gl, t = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);    // premultiplied, so smooth edges and mipmaps stay clean
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.generateMipmap(gl.TEXTURE_2D);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 5);   // past this, neighbouring cells would blur together
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    if (this.hdProps) gl.deleteTexture(this.hdProps);
-    this.hdProps = t; this.texBytes += img.width * img.height * 4 * 1.34;
+    if (this.hdProps) this.gl.deleteTexture(this.hdProps);
+    this.hdProps = this.uploadSpriteAtlas(img);
     this.hdK = hdK; this.hdInfo = [meta.cell[0], meta.cell[1], meta.cols, meta.scale]; this.hdSize = [img.width, img.height];
     this.applyPropTables();
   }

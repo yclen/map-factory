@@ -12,44 +12,56 @@ Biome Lab. Ground in the game itself, small decorations and moving things are pl
 
 ---
 
-## Biome Lab: try the art before it goes in the game
+## Biome Lab: design each biome, save it, and the game uses it
 
-`biome-lab/` is a small Earth-like planet for designing biomes: a lake in the middle and biome regions around it,
-drawn by **the game's own renderer** (the Galaxy demo's WebGL terrain shader, with maps built in background workers
-in 256 x 256 chunks), so what you see is what the game shows. Zoomed out it's a ball in space; zoom in to the
-tiles, trees and rocks. Open it locally with the **biome-lab** preview server (port 8170, serves the repo root) at
-http://localhost:8170/biome-lab/, or on GitHub Pages at `/map-factory/biome-lab/`.
+`biome-lab/` is a little solar system: a blue star with one planet per biome, each planet entirely that biome, drawn
+by the game's own renderer. Pick a planet, design its biome, press **Save**, and the Galaxy demo generates that
+biome from your design wherever it appears.
 
-- **It reads the raw art directly.** Every sheet in `art/props/raw/` and texture in `art/ground/raw/` shows up on
-  the next reload: the lab cuts the sheets out and builds the prop atlas in the browser, no packing needed.
-- **World tab:** seed, planet size (128 to 512 tiles across), lake size, beach, number of biome regions, how
-  irregular they are, hills, and which biomes appear.
-- **Biome tab** (click the planet to pick a biome): its ground texture with scale, brightness, saturation and hue;
-  prop density and clumping into groves; which prop kinds grow there (the game has 4 slots per biome), which sheet
-  version each kind uses, which cells of the sheet are picked, and each kind's size. Also small decorations.
-- **Art tab:** every ground texture (shown 2 x 2 so seams show) and every prop sheet, plus **Still needed**: the
-  ground and props the planet still draws in pixel art, each with a ready-to-run generate command.
-- **Toolbar:** Paint biomes onto the planet, Props / Decor on and off, Size ref (a 3 x 3 machine footprint under the
-  cursor, to judge how big trees look), Fit.
-- **Speed:** the status line shows frames per second. Like the Galaxy demo, the lab lowers its render resolution
-  when frames are slow and raises it again when there's room. `biomeLab.planet.bench()` in the browser console
-  times the current view.
-- Defaults come from the game (`skin.js` `propsFor` / `decorFor`, `art/props/props.json`), and the lab keeps only
-  your changes, in the browser. **Export** turns them into `skin.js` lines and `props.json` entries; ground textures
-  and clumping work in the game's shader already (see below) but nothing in the game turns them on yet, so hand
-  that part of the export to Claude.
-- A kind's **Size** goes from 0.25 to 20 (1 = the 2 x 3 tile box the art is packed into). Past about 3x the art
-  gets soft when zoomed in, since the sheets have ~300-500 px per tree.
-- Before pushing new art, run `python tools/lab_catalog.py` (GitHub Pages can't list folders, so the lab reads
-  `biome-lab/catalog.json` there) and `python tools/stamp_galaxy.py` (fresh copies of every script).
+**Run it locally** (saving needs this server; it also serves the project like a plain file server):
+
+```powershell
+python tools/lab_server.py
+```
+
+then open http://localhost:8170/biome-lab/ (or start the **biome-lab** preview, which runs the same thing). On GitHub
+Pages (`/map-factory/biome-lab/`) you can look and try things, but Save only works locally.
+
+**A biome design** (galaxy-demo/js/biomes.js has the exact format):
+- **Ground:** a texture from `art/ground/raw/` (or the old tile art), its scale, brightness, saturation and hue.
+- **Items:** up to 8 **big** ones (trees, boulders; one spot per 1.5 x 1.5 tiles) and 8 **small** ones (shrubs,
+  grass tufts, flowers, pebbles; one spot per tile, drawn under the big ones). Each has a **density** (share of spots
+  it fills), **size** (1 = a 2 x 3 tile box, up to 20x), **size spread**, **clumping** and clump size, and its
+  **skins** (which AI sheet and which of its variations), tucked away under "Skins". Items without AI art use the
+  game's pixel art until a sheet is made.
+
+**The tabs:**
+- **System:** which biome planets are shown, planet size, hills; each biome shows **saved**, **unsaved changes** or
+  nothing (the game's current look). **Update the game** re-bakes without changing any design (after new AI art).
+- **Biome:** the selected planet's design. Changes show on the planet at once and are kept in the browser until you
+  **Save**. **Revert to saved** throws changes away; **Use game defaults** deletes the saved design.
+- **Art:** every ground texture and item sheet, plus **Still needed**: what the shown planets still draw in pixel
+  art, each with a ready-to-run generate command.
+
+**What Save writes:**
+- `art/biomes/<GROUND>.json`: the design (one file per saved biome; `index.json` lists them). This is the source.
+- `galaxy-demo/biomes/`: what the game loads. `biomes.json` (every biome's design: yours where saved, the game's
+  defaults elsewhere), `items.webp` (all item pictures) and `ground_N.webp` (the ground textures, already seamless
+  and colour-adjusted). Commit and push both folders to ship a design.
+
+Biomes nobody has saved keep the look from `galaxy-demo/js/skin.js` (`propsFor`, `decorFor`). If
+`galaxy-demo/biomes/` is missing, the Galaxy demo falls back to its old in-shader props.
+
+**How it runs:** items are pictures, one per spot (`PROPS_VS` in `shaders.js`). The map workers list every spot per
+chunk (`propSpots` in `terrain.js`), and the GPU picks what grows there from the item table, so slider changes show
+instantly. Items fade in once tiles are about 7 px across; further out a biome is just the map's colour.
+`biomeLab.sys.bench()` in the browser console times the current view.
 
 How the lab plugs into the game's code:
-- `galaxy-demo/js/terrain.js` has a `lab` planet type (`labSampler`): lake, beach, regions and painted tiles from
-  the planet description, which the lab sends to the map workers.
-- `galaxy-demo/js/shaders.js` can draw a **ground texture** per ground type instead of its tile art (`u_gtex`,
-  sampled at every screen pixel so it keeps full detail) and **clump** props into groves (`u_biome.w`). Both are
-  off unless something sets them, so the Galaxy demo looks the same as before.
-- `biome-lab/planet.js` is the demo's chunk and drawing code for one planet (from `main.js`): keep them in step.
+- `galaxy-demo/js/terrain.js` has a `lab` planet type: `lab.mono` makes a single-biome planet.
+- `galaxy-demo/js/biomes.js` turns designs into the table the prop shader reads; `renderer.js` `setItems` and
+  `setGroundTextures` load them; `main.js` loads `galaxy-demo/biomes/` at startup.
+- `biome-lab/system.js` is the demo's chunk and drawing code for a set of planets (from `main.js`): keep them in step.
 
 ### Make a ground texture
 
@@ -187,8 +199,9 @@ already has wiggly borders between biomes (`g_warp`); with textures it can blend
 edge instead, so every pair of biomes gets a natural border with no extra art.
 
 ### Small decorations
-Grass tufts, pebbles, flowers, fallen branches: the same as props but small and plentiful (the `decor` layer in
-`skin.js`). Best made as one kit sheet per biome, so they match each other and the ground.
+Grass tufts, pebbles, flowers, fallen branches: small items in the Biome Lab, drawn like the big ones. They still use
+pixel art; make AI sheets for them with `gen_props.py` (the lab's Art tab has the commands), best as one kit per biome
+so they match each other and the ground.
 
 ### Things that move (units, vehicles, items on belts)
 These need several facing directions (4 or 8) and animation frames, all matching exactly, which is the hardest

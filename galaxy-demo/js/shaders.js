@@ -1,4 +1,5 @@
-import { SLOPE_K } from './terrain.js?v=20261125000622';
+import { SLOPE_K } from './terrain.js?v=20261125004141';
+import { ITEM_SLOTS } from './biomes.js?v=20261125004141';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -504,16 +505,17 @@ void main() {
   o = vec4(c.rgb * a, a);
 }`;
 
-// ---------- big props (trees, boulders) as pictures: one instanced quad per prop spot ----------
+// ---------- items (trees, boulders, shrubs, grass) as pictures: one instanced quad per spot ----------
 // Each instance is a spot from the map worker (terrain.js propSpots): box corner in global art px, ground id, hash.
-// Whether a prop grows there and which kind is decided here from the skin's tables, exactly as the old in-shader
-// props did, so density, kinds and clumping change instantly. u_kscale = per prop kind, its size (1 = the 16 x 24 art
-// px box, i.e. 2 x 3 tiles), scaled about its foot. u_shadow = 1 draws the shadow pass (silhouettes, nudged down-right)
+// What grows there comes from the item table (biomes.js itemTable): the row for this ground type and layer lists up
+// to 8 items with their density, clumping, atlas cell, size and size spread; a spot's random number picks one in
+// proportion to their densities (or none). So designs change instantly, without rebuilding maps. Sizes scale the
+// 16 x 24 art px box (2 x 3 tiles) about its foot. u_shadow = 1 draws the shadow pass (silhouettes, nudged down-right)
 export const PROPS_VS = `#version 300 es
-precision highp float; precision highp int;
+precision highp float; precision highp int; precision highp sampler2D;
 in vec2 a_pos; in uvec4 a_t;
 uniform vec2 u_res; uniform vec2 u_center; uniform float u_R; uniform float u_W8;
-uniform vec4 u_biome[32]; uniform ivec4 u_propK[32]; uniform ivec4 u_hdK[8]; uniform vec4 u_kscale[8];
+uniform sampler2D u_items; uniform int u_layer;
 uniform sampler2D u_fld; uniform vec4 u_chunk; uniform float u_tpp; uniform int u_shadow;
 out vec2 v_s; out vec3 v_tint; flat out int v_cell;
 const float SLOPE_K = ${SLOPE_K}.0;
@@ -535,26 +537,29 @@ float hillShade(vec4 F) {
 vec3 landTint(vec4 F) { float v = F.a * 2.0 - 1.0; return (1.0 + v * 0.09) * vec3(1.0 + v * 0.05, 1.0, 1.0 - v * 0.06); }
 void main() {
   uint hh = a_t.w;
-  int gid = int(a_t.z);
+  int row = int(a_t.z) * 2 + u_layer;
   vec2 A = vec2(ivec2(a_t.xy));
-  vec4 bi = u_biome[gid];
-  float dens = bi.z;
-  if (bi.w > 0.0) dens *= max(0.0, 1.0 + fract(bi.w) * 2.9 * (vn2(A / (floor(bi.w) * 8.0), 9u) * 2.0 - 1.0));
-  int k = u_propK[gid][int((hh >> 18) & 3u)];
-  int hd = k >= 0 ? u_hdK[k >> 4][(k >> 2) & 3] : -1;
-  if (float((hh >> 8) & 1023u) / 1023.0 >= dens || k < 0 || (u_shadow == 1 && hd < 0)) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);              // nothing grows here: off screen
-    return;
+  float r = float((hh >> 8) & 1023u) / 1023.0, c = 0.0;
+  vec4 it = vec4(0.0);
+  for (int j = 0; j < ${ITEM_SLOTS}; j++) {
+    vec4 a = texelFetch(u_items, ivec2(j, row), 0);
+    if (a.x <= 0.0) continue;
+    float d = a.x;
+    vec4 b = texelFetch(u_items, ivec2(${ITEM_SLOTS} + j, row), 0);
+    if (b.x > 0.0) d *= max(0.0, 1.0 + b.x * 2.9 * (vn2(A / (b.y * 8.0), uint(9 + j)) * 2.0 - 1.0));
+    c += d;
+    if (r < c) { it = a; break; }
   }
-  int v = int((hh >> 20) & 3u);
-  float sc = u_kscale[k >> 4][(k >> 2) & 3];
+  if (it.x <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }   // nothing grows here: off screen
+  uint h2 = hashu(uvec2(hh, 0x5bd1u));
+  float sc = it.z * (1.0 + it.w * (float(h2 & 1023u) / 1023.0 * 2.0 - 1.0));
   vec2 s = a_pos * vec2(16.0, 24.0);                    // art px inside the sprite's box
   vec2 g = A + vec2(8.0, 23.0) + (s - vec2(8.0, 23.0)) * sc;
   if (u_shadow == 1) g += vec2(3.0, 2.0) * sc;           // the shadow falls down and to the right
   vec2 px = u_center + (g / u_W8 * 2.0 - 1.0) * u_R;    // device px, y down
   gl_Position = vec4(px.x / u_res.x * 2.0 - 1.0, 1.0 - px.y / u_res.y * 2.0, 0.0, 1.0);
   v_s = s;
-  v_cell = hd >= 0 ? hd + v : -1 - (k + v);
+  v_cell = int(it.y) + int((hh >> 20) & 3u);
   // each one a little lighter or darker, warmer or cooler, and lit like the ground under its foot
   float t = float((hh >> 22) & 255u) / 255.0 - 0.5;
   vec2 foot = floor((A + vec2(8.0, 22.0)) / 8.0);
@@ -565,25 +570,17 @@ void main() {
 export const PROPS_FS = `#version 300 es
 precision highp float; precision highp int;
 in vec2 v_s; in vec3 v_tint; flat in int v_cell;
-uniform sampler2D u_hd; uniform sampler2D u_atlas; uniform vec4 u_hdInfo; uniform vec2 u_hdSize;
+uniform sampler2D u_hd; uniform vec4 u_hdInfo; uniform vec2 u_hdSize;
 uniform int u_shadow; uniform float u_alpha;
 out vec4 o;
 void main() {
-  if (v_cell >= 0) {                                    // high-resolution art (premultiplied)
-    int cols = int(u_hdInfo.z);
-    vec2 s = clamp(v_s, vec2(0.25), vec2(15.75, 23.75));
-    vec2 p = vec2(float(v_cell % cols), float(v_cell / cols)) * u_hdInfo.xy + s * u_hdInfo.w;
-    if (u_shadow == 1) { o = vec4(0.0, 0.0, 0.0, texture(u_hd, p / u_hdSize, 1.5).a); return; }   // softened
-    vec4 c = texture(u_hd, p / u_hdSize);
-    if (c.a < 0.003) discard;
-    o = vec4(c.rgb * v_tint, c.a) * u_alpha;
-  } else {                                              // pixel art (atlas.js), crisp; carries its own shadow
-    int idx = -1 - v_cell;
-    ivec2 q = clamp(ivec2(floor(v_s)), ivec2(0), ivec2(15, 23));
-    vec4 c = texelFetch(u_atlas, ivec2((idx & 15) * 16 + q.x, 256 + (idx >> 4) * 24 + q.y), 0);
-    if (c.a < 0.2) discard;
-    o = vec4(c.rgb * (c.a > 0.7 ? v_tint : vec3(1.0)) * c.a, c.a) * u_alpha;
-  }
+  int cols = int(u_hdInfo.z);
+  vec2 s = clamp(v_s, vec2(0.25), vec2(15.75, 23.75));
+  vec2 p = vec2(float(v_cell % cols), float(v_cell / cols)) * u_hdInfo.xy + s * u_hdInfo.w;
+  if (u_shadow == 1) { o = vec4(0.0, 0.0, 0.0, texture(u_hd, p / u_hdSize, 1.5).a); return; }   // softened
+  vec4 c = texture(u_hd, p / u_hdSize);                 // premultiplied
+  if (c.a < 0.003) discard;
+  o = vec4(c.rgb * v_tint, c.a) * u_alpha;
 }`;
 
 // the shadow layer laid down once over the ground: darkens what's under it, never doubles up where shadows overlap

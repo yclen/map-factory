@@ -10,18 +10,10 @@
   <header id="toolbar">
     <b class="title">Biome Lab</b>
     <div class="group">
-      <button data-mode="look" title="Drag to move, scroll to zoom, click to pick a biome">Look</button>
-      <button data-mode="paint" title="Drag to paint a biome onto the map">Paint</button>
-      <span id="brushOpts" hidden>
-        <select id="brush" aria-label="Biome to paint"></select>
-        <input id="brushSize" type="range" min="1" max="24" step="1" value="4" aria-label="Brush size" title="Brush size">
-      </span>
-    </div>
-    <div class="group">
-      <button data-view="props">Props</button>
-      <button data-view="decor">Decor</button>
+      <button data-view="items" title="Show items (trees, rocks, shrubs, grass)">Items</button>
+      <button data-view="shadows" title="Item shadows">Shadows</button>
       <button data-view="ruler" title="Show a 3×3 machine footprint under the cursor">Size ref</button>
-      <button id="fit" title="Show the whole planet">Fit</button>
+      <button id="fit" title="Show the whole system">Overview</button>
     </div>
   </header>
   <main>
@@ -33,19 +25,13 @@
     </div>
     <aside>
       <nav id="tabs">
-        <button data-tab="world" class="on">World</button>
+        <button data-tab="system" class="on">System</button>
         <button data-tab="biome">Biome</button>
         <button data-tab="art">Art</button>
       </nav>
       <div id="panel"></div>
     </aside>
   </main>
-  <dialog id="export">
-    <h3>Export changes</h3>
-    <p class="hint">Paste the parts you want into skin.js / props.json, or hand the whole thing to Claude.</p>
-    <textarea id="exportText" spellcheck="false"></textarea>
-    <div class="row"><button id="exportCopy">Copy all</button><button id="exportClose">Close</button></div>
-  </dialog>
   <script type="module">
     // load the current release even if the browser kept old copies: the Galaxy demo's version.txt is never cached,
     // and every script the lab loads carries that stamp (tools/stamp_galaxy.py)

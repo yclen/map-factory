@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125000622';
-import { RULES } from './rules.js?v=20261125000622';
-import { makeNoise } from './noise.js?v=20261125000622';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125000622';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125004141';
+import { RULES } from './rules.js?v=20261125004141';
+import { makeNoise } from './noise.js?v=20261125004141';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125004141';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -175,6 +175,11 @@ export function makeSampler(desc) {
 //   biomes: [ground ids], paint: null or Uint8Array(W * W) of ground ids (255 = not painted) }
 function labSampler(desc, N, r, detail, sea) {
   const L = desc.lab, W = desc.W;
+  if (L.mono !== undefined) {
+    // a planet of one biome (the Biome Lab's biome planets): gentle hills, no water
+    const elev = (x, y) => sea + 0.02 + (N.fbm(x * 3 + 11, y * 3 + 7, 5.5, 4) * 0.5 + 0.5) * (L.hills || 0) * 0.16;
+    return { classify: () => L.mono, deposit: () => 0, elev, detail, sea };
+  }
   const list = L.biomes.length ? L.biomes.slice() : [T.GRASS];
   for (let i = list.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; const t = list[i]; list[i] = list[j]; list[j] = t; }
   const K = Math.max(1, L.regions), a0 = r() * TAU, seeds = [];
@@ -350,23 +355,25 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     ids[t * 4 + 3] = rel >= 0 && !WATER.has(base) && base !== T.SEA_ICE && !(ov >= O.HUT) && (CLIFF_GROUND.has(base) || Vr[g] > 0.42) ? 255 : 0;
     fld[t * 4 + 3] = Math.max(0, Math.min(255, 127.5 + Vr[g] * 127.5));
   }
-  // full detail (one sample per tile): every spot where a big prop could stand, for the renderer to draw as pictures
-  const props = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy) : null;
-  return { ids, col, fld, counts, settlements, props, ms: performance.now() - t0 };
+  // full detail (one sample per tile): every spot where an item could stand, for the renderer to draw as pictures
+  const props = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, BIG) : null;
+  const small = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, SMALL) : null;
+  return { ids, col, fld, counts, settlements, props, small, ms: performance.now() - t0 };
 }
 
-// Big props (trees, boulders) stand on spots: one per 12 x 12 cell of art pixels (8 art px per tile), nudged 0..11 px
-// by a hash, with the foot at art px (8, 22) of the sprite's 16 x 24 box. A spot belongs to the chunk its foot is in.
-// Whether a prop actually grows there, and which kind, is decided when drawing (from the skin's tables), so density
-// and kinds can change without rebuilding maps. Per spot: box corner (art px x, y), ground id, the spot's hash.
-// Sorted top to bottom, so drawing in order puts nearer props in front. Same hash as the old in-shader props.
-const PG = 12;
-function propSpots(ids, N, x0, y0, sx, sy) {
-  const out = [];
-  const cxA = Math.floor((x0 * 8 - 8 - 11) / PG), cxB = Math.floor(((x0 + sx) * 8 - 8) / PG);
-  const cyA = Math.floor((y0 * 8 - 22 - 11) / PG), cyB = Math.floor(((y0 + sy) * 8 - 22) / PG);
+// Items (trees, boulders, shrubs, grass) stand on spots. Big items: one spot per 12 x 12 cell of art pixels (8 art px
+// per tile); small items: one per 8 x 8 cell. Each spot is nudged inside its cell by a hash, with the foot at art px
+// (8, 22) of the sprite's 16 x 24 box. A spot belongs to the chunk its foot is in. Whether something grows there, and
+// what, is decided when drawing (from the biome tables), so densities and kinds change without rebuilding maps.
+// Per spot: box corner (art px x, y), ground id, the spot's hash. Sorted top to bottom, so drawing in order puts
+// nearer items in front. The big grid uses the same hash as the old in-shader props.
+const BIG = { cell: 12, salt: [0x2b9f, 0x6d31] }, SMALL = { cell: 8, salt: [0x51ed, 0x2701] };
+function propSpots(ids, N, x0, y0, sx, sy, grid) {
+  const out = [], PG = grid.cell;
+  const cxA = Math.floor((x0 * 8 - 8 - PG + 1) / PG), cxB = Math.floor(((x0 + sx) * 8 - 8) / PG);
+  const cyA = Math.floor((y0 * 8 - 22 - PG + 1) / PG), cyB = Math.floor(((y0 + sy) * 8 - 22) / PG);
   for (let cy = cyA; cy <= cyB; cy++) for (let cx = cxA; cx <= cxB; cx++) {
-    const h = tileHash(cx ^ 0x2b9f, cy ^ 0x6d31);
+    const h = tileHash(cx ^ grid.salt[0], cy ^ grid.salt[1]);
     const ax = cx * PG + (h & 15) % PG, ay = cy * PG + ((h >>> 4) & 15) % PG;
     const fx = (ax + 8) >> 3, fy = (ay + 22) >> 3;
     if (fx < x0 || fy < y0 || fx >= x0 + sx || fy >= y0 + sy) continue;
