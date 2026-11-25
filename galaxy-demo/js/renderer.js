@@ -1,6 +1,6 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261124234308';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261124234308';
+import * as S from './shaders.js?v=20261125000622';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125000622';
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -33,6 +33,8 @@ export class Renderer {
     this.progBody = compile(gl, S.RECT_VS, S.BODY_FS, ['a_pos']);
     this.progSprite = compile(gl, S.SPRITE_VS, S.SPRITE_FS, ['a_pos', 'a_i0', 'a_col']);
     this.progOn = compile(gl, S.ONDISK_VS, S.ONDISK_FS, ['a_pos', 'a_s']);
+    this.progProps = compile(gl, S.PROPS_VS, S.PROPS_FS, ['a_pos', 'a_t']);
+    this.progShade = compile(gl, S.RECT_VS, S.SHADE_FS, ['a_pos']);
 
     const buf = data => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); return b; };
     const q01 = buf(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]));
@@ -49,7 +51,7 @@ export class Renderer {
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 0); gl.vertexAttribDivisor(1, 1);
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 16); gl.vertexAttribDivisor(2, 1);
 
-    this.qm = qm;
+    this.qm = qm; this.q01 = q01;
     gl.bindVertexArray(null);
 
     gl.enable(gl.BLEND);
@@ -61,6 +63,10 @@ export class Renderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 128]));
     this.water = [[0, 0, 0], [0, 0, 0]];      // deep and shallow water colours (0..255), set from the skin
     this.gtex = this.makeGroundTextures([], 1);   // no ground textures until setGroundTextures
+    // the tables both the terrain and the prop programs read (kept, so either can be changed alone)
+    this.tables = null; this.hdK = new Int32Array(32).fill(-1); this.hdInfo = [128, 192, 8, 8]; this.hdSize = [1, 1];
+    this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8); this.kscale = new Float32Array(32).fill(1);
+    this.shadowFb = null; this.shadowTex = null; this.shadowW = 0; this.shadowH = 0;
   }
 
   resize(w, h) {
@@ -77,13 +83,31 @@ export class Renderer {
   // ---------- textures ----------
   // decoration tables (art.js decorTables): uniforms keep their values, so they're set once
   setDecor(t) {
-    const gl = this.gl, { p, u } = this.progBody;
-    gl.useProgram(p);
-    gl.uniform4fv(u['u_biome[0]'], t.B); gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform4iv(u['u_propK[0]'], t.PK);
-    gl.uniform4fv(u['u_oreStain[0]'], t.S); gl.uniform2fv(u['u_oreFx[0]'], t.X);
-    gl.uniform4iv(u['u_hdK[0]'], new Int32Array(32).fill(-1));   // no high-resolution props until setHdProps
-    gl.uniform4iv(u['u_gtexK[0]'], new Int32Array(32).fill(-1)); // no ground textures until setGroundTextures
+    this.tables = t;
+    const gl = this.gl;
+    for (const { p, u } of [this.progBody, this.progProps]) {
+      gl.useProgram(p);
+      gl.uniform4fv(u['u_biome[0]'], t.B); gl.uniform4iv(u['u_propK[0]'], t.PK);
+      if (u['u_decoK[0]']) { gl.uniform4iv(u['u_decoK[0]'], t.K); gl.uniform4fv(u['u_oreStain[0]'], t.S); gl.uniform2fv(u['u_oreFx[0]'], t.X); }
+    }
+    this.applyPropTables();
   }
+  // high-resolution prop cells, prop sizes and ground textures, to whichever program reads them
+  applyPropTables() {
+    const gl = this.gl;
+    for (const { p, u } of [this.progBody, this.progProps]) {
+      gl.useProgram(p);
+      gl.uniform4iv(u['u_hdK[0]'], this.hdK);
+      gl.uniform4f(u.u_hdInfo, this.hdInfo[0], this.hdInfo[1], this.hdInfo[2], this.hdInfo[3]);
+      gl.uniform2f(u.u_hdSize, this.hdSize[0], this.hdSize[1]);
+    }
+    gl.useProgram(this.progBody.p);
+    gl.uniform4iv(this.progBody.u['u_gtexK[0]'], this.gK); gl.uniform4fv(this.progBody.u['u_gtexS[0]'], this.gS);
+    gl.useProgram(this.progProps.p);
+    gl.uniform4fv(this.progProps.u['u_kscale[0]'], this.kscale);
+  }
+  // per prop kind (skin order), its size: 1 = the 2 x 3 tile box the art is packed into
+  setPropScale(kscale) { this.kscale = kscale; this.applyPropTables(); }
   // Ground textures (Biome Lab): `layers` = square images (canvases) of `size` px, one texture-array layer each;
   // K = per ground type, its layer or -1 (tile art); S = per ground type, tiles covered by one copy of its texture
   makeGroundTextures(layers, size) {
@@ -103,9 +127,78 @@ export class Renderer {
     const gl = this.gl;
     gl.deleteTexture(this.gtex);
     this.gtex = this.makeGroundTextures(layers, size);
-    const { p, u } = this.progBody;
-    gl.useProgram(p);
-    gl.uniform4iv(u['u_gtexK[0]'], K); gl.uniform4fv(u['u_gtexS[0]'], S);
+    this.gK = K; this.gS = S;
+    this.applyPropTables();
+  }
+
+  // ---------- big props as pictures ----------
+  // one chunk's prop spots (terrain.js propSpots: 4 x uint32 per spot) as an instance buffer
+  makePropBuffer(u32) {
+    const gl = this.gl, P = { buf: gl.createBuffer(), vao: gl.createVertexArray(), n: u32.length / 4, bytes: u32.byteLength };
+    gl.bindVertexArray(P.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.q01); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, P.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, u32, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_INT, 16, 0); gl.vertexAttribDivisor(1, 1);
+    gl.bindVertexArray(null);
+    this.texBytes += P.bytes;
+    return P;
+  }
+  freePropBuffer(P) { this.gl.deleteBuffer(P.buf); this.gl.deleteVertexArray(P.vao); this.texBytes -= P.bytes; }
+  // Draw the props of some chunks (top to bottom, so nearer ones end up in front): first every high-resolution
+  // prop's silhouette, nudged down-right, onto a shadow layer (overlaps keep the darkest, never add up), laid over the
+  // ground once; then the props themselves. items: [{ props, fld, chunk: [x0, y0, w, h] in tiles }];
+  // q: { cx, cy, R (device px), W8 (art px across the disk's square), tpp, alpha, shadows }
+  drawProps(items, q) {
+    if (!items.length) return;
+    const gl = this.gl, { p, u } = this.progProps;
+    const pass = shadow => {
+      gl.useProgram(p);
+      gl.uniform2f(u.u_res, this.w, this.h); gl.uniform2f(u.u_center, q.cx, q.cy); gl.uniform1f(u.u_R, q.R);
+      gl.uniform1f(u.u_W8, q.W8); gl.uniform1f(u.u_tpp, q.tpp); gl.uniform1i(u.u_shadow, shadow ? 1 : 0);
+      gl.uniform1f(u.u_alpha, q.alpha);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.hdProps || this.dummyCol); gl.uniform1i(u.u_hd, 0);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.atlas); gl.uniform1i(u.u_atlas, 1);
+      gl.uniform1i(u.u_fld, 2);
+      for (const it of items) {
+        gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, it.fld);
+        gl.uniform4f(u.u_chunk, it.chunk[0], it.chunk[1], it.chunk[2], it.chunk[3]);
+        gl.bindVertexArray(it.props.vao);
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, it.props.n); this.draws++;
+      }
+    };
+    if (q.shadows !== false && this.hdProps) {
+      // the shadow layer is drawn at half resolution: shadows are soft anyway, and it's 4x fewer pixels
+      const sw = Math.max(1, this.w >> 1), sh = Math.max(1, this.h >> 1);
+      if (!this.shadowFb || this.shadowW !== sw || this.shadowH !== sh) {
+        if (this.shadowTex) { gl.deleteTexture(this.shadowTex); gl.deleteFramebuffer(this.shadowFb); }
+        this.shadowTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
+        gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, sw, sh);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        this.shadowFb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.shadowTex, 0);
+        this.shadowW = sw; this.shadowH = sh;
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFb);
+      gl.viewport(0, 0, sw, sh);
+      gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.blendEquation(gl.MAX);
+      pass(true);
+      gl.blendEquation(gl.FUNC_ADD);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, this.w, this.h);
+      const sp = this.progShade;
+      gl.useProgram(sp.p); gl.bindVertexArray(this.vaoRect);
+      gl.uniform4f(sp.u.u_rect, 0, 0, this.w, this.h); gl.uniform2f(sp.u.u_res, this.w, this.h);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.shadowTex); gl.uniform1i(sp.u.u_tex, 0);
+      gl.uniform1f(sp.u.u_alpha, q.alpha);
+      gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.draws++;
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    }
+    pass(false);
   }
   // High-resolution props (tools/pack_props.py): an image atlas of 4 variants per prop kind, drawn smoothly instead
   // of the pixel-art props. hdK = per prop kind (skin order), the atlas cell of its variant 0, or -1 = keep pixel art
@@ -123,11 +216,8 @@ export class Renderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     if (this.hdProps) gl.deleteTexture(this.hdProps);
     this.hdProps = t; this.texBytes += img.width * img.height * 4 * 1.34;
-    const { p, u } = this.progBody;
-    gl.useProgram(p);
-    gl.uniform4iv(u['u_hdK[0]'], hdK);
-    gl.uniform4f(u.u_hdInfo, meta.cell[0], meta.cell[1], meta.cols, meta.scale);
-    gl.uniform2f(u.u_hdSize, img.width, img.height);
+    this.hdK = hdK; this.hdInfo = [meta.cell[0], meta.cell[1], meta.cols, meta.scale]; this.hdSize = [img.width, img.height];
+    this.applyPropTables();
   }
   makeAtlas(data) {
     const gl = this.gl, t = gl.createTexture();

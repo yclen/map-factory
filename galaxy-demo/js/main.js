@@ -1,14 +1,14 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261124234308';
-import { SKIN } from './skin.js?v=20261124234308';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261124234308';
-import { buildAtlas, decorTables } from './art.js?v=20261124234308';
-import { Renderer } from './renderer.js?v=20261124234308';
-import { Labels } from './labels.js?v=20261124234308';
-import { mulberry32, hash32 } from './rng.js?v=20261124234308';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261124234308';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261124234308';
+import { RULES } from './rules.js?v=20261125000622';
+import { SKIN } from './skin.js?v=20261125000622';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125000622';
+import { buildAtlas, decorTables } from './art.js?v=20261125000622';
+import { Renderer } from './renderer.js?v=20261125000622';
+import { Labels } from './labels.js?v=20261125000622';
+import { mulberry32, hash32 } from './rng.js?v=20261125000622';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125000622';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125000622';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -301,7 +301,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261124234308', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261125000622', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -355,13 +355,15 @@ function onPage(d) {
   p.ids = R.makeIdTexture(p.sx, p.sy); p.col = R.makeColorTexture(p.sx, p.sy); p.fld = R.makeColorTexture(p.sx, p.sy, true);
   R.uploadBand(p.ids, p.col, p.sx, 0, p.sy, d.ids, d.col, p.fld, d.fld);
   R.mipmap(p.col, p.fld);
+  if (d.props && d.props.length) p.props = R.makePropBuffer(d.props);   // big props, drawn as pictures
   p.ready = true;
   if (p.L === 0 || p.L === levelsOf(b).Lmax) p.cpu = d.ids;         // for hover info and placing walkers
-  p.bytes = p.sx * p.sy * (4 + 8 * 1.34) + (p.cpu ? p.sx * p.sy * 4 : 0);
+  p.bytes = p.sx * p.sy * (4 + 8 * 1.34) + (p.cpu ? p.sx * p.sy * 4 : 0) + (p.props ? p.props.bytes : 0);
   if (p.L === 0) { b.counts = d.counts; b.settlements = d.settlements; b.base = p; if (b === cam.focus) walkersDirty = true; }
 }
 function freePage(p) {
   if (p.ids) R.freeMap(p.ids, p.col, p.fld, p.sx, p.sy);
+  if (p.props) R.freePropBuffer(p.props);
   pages.delete(p.key);
   if (p.b.base === p) p.b.base = null;
 }
@@ -711,6 +713,30 @@ function drawBody(d, s, md, now) {
     }
   }
   bp.detail = false;
+  if (terrainFx) drawPropsOn(b, cx, cy, Rd, focus);
+}
+// Big props (trees, boulders) as pictures, from the full-detail chunks, once tiles are big enough for the tile art (the
+// same point where the shader switches to it, fading in alongside). Chunks a little below and beside the view count
+// too: a tall prop standing there reaches up into it
+const PROP_REACH = [1.5, 3];     // how far a size-1 prop reaches from its foot, sideways and up, in tiles
+const PROP_MAX = 1;              // the largest prop size in use (every packed prop fits its 2 x 3 tile box)
+function drawPropsOn(b, cx, cy, Rd, focus) {
+  const lv = levelsOf(b), L = lv.Lmax, N = lv.N[L], D = 2 * Rd;
+  const alpha = clamp((1.15 - 8 * N / D) / 0.45, 0, 1);
+  if (alpha <= 0) return;
+  const k = D / N, sx0 = cx - Rd, sy0 = cy - Rd, C = Math.ceil(N / PAGE);
+  const mx = PROP_REACH[0] * PROP_MAX * k, my = PROP_REACH[1] * PROP_MAX * k;
+  const pxA = Math.max(0, Math.floor((-mx - sx0) / k / PAGE)), pxB = Math.min(C - 1, Math.floor((R.w + mx - sx0) / k / PAGE));
+  const pyA = Math.max(0, Math.floor(-sy0 / k / PAGE)), pyB = Math.min(C - 1, Math.floor((R.h + my - sy0) / k / PAGE));
+  const items = [];
+  for (let py = pyA; py <= pyB; py++) for (let px = pxA; px <= pxB; px++) {
+    const rx0 = sx0 + px * PAGE * k, ry0 = sy0 + py * PAGE * k, rx1 = rx0 + PAGE * k, ry1 = ry0 + PAGE * k;
+    const nx = clamp(cx, rx0, rx1) - cx, ny = clamp(cy, ry0, ry1) - cy;
+    if (nx * nx + ny * ny > Rd * Rd) continue;
+    const p = wantPage(b, L, px, py, 2e6 + focus - Math.hypot((rx0 + rx1) / 2 - R.w / 2, (ry0 + ry1) / 2 - R.h / 2));
+    if (p.ready && p.props) items.push({ props: p.props, fld: p.fld, chunk: [p.x0, p.y0, p.sx, p.sy] });
+  }
+  R.drawProps(items, { cx, cy, R: Rd, W8: N * 8, tpp: b.surface.W / D, alpha });
 }
 // point the body shader at one chunk: its textures, where it sits, and how to filter it at this zoom
 function setPage(q, p, lv, D, s) {

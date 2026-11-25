@@ -2,11 +2,11 @@
 // maps built in background workers as a pyramid of 256 x 256 chunks, only the chunks on screen at the detail the
 // zoom needs. The chunk and drawing code follows galaxy-demo/js/main.js (wantPage, pump, onPage, drawBody,
 // setPage): keep the two in step when one changes.
-import { Renderer } from '../galaxy-demo/js/renderer.js?v=20261124234308';
-import { buildAtlas } from '../galaxy-demo/js/art.js?v=20261124234308';
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261124234308';
-import { RULES } from '../galaxy-demo/js/rules.js?v=20261124234308';
-import { makeSampler } from '../galaxy-demo/js/terrain.js?v=20261124234308';
+import { Renderer } from '../galaxy-demo/js/renderer.js?v=20261125000622';
+import { buildAtlas } from '../galaxy-demo/js/art.js?v=20261125000622';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125000622';
+import { RULES } from '../galaxy-demo/js/rules.js?v=20261125000622';
+import { makeSampler } from '../galaxy-demo/js/terrain.js?v=20261125000622';
 
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 const PAGE = 256;
@@ -27,7 +27,7 @@ export function createPlanetView(canvas, overlay, hooks) {
   const workers = [];
   const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
   for (let i = 0; i < NW; i++) {
-    const w = new Worker(new URL('../galaxy-demo/js/mapworker.js?v=20261124234308', import.meta.url), { type: 'module' });
+    const w = new Worker(new URL('../galaxy-demo/js/mapworker.js?v=20261125000622', import.meta.url), { type: 'module' });
     w.busy = null;
     w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
     w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -81,6 +81,7 @@ export function createPlanetView(canvas, overlay, hooks) {
     p.ids = R.makeIdTexture(p.sx, p.sy); p.col = R.makeColorTexture(p.sx, p.sy); p.fld = R.makeColorTexture(p.sx, p.sy, true);
     R.uploadBand(p.ids, p.col, p.sx, 0, p.sy, d.ids, d.col, p.fld, d.fld);
     R.mipmap(p.col, p.fld);
+    if (d.props && d.props.length) p.props = R.makePropBuffer(d.props);   // big props, drawn as pictures
     p.ready = true;
     if (p.ver === version && p.L === 0) {
       // the new whole-planet map is in: the version before isn't needed any more
@@ -90,6 +91,7 @@ export function createPlanetView(canvas, overlay, hooks) {
   }
   function freePage(p) {
     if (p.ids) R.freeMap(p.ids, p.col, p.fld, p.sx, p.sy);
+    if (p.props) R.freePropBuffer(p.props);
     pages.delete(p.key);
     const j = jobs.indexOf(p);
     if (j >= 0) jobs.splice(j, 1);
@@ -100,13 +102,14 @@ export function createPlanetView(canvas, overlay, hooks) {
     const budget = 160 * 1048576;
     let total = 0;
     const list = [];
-    for (const p of pages.values()) if (p.ready) { total += p.sx * p.sy * 14.7; list.push(p); }
+    const bytes = p => p.sx * p.sy * 14.7 + (p.props ? p.props.bytes : 0);
+    for (const p of pages.values()) if (p.ready) { total += bytes(p); list.push(p); }
     if (total <= budget) return;
     list.sort((a, b) => a.used - b.used);
     for (const p of list) {
       if (frameNo - p.used < 30 || total <= budget) break;
       if (p.L === 0 && p.ver === version) continue;
-      total -= p.sx * p.sy * 14.7;
+      total -= bytes(p);
       freePage(p);
     }
   }
@@ -213,6 +216,28 @@ export function createPlanetView(canvas, overlay, hooks) {
       }
     }
     bp.detail = false;
+    drawProps(cx, cy, Rd);
+  }
+  // big props (trees, boulders) as pictures, as in the demo's drawPropsOn: from the full-detail chunks, fading in with
+  // the tile art; chunks below and beside the view count too, since a tall prop standing there reaches up into it
+  const PROP_REACH = [1.5, 3];
+  function drawProps(cx, cy, Rd) {
+    const L = lv.Lmax, N = lv.N[L], D = 2 * Rd;
+    const alpha = clamp((1.15 - 8 * N / D) / 0.45, 0, 1);
+    if (alpha <= 0 || !view.props) return;
+    const k = D / N, sx0 = cx - Rd, sy0 = cy - Rd, C = Math.ceil(N / PAGE);
+    const mx = PROP_REACH[0] * view.propMax * k, my = PROP_REACH[1] * view.propMax * k;
+    const pxA = Math.max(0, Math.floor((-mx - sx0) / k / PAGE)), pxB = Math.min(C - 1, Math.floor((R.w + mx - sx0) / k / PAGE));
+    const pyA = Math.max(0, Math.floor(-sy0 / k / PAGE)), pyB = Math.min(C - 1, Math.floor((R.h + my - sy0) / k / PAGE));
+    const items = [];
+    for (let py = pyA; py <= pyB; py++) for (let px = pxA; px <= pxB; px++) {
+      const rx0 = sx0 + px * PAGE * k, ry0 = sy0 + py * PAGE * k, rx1 = rx0 + PAGE * k, ry1 = ry0 + PAGE * k;
+      const nx = clamp(cx, rx0, rx1) - cx, ny = clamp(cy, ry0, ry1) - cy;
+      if (nx * nx + ny * ny > Rd * Rd) continue;
+      const p = pageFor(L, px, py, 2e6 - Math.hypot((rx0 + rx1) / 2 - R.w / 2, (ry0 + ry1) / 2 - R.h / 2));
+      if (p.ready && p.props) items.push({ props: p.props, fld: p.fld, chunk: [p.x0, p.y0, p.sx, p.sy] });
+    }
+    R.drawProps(items, { cx, cy, R: Rd, W8: N * 8, tpp: desc.W / D, alpha, shadows: view.shadows });
   }
 
   // ---------- the frame ----------
@@ -331,7 +356,8 @@ export function createPlanetView(canvas, overlay, hooks) {
 
   // ---------- what the lab calls ----------
   const view = {
-    R, hover: null,
+    R, hover: null, props: true, shadows: true,
+    propMax: 1,                          // the largest prop size in use: how far beyond the view to look for props
     get desc() { return desc; },
     get zoom() { return zoom(); },
     get dpr() { return dpr; },

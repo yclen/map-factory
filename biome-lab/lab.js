@@ -1,11 +1,11 @@
 // Biome Lab: a small Earth-like planet for designing biomes with the AI art, drawn by the game's own renderer.
 // Defaults come from the game (galaxy-demo/js/skin.js, art/props/props.json); the lab stores only what you
 // change, in this browser, and Export turns your changes into lines for skin.js / props.json.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261124234308';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261124234308';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261124234308';
-import { loadAll, canvas, buildHdAtlas, groundLayer, GROUND_TEX } from './assets.js?v=20261124234308';
-import { createPlanetView } from './planet.js?v=20261124234308';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125000622';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125000622';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125000622';
+import { loadAll, canvas, buildHdAtlas, groundLayer, GROUND_TEX } from './assets.js?v=20261125000622';
+import { createPlanetView } from './planet.js?v=20261125000622';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const LAND = BASE.filter(n => !['DEEP', 'SHALLOW', 'BEACH', 'LAVA', 'SEA_ICE', 'ICE_CRACK'].includes(n));
@@ -104,7 +104,7 @@ function kindDefault(kind) {
   const m = A.manifest.kinds[kind];
   const versions = sheetsOf(kind);
   const sheet = m && A.sheets[m.sheet] ? m.sheet : versions.length ? versions[versions.length - 1].file : 'pixel';
-  return { sheet, pick: m && m.sheet === sheet && m.pick ? m.pick : [0, 1, 2, 3], size: Math.min(1, (m && m.size) || 1) };
+  return { sheet, pick: m && m.sheet === sheet && m.pick ? m.pick : [0, 1, 2, 3], size: (m && m.size) || 1 };
 }
 const kindP = kind => ({ ...kindDefault(kind), ...(over.kinds[kind] || {}) });
 
@@ -141,12 +141,11 @@ function toFour(kinds) {
 }
 
 // per ground type: prop / decoration density and kinds, clumping (art.js decorTables, the shader's u_biome table)
-let hd = null, gt = null;                // the last prop atlas and ground textures (their uniforms are re-set below)
 function applyTables() {
   const v = viewP(), propsFor = {}, decorFor = {};
   for (const n of BASE) {
     const b = biomeP(n);
-    propsFor[n] = [v.props ? b.density : 0, toFour(b.kinds)];
+    propsFor[n] = [b.density, toFour(b.kinds)];
     decorFor[n] = [v.decor ? b.decor : 0, toFour(b.decorKinds)];
   }
   const t = decorTables({ ...SKIN, propsFor, decorFor });
@@ -154,14 +153,7 @@ function applyTables() {
     const b = biomeP(n);
     t.B[id * 4 + 3] = b.cluster > 0 ? Math.round(b.clump) + Math.min(0.99, b.cluster) : 0;
   });
-  planet.R.setDecor(t);                  // (this also clears the prop-atlas and ground-texture tables)
-  reapplyUniforms();
-}
-function reapplyUniforms() {
-  const R = planet.R, gl = R.gl, { p, u } = R.progBody;
-  gl.useProgram(p);
-  if (hd) gl.uniform4iv(u['u_hdK[0]'], hd.hdK);
-  if (gt) { gl.uniform4iv(u['u_gtexK[0]'], gt.K); gl.uniform4fv(u['u_gtexS[0]'], gt.S); }
+  planet.R.setDecor(t);
 }
 // the high-resolution prop atlas from each kind's chosen sheet and cells
 function applyHd() {
@@ -171,12 +163,20 @@ function applyHd() {
     if (!sh) continue;
     const cells = ks.pick.map(i => sh.cells[i]).filter(Boolean);
     if (!cells.length) continue;
-    list.push({ name, size: ks.size, sprites: [0, 1, 2, 3].map(v => cells[v % cells.length]) });
+    list.push({ name, sprites: [0, 1, 2, 3].map(v => cells[v % cells.length]) });
   }
   const at = buildHdAtlas(list);
   for (const [name, cell] of Object.entries(at.index)) { const k = names.indexOf(name); if (k >= 0 && k < 32) hdK[k] = cell; }
   planet.R.setHdProps(at.canvas, at.meta, hdK);
-  hd = { hdK };
+  applySizes();
+}
+// each kind's size (1 = fills the 2 x 3 tile box); the planet view looks that much further out for props
+function applySizes() {
+  const ks = new Float32Array(32).fill(1);
+  let max = 1;
+  Object.keys(SKIN.props).forEach((name, k) => { if (k < 32) { ks[k] = kindP(name).size; max = Math.max(max, ks[k]); } });
+  planet.R.setPropScale(ks);
+  planet.propMax = max;
 }
 // ground textures: one texture-array layer per distinct (texture, colour adjustment) in use
 function applyGround() {
@@ -191,7 +191,6 @@ function applyGround() {
     avg[id] = layers[keys[key]].avg;
   });
   planet.R.setGroundTextures(layers.map(l => l.canvas), GROUND_TEX, K, S);
-  gt = { K, S };
 }
 
 // ---------- painting ----------
@@ -429,8 +428,8 @@ function biomePanel() {
       h('div', { class: 'kindhead' }, thumb(kindSprite(kind), 44, groundBg(name)),
         h('div', { class: 'kindmain' }, h('div', {}, h('b', {}, kind), h('span', { class: 'hint' }, `  ${n} of 4 slots`)), sel)),
       slider('Share', wgt, 0, 4, 1, setW, { after: renderPanel, tip: 'how often this kind grows here compared with the others (the game has 4 slots per biome)' }),
-      slider('Size', ks.size, 0.3, 1, 0.01, x => { setOver('kinds', kind, 'size', x); }, { after: applyHd,
-        changed: over.kinds[kind] && over.kinds[kind].size !== undefined, tip: 'size of this kind everywhere it grows (props.json "size"); 1 fills the game\'s 2 x 3 tile prop space' }),
+      slider('Size', ks.size, 0.25, 20, 0.05, x => { setOver('kinds', kind, 'size', x); applySizes(); }, {
+        changed: over.kinds[kind] && over.kinds[kind].size !== undefined, tip: 'size of this kind everywhere it grows: 1 = 2 x 3 tiles, up to 20x' }),
       cells);
   });
   const add = h('select', {}, h('option', { value: '' }, '+ add a prop kind…'),
@@ -549,7 +548,8 @@ document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click'
   const k = b.dataset.view;
   setOver('view', k, !viewP()[k]);
   syncToolbar();
-  if (k === 'props' || k === 'decor') applyTables();
+  if (k === 'decor') applyTables();
+  planet.props = viewP().props;
 }));
 document.getElementById('fit').addEventListener('click', () => planet.fit());
 const brushSel = document.getElementById('brush');
@@ -580,6 +580,7 @@ async function start() {
   if (painted && painted.n === W) {
     try { const s = atob(painted.t); paint = new Uint8Array(W * W); for (let i = 0; i < paint.length; i++) paint[i] = s.charCodeAt(i); } catch { paint = null; }
   }
+  planet.props = viewP().props;
   applyAll();
   rebuildPlanet(true);
   syncToolbar();

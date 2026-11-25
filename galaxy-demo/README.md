@@ -97,8 +97,8 @@ The new look adds these, all drawn in the planet shader (`BODY_FS` in `shaders.j
   instead of following the tile grid. Deposits and buildings stay exactly on their tiles, and the game's tile
   grid doesn't change.
 - **Colour variation:** slow patches inside one biome, a little drier and lighter or lusher and darker.
-- **Trees and boulders:** big sprites, 16 x 24 art pixels (about 2 x 3 tiles), each with its own shadow cast
-  down and to the right. Trees come in species: oaks (an occasional one in autumn colours), birches, blossom
+- **Trees and boulders:** big sprites, 16 x 24 art pixels (about 2 x 3 tiles) at size 1, drawn as pictures on top
+  of the ground (any size works), each casting a soft shadow down and to the right. Trees come in species: oaks (an occasional one in autumn colours), birches, blossom
   trees, pines and firs (snow-capped in the cold), palms, huge jungle trees with vines, willows, acacias, dead
   trees and saguaro cacti. Boulders are chiselled rocks with a flat lit top and shaded facets: plain, mossy, sandy,
   red, snow-capped, dark, sulfur and ice, plus clusters of basalt columns. Every leaf cluster, pine tier and rock

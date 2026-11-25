@@ -1,9 +1,9 @@
 // Loading art for the Biome Lab: the raw AI sheets (cut into sprites here in the browser, the same way
 // tools/pack_props.py does it), the AI ground textures (made seamless here), and the game's pixel-art fallbacks.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261124234308';
-import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261124234308';
-import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261124234308';
-import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261124234308';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125000622';
+import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125000622';
+import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125000622';
+import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125000622';
 
 const ART = '../art/';
 const SHEET_SCALE = 0.6;        // sheets are cut at 60% of their size: plenty for the lab's closest zoom
@@ -192,7 +192,7 @@ function pixelArt() {
 
 // The high-resolution prop atlas, laid out exactly like tools/pack_props.py makes it (4 variants per kind, 16 x 24
 // art px cells at 8 texels per art px, foot at art px (8, 23)), built here from the lab's choice of sheet and cells.
-// kinds: [{ name, sprites: [4 sprites], size }]
+// kinds: [{ name, sprites: [4 sprites] }], each fitted to fill the box (sizes are applied when drawing)
 const HD_SCALE = 8, CELL_W = 16 * HD_SCALE, CELL_H = 24 * HD_SCALE, HD_COLS = 8;
 export function buildHdAtlas(kinds) {
   const rows = Math.max(1, Math.ceil(kinds.length * 4 / HD_COLS));
@@ -204,7 +204,7 @@ export function buildHdAtlas(kinds) {
     k.sprites.forEach((s, v) => {
       const i = n * 4 + v, ax = (i % HD_COLS) * CELL_W, ay = Math.floor(i / HD_COLS) * CELL_H;
       const half = Math.max(s.footX, s.w - s.footX);
-      const f = Math.min(15.5 * HD_SCALE * k.size / (2 * half), 22.5 * HD_SCALE * k.size / s.h);
+      const f = Math.min(15.5 * HD_SCALE / (2 * half), 22.5 * HD_SCALE / s.h);
       g.save();
       g.beginPath(); g.rect(ax, ay, CELL_W, CELL_H); g.clip();
       g.drawImage(s.img, ax + 8 * HD_SCALE - s.footX * f, ay + 23 * HD_SCALE - s.h * f, s.w * f, s.h * f);

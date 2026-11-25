@@ -38,7 +38,8 @@ http://localhost:8170/biome-lab/, or on GitHub Pages at `/map-factory/biome-lab/
   your changes, in the browser. **Export** turns them into `skin.js` lines and `props.json` entries; ground textures
   and clumping work in the game's shader already (see below) but nothing in the game turns them on yet, so hand
   that part of the export to Claude.
-- Trees can't grow past the game's 2 x 3 tile prop space yet, so a kind's size goes up to 1 (filling it).
+- A kind's **Size** goes from 0.25 to 20 (1 = the 2 x 3 tile box the art is packed into). Past about 3x the art
+  gets soft when zoomed in, since the sheets have ~300-500 px per tree.
 - Before pushing new art, run `python tools/lab_catalog.py` (GitHub Pages can't list folders, so the lab reads
   `biome-lab/catalog.json` there) and `python tools/stamp_galaxy.py` (fresh copies of every script).
 
@@ -117,8 +118,11 @@ To pick other cells from a sheet, edit `art/props/props.json`: `"pick": [0, 2, 3
 | `biome-lab/` | the Biome Lab sandbox (see above); `tools/lab_catalog.py` writes its `catalog.json` |
 
 How the game uses it: each prop kind gets 4 variants, each 16 x 24 art pixels (2 x 3 tiles) at 8 texels per art
-pixel, standing on its foot point (bottom middle). The terrain shader draws them smoothly, layers overlapping ones
-front to back and casts each one's outline as a soft shadow down and to the right (`HD_SHADOW` in `shaders.js`).
+pixel, standing on its foot point (bottom middle). They're drawn as **pictures**, one quad per prop (`PROPS_VS` in
+`shaders.js`): the map workers list every spot a prop could stand on per chunk, and the GPU decides from the skin's
+tables whether one grows there and which kind, so density and kinds can change live. Props are drawn front to back,
+and each one's outline falls as a soft shadow down and to the right, onto one shadow layer (overlaps don't darken
+twice). Any size works: `Renderer.setPropScale` sets a size per kind.
 
 ---
 
@@ -202,5 +206,5 @@ between images without regenerating.
 - Each image takes about a minute. The ChatGPT plan has usage limits, so make sheets in small batches.
 - The atlas grows by 2 prop kinds per 192 px row (a 1024 px wide image). The shader has room for 32 prop kinds,
   which at 3072 px tall stays within phones' 4096 px texture limit.
-- Props still fit the old 2 x 3 tile space. Bigger trees mean changing `PROP_W`/`PROP_H` and the shader's search
-  window together.
+- Props are drawn once tiles are about 7 px across (the same point where the tile art appears); further out, a
+  forest is just the map's colour.
