@@ -1,7 +1,7 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125163828';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125163828';
-import { blendTable, BORDER } from './biomes.js?v=20261125163828';
+import * as S from './shaders.js?v=20261125170536';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125170536';
+import { blendTable, BORDER } from './biomes.js?v=20261125170536';
 
 // Ground relief, baked once instead of worked out per pixel: each mip level of a ground texture lit as bumps (its light
 // parts stand up, its dark parts sink) by the terrain shader's sun, comparing each texel with the one about a texel

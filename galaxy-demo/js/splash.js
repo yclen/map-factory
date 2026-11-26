@@ -21,7 +21,7 @@ export const groundLine = texture => {
 };
 const TIPS = [
   'Scroll or pinch to zoom. Zooming toward a planet locks onto it.',
-  'Move the mouse near a planet or moon: a yellow ring marks it. Click to fly there.',
+  'Move near a planet or moon (or tap near it): a yellow ring marks it. Click or tap again to fly there.',
   'Rocket takes you to the launch pad at Home\'s North Pole.',
   'Press B to compare the blended biome borders with the old hard edges.',
   'Every star, planet and moon comes from one seed. Try ?seed=123 in the address.',
