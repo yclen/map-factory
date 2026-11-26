@@ -7,7 +7,7 @@
 //     items: [ { kind: 'oak', layer: 'big' | 'small', density (share of spots), size (1 = a 2 x 3 tile box),
 //                sizeVar (0..1 random size spread), clump (0..1), clumpSize (tiles), skin: { sheet, pick } } ] }
 // Big items stand on one spot per 1.5 x 1.5 tiles, small items on one spot per tile; up to ITEM_SLOTS per layer.
-import { BASE } from './ids.js?v=20261125153450';
+import { BASE } from './ids.js?v=20261125161714';
 
 export const ITEM_SLOTS = 8;
 // the look shared by every biome: item shadows (renderer.js this.shadow) and the ground relief a template without one gets
@@ -28,20 +28,24 @@ const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 //   straggle how far this ground's items (trees, rocks, grass) wander into its neighbours, in tiles (0 .. 12)
 export const BLEND = { width: 0.7, creep: 0, soft: 0.12, style: 'soft', ragged: 0.5, rim: 0, height: 1, straggle: 0 };
 export const STYLES = ['soft', 'pixel', 'dither'];
-// the border look shared by every planet: fuzz = how ragged biome borders are where the map is made (0 = smooth contour
-// lines .. 2; terrain.js makeSampler), saved with the shadows
-export const BORDER = { fuzz: 1 };
+// the border look shared by every planet, saved with the shadows: fuzz = how ragged biome borders are where the map is
+// made (0 = smooth contour lines .. 2; terrain.js makeSampler); wet = how dark and glossy the ground is at the
+// waterline (0 = dry .. 1), wetW = how far inland the wet ground reaches (tiles)
+export const BORDER = { fuzz: 1, wet: 0.6, wetW: 2.5 };
+// a ground texture's variety (template ground.variety): 0 = it simply repeats .. 1 = shifted copies mixed so the
+// repeat doesn't show (BODY_FS groundTex)
+export const VARIETY = 1;
 export const blendOf = ground => ({ ...BLEND, ...((ground && ground.blend) || {}) });
 
 // The blend table the terrain shader reads (RGBA float, 32 x 2, one column per ground id): texel (id, 0) = (width,
-// creep, soft, style), texel (id, 1) = (ragged, rim, height, 0). Ground ids without a template get the defaults
+// creep, soft, style), texel (id, 1) = (ragged, rim, height, variety). Ground ids without a template get the defaults
 export function blendTable(templates) {
   const t = new Float32Array(32 * 2 * 4), byId = {};
   for (const tpl of Object.values(templates || {})) if (ID[tpl.biome] !== undefined) byId[ID[tpl.biome]] = tpl;
   for (let id = 0; id < 32; id++) {
-    const b = blendOf(byId[id] && byId[id].ground);
+    const g = byId[id] && byId[id].ground, b = blendOf(g);
     t.set([b.width, b.creep, b.soft, Math.max(0, STYLES.indexOf(b.style))], id * 4);
-    t.set([b.ragged, b.rim, b.height, 0], (32 + id) * 4);
+    t.set([b.ragged, b.rim, b.height, (g && g.variety) ?? VARIETY], (32 + id) * 4);
   }
   return t;
 }

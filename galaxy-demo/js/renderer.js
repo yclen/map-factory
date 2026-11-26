@@ -1,7 +1,44 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125153450';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125153450';
-import { blendTable } from './biomes.js?v=20261125153450';
+import * as S from './shaders.js?v=20261125161714';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125161714';
+import { blendTable, BORDER } from './biomes.js?v=20261125161714';
+
+// Ground relief, baked once instead of worked out per pixel: each mip level of a ground texture lit as bumps (its light
+// parts stand up, its dark parts sink) by the terrain shader's sun, comparing each texel with the one about a texel
+// further on (1.5 at full size), as the shader did at about one screen pixel. rl = strength (0 = flat, as it comes).
+// Returns the levels, biggest first: [{ n (texels across), data (RGBA bytes) }]
+const SUN = (() => { const v = [-0.55, -0.65, 0.75], n = Math.hypot(...v); return v.map(x => x / n); })();
+export function bakeRelief(img, size, rl) {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const g = cv.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, size, size);
+  let d = new Uint8Array(g.getImageData(0, 0, size, size).data.buffer);
+  const levels = [];
+  for (let n = size; n >= 1; n >>= 1) {
+    levels.push({ n, data: d });
+    if (n === 1) break;
+    const m = n >> 1, e = new Uint8Array(m * m * 4);           // the next level: 2 x 2 texels averaged
+    for (let y = 0; y < m; y++) for (let x = 0; x < m; x++) for (let k = 0; k < 4; k++) {
+      const a = ((2 * y) * n + 2 * x) * 4 + k;
+      e[(y * m + x) * 4 + k] = (d[a] + d[a + 4] + d[a + n * 4] + d[a + n * 4 + 4] + 2) >> 2;
+    }
+    d = e;
+  }
+  if (rl > 0) levels.forEach((L, i) => {
+    const n = L.n, D = L.data, h = new Float32Array(n * n), w = i === 0 ? 0.5 : 0;   // w: the half step at full size
+    for (let t = 0; t < n * n; t++) h[t] = (D[t * 4] * 0.3 + D[t * 4 + 1] * 0.5 + D[t * 4 + 2] * 0.2) / 255;
+    const out = new Uint8Array(D);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const t = y * n + x, x1 = (x + 1) % n, x2 = (x + 2) % n, y1 = (y + 1) % n, y2 = (y + 2) % n;
+      const hx = h[y * n + x1] * (1 - w) + h[y * n + x2] * w - h[t], hy = h[y1 * n + x] * (1 - w) + h[y2 * n + x] * w - h[t];
+      const k = Math.min(1.6, Math.max(0.55, 1 - 6 * rl * (hx * SUN[0] + hy * SUN[1]) / SUN[2]));
+      for (let c = 0; c < 3; c++) out[t * 4 + c] = Math.min(255, D[t * 4 + c] * k + 0.5);
+    }
+    L.data = out;
+  });
+  return levels;
+}
 
 function compile(gl, vs, fs, attribs) {
   const mk = (type, src) => {
@@ -74,9 +111,10 @@ export class Renderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     this.setBlend(blendTable({}));
     this.blendOn = true;
+    this.wet = [BORDER.wet, BORDER.wetW];         // wet ground along shores: strength 0..1, tiles inland
     // the tables both the terrain and the prop programs read (kept, so either can be changed alone)
     this.tables = null; this.hdK = new Int32Array(32).fill(-1); this.hdInfo = [128, 192, 8, 8]; this.hdSize = [1, 1];
-    this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8); this.gR = new Float32Array(32);
+    this.gK = new Int32Array(32).fill(-1); this.gS = new Float32Array(32).fill(8);
     // item shadows, Factorio style: len = shadow length per unit of an item's height, angle = degrees below the
     // horizontal (to the right), dark = how dark (0..1). biomes.js SHADOW has the defaults
     this.shadow = { len: 1.1, angle: 12, dark: 0.45, contact: 0.55 };
@@ -115,7 +153,7 @@ export class Renderer {
     gl.uniform4iv(u['u_hdK[0]'], this.hdK);
     gl.uniform4f(u.u_hdInfo, this.hdInfo[0], this.hdInfo[1], this.hdInfo[2], this.hdInfo[3]);
     gl.uniform2f(u.u_hdSize, this.hdSize[0], this.hdSize[1]);
-    gl.uniform4iv(u['u_gtexK[0]'], this.gK); gl.uniform4fv(u['u_gtexS[0]'], this.gS); gl.uniform4fv(u['u_gtexR[0]'], this.gR);
+    gl.uniform4iv(u['u_gtexK[0]'], this.gK); gl.uniform4fv(u['u_gtexS[0]'], this.gS);
     gl.uniform1i(u.u_shaderProps, this.items ? 0 : 1);
     if (this.tables) {                                      // items include the small things: no tile-art decorations
       const B = this.tables.B.slice();
@@ -187,27 +225,27 @@ export class Renderer {
     this.texBytes += img.width * img.height * 4 * 1.34;
     return t;
   }
-  // Ground textures (Biome Builder): `layers` = square images (canvases) of `size` px, one texture-array layer each;
-  // K = per ground type, its layer or -1 (tile art); S = per ground type, tiles covered by one copy of its texture
+  // Ground textures (Biome Builder): `layers` = per texture-array layer, its mip levels (bakeRelief) of a `size` px square
   makeGroundTextures(layers, size) {
     const gl = this.gl, t = gl.createTexture(), n = Math.max(1, layers.length);
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
     const levels = Math.floor(Math.log2(size)) + 1;
     gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, gl.RGBA8, size, size, n);
-    layers.forEach((img, i) => gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, img));
-    if (layers.length) gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+    layers.forEach((lv, i) => lv.forEach((L, m) => gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, m, 0, 0, i, L.n, L.n, 1, gl.RGBA, gl.UNSIGNED_BYTE, L.data)));
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
     return t;
   }
-  // K, S, Rl: per ground id, its layer (-1 = none), tiles per copy, relief (0 = flat; optional)
+  // `layers` = square images (or canvases), one texture-array layer each. K, S, Rl: per ground id, its layer (-1 =
+  // none), tiles per copy, relief (0 = flat; optional; grounds sharing a layer share its relief), baked in here
   setGroundTextures(layers, size, K, S, Rl) {
-    const gl = this.gl;
+    const gl = this.gl, rl = [];
+    if (Rl) K.forEach((k, id) => { if (k >= 0) rl[k] = Rl[id]; });
     gl.deleteTexture(this.gtex);
-    this.gtex = this.makeGroundTextures(layers, size);
-    this.gK = K; this.gS = S; this.gR = Rl || new Float32Array(32);
+    this.gtex = this.makeGroundTextures(layers.map((img, i) => bakeRelief(img, size, rl[i] || 0)), size);
+    this.gK = K; this.gS = S;
     this.applyPropTables();
   }
 
@@ -354,10 +392,12 @@ export class Renderer {
     this.texBytes += W * H * 4 * 1.34;
     return t;
   }
+  // a chunk's maps: ids with their one-tile border ((W + 2) x (rows + 2), from a texture made by makeIdTexture(W + 2,
+  // H + 2)), colour and field maps W x rows
   uploadBand(idTex, colTex, W, y0, rows, ids, col, fldTex, fld) {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, idTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, rows, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, ids);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W + 2, rows + 2, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, ids);
     gl.bindTexture(gl.TEXTURE_2D, colTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, rows, gl.RGBA, gl.UNSIGNED_BYTE, col);
     gl.bindTexture(gl.TEXTURE_2D, fldTex);
@@ -366,7 +406,7 @@ export class Renderer {
   mipmap(...texs) { const gl = this.gl; for (const t of texs) { gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); } }
   freeMap(idTex, colTex, fldTex, W, H) {
     this.gl.deleteTexture(idTex); this.gl.deleteTexture(colTex); this.gl.deleteTexture(fldTex);
-    this.texBytes -= W * H * 4 + W * H * 8 * 1.34;
+    this.texBytes -= (W + 2) * (H + 2) * 4 + W * H * 8 * 1.34;
   }
   makeGlowTexture(rgba, size) {
     const gl = this.gl, t = gl.createTexture();
@@ -424,6 +464,7 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.gtex); gl.uniform1i(u.u_gtex, 5);
     gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, this.blendTex); gl.uniform1i(u.u_blend, 6);
     gl.uniform1i(u.u_blendOn, this.blendOn ? 1 : 0);
+    gl.uniform2f(u.u_wet, this.wet[0], this.wet[1]);
     gl.uniform1i(u.u_fx, b.fx ? 1 : 0); gl.uniform1f(u.u_tpp, b.tpp || 0);
     const [wd, ws] = this.water;
     gl.uniform3f(u.u_deep, wd[0] / 255, wd[1] / 255, wd[2] / 255); gl.uniform3f(u.u_shallow, ws[0] / 255, ws[1] / 255, ws[2] / 255);

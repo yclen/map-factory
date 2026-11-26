@@ -3,14 +3,14 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125153450';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125153450';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125153450';
-import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF, BLEND, BORDER, STYLES, blendOf, blendTable, straggleTable } from '../galaxy-demo/js/biomes.js?v=20261125153450';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125153450';
-import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125153450';
-import { splash } from './splash.js?v=20261125153450';
-import { createSystem } from './system.js?v=20261125153450';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125161714';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125161714';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125161714';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF, BLEND, BORDER, STYLES, VARIETY, blendOf, blendTable, straggleTable } from '../galaxy-demo/js/biomes.js?v=20261125161714';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125161714';
+import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125161714';
+import { splash } from './splash.js?v=20261125161714';
+import { createSystem } from './system.js?v=20261125161714';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it
@@ -108,6 +108,7 @@ let saved = {};                                          // biome -> its templat
 let savedLook = { ...SHADOW, ...BORDER };               // the item shadows and border fuzz in art/biomes/index.json
 const look = () => S.look || savedLook;                  // the shadows and fuzz shown: unsaved changes, else the saved ones
 const fuzzOf = () => look().fuzz ?? BORDER.fuzz;
+const borderLook = () => ({ fuzz: fuzzOf(), wet: look().wet ?? BORDER.wet, wetW: look().wetW ?? BORDER.wetW });
 const reliefOf = g => g.relief ?? RELIEF;
 let selected = 'FOREST';
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -264,7 +265,7 @@ function apply(what = 'items') {
   }
   if (what === 'all' || what === 'ground' || what === 'blend') sys.R.setBlend(blendTable(Object.fromEntries(templates.map(t => [t.biome, t]))));
   if (what === 'all' || what === 'ground') {
-    const gk = JSON.stringify(templates.map(t => ({ ...t.ground, blend: null })));   // border settings need no new textures
+    const gk = JSON.stringify(templates.map(t => ({ ...t.ground, blend: null, variety: null })));   // the blend table, not new textures
     if (gk !== groundKey) {
       groundKey = gk;
       const { layers, avg } = groundsFor(templates);
@@ -334,7 +335,7 @@ async function save(name, template) {
       atlas: { file: 'items.webp', ...atlas.meta }, groundSize: GROUND_TEX,
       bigAtlas: { file: 'items_big.webp', ...big.meta }, bigCells: big.cells,
       grounds: grounds.layers.map((l, i) => ({ file: `ground_${i}.webp`, ids: l.ids, scale: l.scale, relief: l.relief })), avg: farAvgs(templates, grounds.avg),
-      shadow: look(), border: { fuzz: fuzzOf() },
+      shadow: look(), border: borderLook(),
       propMax: maxSize(templates),
     };
     const res = await fetch('/api/biome-builder/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -437,6 +438,11 @@ function shadowSlider(label, key, min, max, step, tip) {
   return slider(label, look()[key] ?? SHADOW[key], min, max, step, v => { S.look = { ...look(), [key]: v }; sys.R.shadow = { ...S.look }; },
     { tip, after: () => { persist(); renderPanel(); } });
 }
+// a border-look slider that answers at once while dragging (the wet shore is drawn by the shader, nothing rebuilds)
+function wetSlider(label, key, min, max, step, tip) {
+  return slider(label, borderLook()[key], min, max, step, v => { sys.R.wet = key === 'wet' ? [v, borderLook().wetW] : [borderLook().wet, v]; },
+    { tip, after: v => { S.look = { ...look(), [key]: v }; persist(); syncToolbar(); renderPanel(); } });
+}
 function systemPanel() {
   const shown = new Set(S.planets);
   const nSaved = Object.keys(saved).length;
@@ -466,11 +472,14 @@ function systemPanel() {
     shadowSlider('Darkness', 'dark', 0, 0.9, 0.01, 'how dark the cast shadows are'),
     shadowSlider('Contact', 'contact', 0, 1, 0.01, 'the soft dark patch on the ground right under each item, so it sits on the ground'),
     S.look ? h('div', { class: 'row' }, h('button', { onclick: () => { delete S.look; persist(); syncToolbar(); showPlanets(); renderPanel(); } }, 'Back to the saved shadows and fuzz')) : null,
-    h('h3', {}, 'Borders', fuzzOf() !== (savedLook.fuzz ?? BORDER.fuzz) ? h('span', { class: 'pill unsaved' }, 'unsaved') : null),
+    h('h3', {}, 'Borders', ['fuzz', 'wet', 'wetW'].some(k => borderLook()[k] !== (savedLook[k] ?? BORDER[k])) ? h('span', { class: 'pill unsaved' }, 'unsaved') : null),
     h('p', { class: 'hint' }, 'Where two biomes meet, their ground textures blend into each other. Each biome\'s own border settings (width, creep, softness, style…) are in its Biome tab. Fuzz is shared by every planet: it shapes where borders run when the map is made, so they wander in ragged lines with little islands, the way it will in the game.'),
     slider('Fuzz', fuzzOf(), 0, 2, 0.05, () => {}, { tip: 'how ragged biome borders are where the map is made (0 = smooth lines). Rebuilds the mix planet',
       after: v => { S.look = { ...look(), fuzz: v }; persist(); showPlanets(); renderPanel(); } }),
     toggle('Blend the borders (untick to see the old hard edges)', !S.blendOff, on => { S.blendOff = !on; persist(); syncToolbar(); }),
+    h('p', { class: 'hint' }, 'Wet shore: the ground along every shore is darker and deeper in colour, as if the waves just washed over it.'),
+    wetSlider('Wet shore', 'wet', 0, 1, 0.05, 'how dark and glossy the ground is at the waterline (0 = dry)'),
+    wetSlider('Wet width', 'wetW', 0.5, 6, 0.25, 'how far inland the wet ground reaches, in tiles'),
     h('h3', {}, 'Saving'),
     h('div', { class: 'row' }, h('button', { disabled: saving, onclick: () => save(null, null),
       title: 'rebuild what the Galaxy demo loads from the saved designs, with the newest art (designs stay as they are)' }, 'Update the game')),
@@ -572,6 +581,8 @@ function biomePanel() {
     g.texture ? h('div', {},
       G('Texture scale', 'scale', 2, 24, 0.5, 'how many tiles one copy of the texture covers'),
       G('Brightness', 'bright', 0.5, 1.5, 0.01), G('Saturation', 'sat', 0, 2, 0.01), G('Hue shift', 'hue', -60, 60, 1),
+      slider('Variety', g.variety ?? VARIETY, 0, 1, 0.05, () => {}, { tip: 'hides the repeat: shifted copies of the texture mixed across the ground (0 = it simply repeats)',
+        after: v => { edit(name, x => { x.ground.variety = v; }, 'blend'); renderPanel(); } }),
       slider('Relief', reliefOf(g), 0, 2, 0.05, () => {}, { tip: 'light parts of the texture stand up as bumps, dark parts sink, lit by the sun (0 = flat)',
         after: v => { edit(name, x => { x.ground.relief = v; }, 'ground'); renderPanel(); } })) : null,
     bordersBlock(name, t),
@@ -676,6 +687,7 @@ function syncToolbar() {
   sys.items = S.items; sys.shadows = S.shadows;
   sys.R.shadow = { ...look() };
   sys.R.blendOn = !S.blendOff;
+  sys.R.wet = [borderLook().wet, borderLook().wetW];
 }
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => { S[b.dataset.view] = !S[b.dataset.view]; persist(); syncToolbar(); }));
 document.getElementById('fit').addEventListener('click', () => sys.overview());

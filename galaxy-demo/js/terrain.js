@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125153450';
-import { RULES } from './rules.js?v=20261125153450';
-import { makeNoise } from './noise.js?v=20261125153450';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125153450';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125161714';
+import { RULES } from './rules.js?v=20261125161714';
+import { makeNoise } from './noise.js?v=20261125161714';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125161714';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -317,25 +317,23 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     }
   }
   let rim = null, RIM = 0;
-  for (let y = 0; y < sy; y++) {
-    const v = ((y0 + y + 0.5) / N) * 2 - 1;
-    for (let x = 0; x < sx; x++) {
-      const u = ((x0 + x + 0.5) / N) * 2 - 1, d = Math.hypot(u, v);
-      const i = (y * sx + x) * 4;
-      if (d > 1) {
-        if (!rim) {                       // the ground just inside the rim, all the way round (only if needed)
-          RIM = Math.min(4096, N * 2); rim = new Uint8Array(RIM);
-          for (let k = 0; k < RIM; k++) { const a = (k + 0.5) / RIM * TAU; rim[k] = sampler.classify(Math.cos(a) * 0.995, Math.sin(a) * 0.995); }
-        }
-        ids[i] = rim[Math.floor(((Math.atan2(v, u) + TAU) % TAU) / TAU * RIM) % RIM]; ids[i + 1] = 0;
-        continue;
+  // tile (x, y) of the chunk (-1 .. sx, -1 .. sy: one tile past each edge too) -> ground, overlay, richness into out[i..]
+  function tile(x, y, out, i) {
+    const u = ((x0 + x + 0.5) / N) * 2 - 1, v = ((y0 + y + 0.5) / N) * 2 - 1;
+    if (Math.hypot(u, v) > 1) {
+      if (!rim) {                         // the ground just inside the rim, all the way round (only if needed)
+        RIM = Math.min(4096, N * 2); rim = new Uint8Array(RIM);
+        for (let k = 0; k < RIM; k++) { const a = (k + 0.5) / RIM * TAU; rim[k] = sampler.classify(Math.cos(a) * 0.995, Math.sin(a) * 0.995); }
       }
-      const base = sampler.classify(u, v, 0, E[(y + 1) * GW + x + 1]);
-      ids[i] = base;
-      const ov = sampler.deposit(u, v, 0, base);
-      ids[i + 1] = ov; ids[i + 2] = ov ? Math.round(sampler.deposit.rich * 255) : 0;
+      out[i] = rim[Math.floor(((Math.atan2(v, u) + TAU) % TAU) / TAU * RIM) % RIM]; out[i + 1] = 0;
+      return;
     }
+    const base = sampler.classify(u, v, 0, E[(y + 1) * GW + x + 1]);
+    out[i] = base;
+    const ov = sampler.deposit(u, v, 0, base);
+    out[i + 1] = ov; out[i + 2] = ov ? Math.round(sampler.deposit.rich * 255) : 0;
   }
+  for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) tile(x, y, ids, (y * sx + x) * 4);
   // settlements (worked out once per planet): paint buildings in a disc around each centre, denser in the middle
   const key = desc.id + '/' + desc.W;
   let settlements = settleMemo.get(key);
@@ -407,7 +405,55 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
   // full detail (one sample per tile): every spot where an item could stand, for the renderer to draw as pictures
   const props = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, BIG, desc.straggle) : null;
   const small = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, SMALL, desc.straggle) : null;
-  return { ids, col, fld, counts, settlements, props, small, ms: performance.now() - t0 };
+  // What the shader reads (idsA): the ids again with a one-tile border taken from the neighbouring chunks, so borders
+  // blend across chunk edges without a seam, and byte 3 = cliff (128) + tiles from the nearest water (0-7)
+  const AW = sx + 2, AH = sy + 2, idsA = new Uint8Array(AW * AH * 4);
+  for (let y = 0; y < sy; y++) idsA.set(ids.subarray(y * sx * 4, (y + 1) * sx * 4), ((y + 1) * AW + 1) * 4);
+  for (let y = -1; y <= sy; y++) for (let x = -1; x <= sx; x++) {
+    const a = ((y + 1) * AW + x + 1) * 4;
+    if (y >= 0 && y < sy && x >= 0 && x < sx) { idsA[a + 3] = ids[(y * sx + x) * 4 + 3] ? 128 : 0; continue; }
+    tile(x, y, idsA, a);
+    const g = (y + 1) * GW + x + 1, base = idsA[a], ov = idsA[a + 1];
+    idsA[a + 3] = !WATER.has(base) && base !== T.SEA_ICE && !(ov >= O.HUT) && (CLIFF_GROUND.has(base) || Vr[g] > 0.42) ? 128 : 0;
+  }
+  if (N === desc.W && SEA_TYPES.has(desc.type)) shoreDistance(idsA, AW, AH, (x, y) => {
+    // a tile WET_R past the border: water if it's under the sea and classifies as water (elevation first, it's cheaper)
+    const u = ((x0 + x + 0.5) / N) * 2 - 1, v = ((y0 + y + 0.5) / N) * 2 - 1;
+    if (u * u + v * v > 1) return false;
+    const e = sampler.elev(u, v);
+    return e < sampler.sea && WATER.has(sampler.classify(u, v, 0, e));
+  });
+  else for (let i = 3; i < idsA.length; i += 4) idsA[i] |= 7;
+  return { ids, idsA, col, fld, counts, settlements, props, small, ms: performance.now() - t0 };
+}
+
+// Tiles from the nearest water (deep or shallow) for every tile of an id map with its border (idsA: AW x AH, byte 3's
+// low bits; 0 on water, 7 = 7 or more), for wet ground along shores. Looks WET_R tiles past the map's border too
+// (waterAt(x, y), chunk tile coordinates), so the wet band runs on across chunk edges. Chamfer distance (3 / 4)
+const WET_R = 7, SEA_TYPES = new Set(['terran', 'ocean', 'tundra', 'desert', 'lab']);
+function shoreDistance(idsA, AW, AH, waterAt) {
+  const R = WET_R, GW = AW + 2 * R, GH = AH + 2 * R, BIG = 255, D = new Uint8Array(GW * GH).fill(BIG);
+  let any = false;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    const ax = x - R, ay = y - R;
+    const w = ax >= 0 && ay >= 0 && ax < AW && ay < AH ? WATER.has(idsA[(ay * AW + ax) * 4]) : waterAt(ax - 1, ay - 1);
+    if (w) { D[y * GW + x] = 0; any = true; }
+  }
+  if (any) {
+    const at = (x, y) => x < 0 || y < 0 || x >= GW || y >= GH ? BIG : D[y * GW + x];
+    for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+      const i = y * GW + x;
+      D[i] = Math.min(D[i], at(x - 1, y) + 3, at(x, y - 1) + 3, at(x - 1, y - 1) + 4, at(x + 1, y - 1) + 4);
+    }
+    for (let y = GH - 1; y >= 0; y--) for (let x = GW - 1; x >= 0; x--) {
+      const i = y * GW + x;
+      D[i] = Math.min(D[i], at(x + 1, y) + 3, at(x, y + 1) + 3, at(x + 1, y + 1) + 4, at(x - 1, y + 1) + 4);
+    }
+  }
+  for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
+    const a = (y * AW + x) * 4 + 3;
+    idsA[a] = (idsA[a] & 128) | Math.min(7, Math.round(D[(y + R) * GW + x + R] / 3));
+  }
 }
 
 // Items (trees, boulders, shrubs, grass) stand on spots. Big items: one spot per 12 x 12 cell of art pixels (8 art px

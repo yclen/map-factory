@@ -43,6 +43,11 @@ icon. Unsaved changes are kept per address, so changes made online don't show up
   wander into the neighbour, in tiles). **Pair test** turns the mix planet into just this biome and one other, three
   slices each. **Fuzz** (System tab, shared by every planet) makes borders wander in ragged lines with little islands
   where the map is made. In the game, **B** switches between blended and the old hard borders.
+- **Variety** (Ground, per biome, 0-1): hides the texture's repeat by mixing 8 shifted copies of it across the ground,
+  picked by a slow noise (0 = it simply repeats). **Relief** is baked into each mip level when the textures load,
+  so it costs nothing per pixel.
+- **Wet shore** and **Wet width** (System tab, shared): the ground along every shore is darker and deeper in colour
+  for a few tiles inland, with a ragged edge, as if the waves just washed over it (not on snow and ice).
 - **Shadows** (shared by every biome, System tab; kept in `art/biomes/index.json`): each item casts its own outline
   flat along the ground, the way Factorio does, so no separate shadow pictures are needed, plus a soft **contact
   shadow** on the ground right under it so it sits on the ground. Both start from the picture's **base** (the part
