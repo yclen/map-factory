@@ -94,7 +94,7 @@
     {
       const towns = owned(C, 'settlement');
       const big = towns.reduce((a, b) => (!a || G.settlementCap(b) > G.settlementCap(a) ? b : a), null);
-      if (big && G.isUnlocked('burner')) {
+      if (big && G.upgradeStep(G.cityLevel(big)) && G.isUnlocked('burner')) {
         const step = G.upgradeStep(G.cityLevel(big)), spare = mw.max - mw.need, needMW = step.add / G.CFG.settlement.perMW;
         if ((G.poweredShare(C) >= 0.95 || !C.pw.capPow) && spare >= needMW * 0.5 && afford(C, step.cost, 20)) {
           G.upgradeCity(big);

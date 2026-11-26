@@ -730,6 +730,20 @@ const game = {
 const frontier = new Set();   // unowned land tiles touching our territory
 
 // ======================================================================
+// players: every human has an empire of their own. owner[i] is the player id + 1 (0 = no player's land),
+// and each country belongs to one player (c.player). PID is the player whose action (or command sent from
+// another screen) is being worked out right now; ME is the player at this screen. Single-player: both are 0.
+// ======================================================================
+const ME = 0;
+let PID = ME;
+const isMine = i => owner[i] === PID + 1;          // the acting player's land
+function asPlayer(pid, fn) {                       // run fn as player pid (then back to whoever was acting)
+  const was = PID;
+  PID = pid;
+  try { return fn(); } finally { PID = was; }
+}
+
+// ======================================================================
 // map generation
 // ======================================================================
 function generateTerrain() {
@@ -1021,7 +1035,7 @@ function claim(i, cid, conquer = false) {
     provoke(n);
     game.bldDirty = true;
   }
-  owner[i] = 1;
+  owner[i] = game.countries[cid].player + 1;
   countryOf[i] = cid;
   game.landDirty = true;                           // the settlement in reach of this tile now holds more
   game.ownedCount++;
@@ -1422,9 +1436,9 @@ const newPower = () => ({ burners: 0, solar: 0, nukes: 0, need: 0, capPow: 0, wo
   rigDep: { forest: 0, stone: 0, iron: 0, uranium: 0 }, colDep: { forest: 0, stone: 0, iron: 0, uranium: 0 } });
 // people not working a collector: only they can be sent on pushes and expeditions
 const freePeople = c => Math.max(0, c.people - c.pw.workers);
-function newCountry({ people = 0, res = {} } = {}) {
+function newCountry({ people = 0, res = {}, player = PID } = {}) {
   const id = game.countries.length;
-  const c = { id, ...countryName(id), people, cap: 0, growth: 0, tier: 0, geo: { coast: 0, mtn: 0, desert: 0, port: 0, ice: 0 }, sx: 0, sy: 0,
+  const c = { id, player, ...countryName(id), people, cap: 0, growth: 0, tier: 0, geo: { coast: 0, mtn: 0, desert: 0, port: 0, ice: 0 }, sx: 0, sy: 0,
     box: [Infinity, Infinity, -Infinity, -Infinity],
     res: { wood: 0, stone: 0, iron: 0, fuel: 0, uranium: 0, ...res }, rates: { wood: 0, stone: 0, iron: 0, fuel: 0, uranium: 0 },
     ownedDep: { forest: 0, stone: 0, iron: 0, uranium: 0 }, tiles: 0, lx: 0, ly: 0, alive: true, mergedInto: -1,
@@ -1453,20 +1467,22 @@ function recomputeNetwork() {
   // (runs whenever countries touch or split, so it's kept tight: one pass over the map to find the pieces,
   // which also lists every owned tile; the later passes only walk that list, in map order as before)
   comp.fill(-1);
+  // (a piece is one player's: land of two players that touches stays two pieces)
   let nc = 0, sp = 0, m = 0;
-  const stack = netStack, owned = netOwned;
+  const stack = netStack, owned = netOwned, pieceOwner = [];
   for (let s0 = 0; s0 < N; s0++) {
     if (!owner[s0] || comp[s0] >= 0) continue;
-    comp[s0] = nc; stack[sp++] = s0;
+    const o = owner[s0];
+    comp[s0] = nc; stack[sp++] = s0; pieceOwner.push(o);
     while (sp) {
       const i = stack[--sp], x = i % W;
       owned[m++] = i;
       let n;
-      if (x > 0 && owner[n = i - 1] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
-      if (x < W - 1 && owner[n = i + 1] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
-      if (i >= W && owner[n = i - W] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
-      if (i < N - W && owner[n = i + W] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
-      if (bridgeEnd[i]) for (const n of bridgeEndsOf(i)) if (owner[n] && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }   // over a bridge
+      if (x > 0 && owner[n = i - 1] === o && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
+      if (x < W - 1 && owner[n = i + 1] === o && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
+      if (i >= W && owner[n = i - W] === o && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
+      if (i < N - W && owner[n = i + W] === o && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }
+      if (bridgeEnd[i]) for (const n of bridgeEndsOf(i)) if (owner[n] === o && comp[n] < 0) { comp[n] = nc; stack[sp++] = n; }   // over a bridge
     }
     nc++;
   }
@@ -1476,7 +1492,7 @@ function recomputeNetwork() {
   for (let q = 0; q < m; q++) {
     const i = tiles[q], id = countryOf[i];
     let k = live.get(id);
-    if (k === undefined) { const c = liveCountry(id); k = c ? c.id : -1; live.set(id, k); }
+    if (k === undefined) { const c = liveCountry(id); k = c && c.player === owner[i] - 1 ? c.id : -1; live.set(id, k); }
     const t = tally[comp[i]];
     t.set(k, (t.get(k) || 0) + 1);
   }
@@ -1484,7 +1500,7 @@ function recomputeNetwork() {
   for (let pc = 0; pc < nc; pc++) {
     let best = -1, bestN = -1;
     for (const [k, n] of tally[pc]) if (k >= 0 && (n > bestN || (k === 0 && n === bestN))) { best = k; bestN = n; }
-    if (best < 0) best = newCountry().id;
+    if (best < 0) best = newCountry({ player: pieceOwner[pc] - 1 }).id;
     for (const [k] of tally[pc]) if (k >= 0 && k !== best && game.countries[k].alive) mergeCountry(game.countries[k], game.countries[best]);
     pieceCountry[pc] = best;
   }
@@ -1646,6 +1662,7 @@ function launchRocket(b) {
   f.pad = b.i; f.home = countryAt(b.i) ? countryAt(b.i).id : null;
   b.rocket = null;
   game.flights.push(f);
+  if (PID !== ME) return;                          // (another player's rocket: they fly it from their screen)
   takeRocket(f);
   toast(say('Rocket on the pad. Space: engine on / off · E / Q: throttle up / down · A / D: turn · Esc: let go',
     'Rocket on the pad. Engine on starts it, ▲ ▼ set the throttle, ◀ ▶ turn. Let go leaves it flying.'));
@@ -2294,7 +2311,7 @@ function upgradeTargetAt(i) {
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     if (!inb(x + dx, y + dy)) continue;
     const j = idx(x + dx, y + dy);
-    if (building[j] !== BLD_CODE.settlement || !owner[j]) continue;
+    if (building[j] !== BLD_CODE.settlement || !isMine(j)) continue;
     const d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = j; }
   }
@@ -2763,10 +2780,11 @@ function nearestCountryTo(tx, ty) {
     const x = best % W, y = (best / W) | 0;
     for (const [dx, dy] of DIRS4) {
       const nx = x + dx, ny = y + dy;
-      if (inb(nx, ny) && owner[idx(nx, ny)]) { const c = countryAt(idx(nx, ny)); if (c) return { country: c, tile: best }; }
+      if (inb(nx, ny) && isMine(idx(nx, ny))) { const c = countryAt(idx(nx, ny)); if (c) return { country: c, tile: best }; }
     }
   }
-  return { country: activeCountry(), tile: best >= 0 ? best : idx(spawn.x, spawn.y) };
+  const own = PID === ME ? activeCountry() : game.countries.find(c => c.alive && c.player === PID);
+  return { country: own, tile: best >= 0 ? best : idx(spawn.x, spawn.y) };
 }
 
 // ---------- unlocks: your empire's peak population opens up new buildings ----------
@@ -2974,7 +2992,7 @@ function isCoastal(i) {
 }
 function canBuild(i, type) {
   if (!isLand(i)) return biome[i] === OCEAN ? "Can't build on water" : biome[i] === WALL ? "Can't build on the ice wall" : "That's outer space";
-  if (!owner[i]) return 'Must be inside your territory';
+  if (!isMine(i)) return 'Must be inside your territory';
   const want = CFG.buildings[type].vehicle;
   if (want) return building[i] === BLD_CODE[want] ? null
     : `Click one of your ${want}s: a ${CFG.buildings[type].name.toLowerCase()} rolls out from there`;
@@ -3084,7 +3102,7 @@ function bridgePlan(a, c) {
     b = i; break;
   }
   if (!tiles.length) return { s, tiles, why: 'Aim across the water' };
-  if (!owner[s]) return { s, tiles, why: 'Start the bridge on your own land' };
+  if (!isMine(s)) return { s, tiles, why: 'Start the bridge on your own land' };
   if (b < 0) return { s, tiles, why: `More than ${B.maxLen} tiles of water that way` };
   const len = Math.max(1, Math.round(Math.hypot(b % W - s % W, ((b / W) | 0) - ((s / W) | 0))) - 1);
   const plan = { s, b, tiles, len, cost: bridgeCost(len) };
@@ -3123,10 +3141,18 @@ function bridgeClick(i) {
   const st = game.bridgeStart;
   if (st === i) { game.bridgeStart = null; return; }
   if (st == null) {
-    if (!owner[i]) return toast('Start the bridge on your own land, at the coast');
+    if (!isMine(i)) return toast('Start the bridge on your own land, at the coast');
     game.bridgeStart = i;
     return toast(say('Now click the land across the water. Right-click to start somewhere else.', 'Now tap the land across the water'));
   }
+  const br = act({ t: 'bridge', s: st, i });
+  if (!br) return;
+  game.bridgeStart = null;
+  setTool(null);                                   // one bridge per pick: the tool doesn't stay on over the new bridge
+  inspect(br);                                     // and its card opens
+}
+// build the bridge from tile `st` (on your coast) to tile i across the water; returns it, or nothing if it can't
+function buildBridge(st, i) {
   const p = bridgePlan(st, i);
   if (p.why) return toast(p.why);
   const C = countryAt(p.s), miss = missingFor(p.cost, C);
@@ -3138,27 +3164,26 @@ function bridgeClick(i) {
   const free = !owner[p.b], other = countryAt(p.b);
   if (free) claim(p.b, C.id);                      // a bridge to free land claims the tile it lands on
   game.netDirty = true;                            // joins the land on both ends into one country
-  game.bridgeStart = null;
   const [fx, fy] = tileCenter(p.b);
   floatText(fx, fy - 1, `Bridge: ${p.len} tiles${free ? ` · new land for ${C.short}` : other && other !== C ? ` · joins ${other.short}` : ''}`, '#7bd389');
-  setTool(null);                                   // one bridge per pick: the tool doesn't stay on over the new bridge
-  inspect(br);                                     // and its card opens
+  return br;
 }
 
 // ======================================================================
 // pushes (left-click) and expeditions (vehicles launched from a station or port)
 // ======================================================================
-let pushId = 0;
+let pushId = 0, expeditionId = 0;
 // people per click come from the country that will do the work
-const sendFrom = C => Math.floor((C ? freePeople(C) : 0) * game.sendPct / 100);
+const sendFrom = (C, pct = game.sendPct) => Math.floor((C ? freePeople(C) : 0) * pct / 100);
 
-function startPush(tx, ty) {
+function startPush(tx, ty, pct = game.sendPct) {
   const b = biome[idx(tx, ty)];
   if (b === OCEAN) return toast(`Can't expand into water. Build a port, then launch a boat from it (build menu, Vehicles).`);
   if (b === WALL || b === VOID) return toast('Nothing to claim there: that is the edge of the world.');
   if (!frontier.size) return toast('Nowhere left to expand');
   const { country: src } = nearestCountryTo(tx, ty);
-  const n = sendFrom(src);
+  if (!src) return;
+  const n = sendFrom(src, pct);
   if (n < 1) return toast(`${src.short} doesn't have enough people. Wait for them to regrow.`);
   src.people -= n;
   game.pushes.push({ id: pushId++, country: src.id, tx, ty, budget: n, start: n, work: 0, mx: null, my: null, lx: null, ly: null });
@@ -3283,10 +3308,11 @@ function launchVehicle(i, type, C, cost) {
   for (const [r, k] of Object.entries(cost)) C.res[r] -= k;
   C.people -= n;
   const kit = packKit(C);
-  const e = { x: sx, y: sy, tx: sx, ty: sy, n, kit, from: C.id, home: i, auto: false,
+  const e = { id: ++expeditionId, player: C.player, x: sx, y: sy, tx: sx, ty: sy, n, kit, from: C.id, home: i, auto: false,
     kind: type, vx: 0, vy: 0, a, supplies: CFG.drive.supplies, trail: [[sx, sy]] };
   game.expeditions.push(e);
   noteBuilt(type);
+  if (PID !== ME) return;                          // (another player's vehicle: they drive it from their screen)
   takeWheel(e);
   toast(`${type === 'boat' ? 'Boat' : 'Truck'} ready with ${n} people. ${say('Arrow keys or WASD to drive, Space to settle, Esc to let go', 'Steer with the arrows, and tap Settle when you like the spot')}.`);
 }
@@ -3299,7 +3325,7 @@ function launchExpedition(tx, ty) {
   const n = sendFrom(src);
   if (n < 2) return;
   src.people -= n;
-  game.expeditions.push({ x: tile % W + 0.5, y: ((tile / W) | 0) + 0.5, tx: tx + 0.5, ty: ty + 0.5, n, kit: packKit(src), from: src.id, auto: true });
+  game.expeditions.push({ id: ++expeditionId, player: src.player, x: tile % W + 0.5, y: ((tile / W) | 0) + 0.5, tx: tx + 0.5, ty: ty + 0.5, n, kit: packKit(src), from: src.id, auto: true });
 }
 function takeWheel(e) {
   stopFollow(); cam.anim = null;
@@ -3381,17 +3407,20 @@ function settleExpedition(e) {
   e.tx = site.i % W + 0.5; e.ty = ((site.i / W) | 0) + 0.5;
   e.n = Math.floor(e.n);
   e.done = true;
-  game.driving = null;
   arrive(e);
+  if (PID !== ME) return;
+  if (game.driving === e) game.driving = null;
   const c = countryAt(site.i);
   if (c) game.active = c.id;
 }
 
 // an expedition that lands on free land founds a new country (a colony) with its own people and stockpile
-function arrive(e) {
+// (worked out as the expedition's own player, whoever's screen or tick it lands on)
+function arrive(e) { asPlayer(e.player ?? ME, () => arriveAs(e)); }
+function arriveAs(e) {
   const cx = Math.floor(e.tx), cy = Math.floor(e.ty);
   const there = countryAt(idx(cx, cy));
-  if (there) {                                     // your territory got there first: they just join that country
+  if (there && there.player === PID) {            // your territory got there first: they just join that country
     there.people += e.n;
     for (const r in e.kit) there.res[r] += e.kit[r];
     floatText(e.tx, e.ty, `${e.n} joined ${there.short}`, '#f2c14e');
@@ -3482,10 +3511,10 @@ function finishSelection(ax, ay, bx, by) {
 
 function clearSelection() { game.selection = []; blueprint = null; }
 
-function pastePlan(tx, ty) {
+function pastePlan(tx, ty, items = blueprint.items) {
   const tiles = [];
   let cost = {}, fit = 0;
-  for (const it of blueprint.items) {
+  for (const it of items) {
     const x = tx + it.dx, y = ty + it.dy;
     const ok = inb(x, y) && !canBuild(idx(x, y), it.type);
     tiles.push({ x, y, type: it.type, ok });
@@ -3494,9 +3523,9 @@ function pastePlan(tx, ty) {
   return { tiles, cost, fit };
 }
 
-function pasteAt(tx, ty) {
-  if (!blueprint) return toast('Select some solar panels or burners first: hold left click and drag a box over them');
-  const plan = pastePlan(tx, ty);
+function pasteAt(tx, ty, items) {
+  if (!items || !items.length) return toast('Select some solar panels or burners first: hold left click and drag a box over them');
+  const plan = pastePlan(tx, ty, items.filter(it => CFG.buildings[it.type]));
   const before = empireCap();
   let placed = 0, short = null;
   for (const o of plan.tiles) {
@@ -3683,7 +3712,7 @@ function keptState(b) {
 function saveGame() {
   if (noSave || !game.started) return;
   try {
-    // territory as runs of one code per tile: 0 = nobody, +k = your country k-1, -k = AI nation k-1
+    // territory as runs of one code per tile: 0 = nobody, +k = country k-1 (its player is saved with it), -k = AI nation k-1
     // (a tight loop over a million tiles: this is nearly all of the save's cost, so keep it lean)
     const runs = [], o = owner, co = countryOf, ai = aiOf;
     let prev = 0, count = 0;
@@ -3702,7 +3731,7 @@ function saveGame() {
     const data = {
       v: SAVE_V, lv: 1, seed: SEED, savedAt: Date.now(), time: game.time, active: game.active, peakPop: game.peakPop,
       sendPct: game.sendPct, unlocked: [...game.unlocked], hotbar: game.hotbar, barUsed: game.barUsed, useTick: game.useTick, seenTech: [...game.seenTech],
-      countries: game.countries.map(c => ({ short: c.short, full: c.full, tier: c.tier, alive: c.alive, mergedInto: c.mergedInto,
+      countries: game.countries.map(c => ({ player: c.player, short: c.short, full: c.full, tier: c.tier, alive: c.alive, mergedInto: c.mergedInto,
         people: c.people + back[c.id].people, res: { wood: c.res.wood + back[c.id].wood, stone: c.res.stone + back[c.id].stone, iron: c.res.iron + back[c.id].iron, fuel: c.res.fuel || 0, uranium: (c.res.uranium || 0) + back[c.id].uranium } })),
       nations: game.nations.map(n => ({ people: n.people, alive: n.alive, hostile: !!n.hostile, iron: n.iron ?? CFG.iron.aiStart })),
       buildings: game.buildings.map(b => { const x = keptState(b); return x ? [b.i, b.type, b.ready || 0, x] : [b.i, b.type, b.ready || 0]; }),
@@ -3728,7 +3757,7 @@ function loadGame(sv) {
   owner.fill(0); countryOf.fill(-1); aiOf.fill(0); building.fill(0); frontier.clear();
   game.buildings = []; game.stations.length = 0; game.ports.length = 0; game.countries = []; game.ownedCount = 0;
   for (const sc of sv.countries) {
-    const c = newCountry({ people: sc.people, res: sc.res });
+    const c = newCountry({ people: sc.people, res: sc.res, player: sc.player || 0 });   // (saves from before players: all yours)
     Object.assign(c, { short: sc.short, full: sc.full, tier: sc.tier, alive: sc.alive, mergedInto: sc.mergedInto });
   }
   game.nations.forEach((n, k) => { const sn = sv.nations[k]; if (sn) { n.people = sn.people; n.alive = sn.alive; n.hostile = !!sn.hostile; if (sn.iron != null) n.iron = sn.iron; } });
@@ -3736,7 +3765,7 @@ function loadGame(sv) {
   for (let k = 0; k < sv.runs.length; k += 2) {
     const v = sv.runs[k], n = sv.runs[k + 1];
     for (let j = 0; j < n; j++, i++) {
-      if (v > 0) { owner[i] = 1; countryOf[i] = v - 1; game.ownedCount++; } else if (v < 0) aiOf[i] = -v;
+      if (v > 0) { owner[i] = game.countries[v - 1].player + 1; countryOf[i] = v - 1; game.ownedCount++; } else if (v < 0) aiOf[i] = -v;
     }
   }
   for (const [bi, type, ready, kept] of sv.buildings) {
@@ -3803,7 +3832,7 @@ function newGame() {
 // ---------- weapons: mortars (short range, quick) and missile silos (long range, slow, powered) ----------
 const weaponOf = b => CFG.weapons[CFG.buildings[b.type].weapon];
 const weaponsOf = () => game.buildings.filter(b => owner[b.i] && CFG.buildings[b.type].weapon);
-const silosOf = () => game.buildings.filter(b => owner[b.i] && b.type === 'silo');
+const silosOf = () => game.buildings.filter(b => isMine(b.i) && b.type === 'silo');
 const tileDist = (i, x, y) => Math.hypot(i % W - x, ((i / W) | 0) - y);
 function setAiming(on) {
   if (on && !silosOf().length) return toast(isUnlocked('silo') ? 'Build a missile silo first: silos are the weapon you aim (mortars and turrets fire by themselves)' : `You aim missile silos, which unlock at ${CFG.buildings.silo.unlock} people. Mortars and turrets fire by themselves.`);
@@ -7223,11 +7252,47 @@ window.addEventListener('mouseup', e => {
   if (wasDrag || e.target !== canvas) return;
   clickAt(btn, e.clientX, e.clientY);
 });
+// ======================================================================
+// commands: everything a player does to the world goes through applyCommand as a plain object, so the same
+// action can come from this screen or (with multiplayer) from another player's screen over the network.
+// Checks that a player's own screen can't be trusted with (is that city, pad or station theirs?) live here.
+//   build {i, type} · bridge {s, i} · push {x, y, pct} · fire {x, y} · paste {x, y, items} · upgrade {i}
+//   pad {i} · supply {i, n} (n = null: stop) · expand {n} (station number) · settle {id} (expedition)
+// ======================================================================
+function applyCommand(pid, cmd) {
+  return asPlayer(pid, () => {
+    const b = Number.isInteger(cmd.i) ? buildingAt(cmd.i) : null, own = !!b && isMine(b.i);
+    switch (cmd.t) {
+      case 'build': return CFG.buildings[cmd.type] ? tryBuild(cmd.i, cmd.type) : undefined;
+      case 'bridge': return buildBridge(cmd.s, cmd.i);
+      case 'push': return startPush(cmd.x, cmd.y, clamp(+cmd.pct || 25, 1, 100));
+      case 'fire': return fireMissile(cmd.x, cmd.y);
+      case 'paste': return pasteAt(cmd.x, cmd.y, cmd.items);
+      case 'upgrade': return own && b.type === 'settlement' ? upgradeCity(b) : undefined;
+      case 'pad': return own && b.type === 'pad' ? padClick(b) : undefined;
+      case 'supply':
+        if (!own || b.type !== 'pad') return;
+        b.supply = cmd.n ?? null;
+        return toast(b.supply != null ? `This pad now keeps Space Station ${b.supply} supplied` : 'This pad builds rockets for you to fly again');
+      case 'expand': {
+        const st = game.orbitals.find(o => o.n === cmd.n), home = st && liveCountry(st.home ?? -1);
+        return st && (home ? home.player === PID : PID === ME) ? expandStation(st) : undefined;
+      }
+      case 'settle': {
+        const e = game.expeditions.find(x => x.id === cmd.id && !x.done && (x.player ?? ME) === PID);
+        return e ? settleExpedition(e) : undefined;
+      }
+    }
+  });
+}
+// this screen's actions (with multiplayer, a guest's go to the host instead, and come back in the world it sends)
+const act = cmd => applyCommand(ME, cmd);
+
 // a click (or a tap: btn 0; a long press: btn 2) at a screen point
 function clickAt(btn, x, y) {
   mouse.x = x; mouse.y = y;
   // a plain click on any body (or your world from far out) locks onto it
-  if (btn === 0 && game.aiming) { const t = hoverTile(); if (t) fireMissile(t.x, t.y); return; }
+  if (btn === 0 && game.aiming) { const t = hoverTile(); if (t) act({ t: 'fire', x: t.x, y: t.y }); return; }
   if (btn === 2 && game.aiming) { setAiming(false); return; }
   if (camRide && !game.flying && pickAt(x, y) !== camRide.o) camRide = null;   // a click anywhere else lets go of a station
   if (btn === 0 && !game.tool) {
@@ -7250,13 +7315,13 @@ function clickAt(btn, x, y) {
   if (game.over) return toast(`Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`);
   if (btn === 0) {
     if (game.tool === 'bridge') bridgeClick(t.i);
-    else if (game.tool) tryBuild(t.i, game.tool);
+    else if (game.tool) act({ t: 'build', i: t.i, type: game.tool });
     else if (blueprint) clearSelection();          // with a selection, a click just deselects
     else if ((pb = pickAt(x, y)) && mineOf(pb)) {   // anything of yours: open its card
       inspect(pb);
       if (kindOf(pb) === 'building') {             // a building: view its country too
         const c = countryAt(pb.i);
-        if (pb.type === 'pad' && cam.zoom >= CFG.cityZoom) padClick(pb);
+        if (pb.type === 'pad' && cam.zoom >= CFG.cityZoom) act({ t: 'pad', i: pb.i });
         if (c && cam.zoom < CFG.cityZoom) flyToCountry(c);
         else if (c) game.active = c.id;
       }
@@ -7266,7 +7331,7 @@ function clickAt(btn, x, y) {
       const c = countryAt(t.i);
       if (c && cam.zoom < CFG.cityZoom) flyToCountry(c);
       else if (c && c.id !== game.active) { game.active = c.id; toast(`Viewing ${c.full}`); }
-    } else startPush(t.x, t.y);
+    } else act({ t: 'push', x: t.x, y: t.y, pct: game.sendPct });
   } else if (btn === 2) {
     if (game.tool === 'bridge' && game.bridgeStart != null) game.bridgeStart = null;   // pick another start
     else if (game.tool) setTool(null);
@@ -7320,7 +7385,7 @@ window.addEventListener('keydown', e => {
     else if (game.hotbar[slot]) setTool(game.tool === game.hotbar[slot] ? null : game.hotbar[slot]);
   }
   if (k === 'escape') cancelAll();
-  if (k === ' ' && game.driving) { e.preventDefault(); if (!e.repeat) settleExpedition(game.driving); }
+  if (k === ' ' && game.driving) { e.preventDefault(); if (!e.repeat) act({ t: 'settle', id: game.driving.id }); }
   if (k === 'x' && !e.repeat) nextVehicle();
   if (k.startsWith('arrow') && (game.driving || game.flying)) e.preventDefault();
   if (k === ' ' && game.flying) { e.preventDefault(); if (!e.repeat) toggleEngine(game.flying); }
@@ -7330,7 +7395,7 @@ window.addEventListener('keydown', e => {
   if (k === 't' && !e.repeat) toggleTechTree();
   if (k === 'c' && !e.repeat) {
     const t = mouse.in ? hoverTile() : null;
-    if (t) pasteAt(t.x, t.y);
+    if (t) act({ t: 'paste', x: t.x, y: t.y, items: blueprint ? blueprint.items : null });
   }
   if (k === '[' || k === ']') {
     const opts = [10, 25, 50, 100];
@@ -7460,16 +7525,16 @@ function bindTouchButtons() {
   $('tbar').addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) return;
-    const act = b.dataset.act;
-    if (act === 'build') toggleBuildMenu();
-    else if (act === 'fire') setAiming(!game.aiming);
-    else if (act === 'next') nextCountry(1);
-    else if (act === 'map') toggleMapView();
-    else if (act === 'home') goHome();
-    else if (act === 'drive') nextVehicle();
-    else if (act === 'cancel') cancelAll();
-    else if (act === 'log') toggleLog();
-    else if (act === 'tech') toggleTechTree();
+    const what = b.dataset.act;
+    if (what === 'build') toggleBuildMenu();
+    else if (what === 'fire') setAiming(!game.aiming);
+    else if (what === 'next') nextCountry(1);
+    else if (what === 'map') toggleMapView();
+    else if (what === 'home') goHome();
+    else if (what === 'drive') nextVehicle();
+    else if (what === 'cancel') cancelAll();
+    else if (what === 'log') toggleLog();
+    else if (what === 'tech') toggleTechTree();
   });
   $('logbtn').addEventListener('click', () => toggleLog());
   $('buildbtn').addEventListener('click', () => toggleBuildMenu());
@@ -7480,7 +7545,7 @@ function bindTouchButtons() {
     b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); keys.add(k); b.classList.add('on'); });
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
   }
-  $('dp-settle').addEventListener('click', () => { if (game.flying) toggleEngine(game.flying); else if (game.driving) settleExpedition(game.driving); });
+  $('dp-settle').addEventListener('click', () => { if (game.flying) toggleEngine(game.flying); else if (game.driving) act({ t: 'settle', id: game.driving.id }); });
   $('dp-park').addEventListener('click', () => cancelAll());
   $('bm-new').addEventListener('click', () => { if (confirm('Start a new map? This deletes your saved game.')) newGame(); });
 }
@@ -7748,13 +7813,13 @@ function buildMenu() {
   document.querySelector('#inspect .ix').addEventListener('click', () => { if (camRide && camRide.o === inspected && !game.flying) camRide = null; inspect(null); });
   // buttons on a card (rebuilt as the numbers change, so catch the press itself)
   $('inspect').addEventListener('pointerdown', e => {
-    const act = e.target.dataset && e.target.dataset.act, o = inspected;
-    if (!act || e.target.disabled || !o) return;
+    const what = e.target.dataset && e.target.dataset.act, o = inspected;
+    if (!what || e.target.disabled || !o) return;
     e.preventDefault();
-    if (act === 'expand') expandStation(o);
-    else if (act === 'upgrade' && o.type === 'settlement') upgradeCity(o);
-    else if (act === 'supply') { o.supply = Number(e.target.dataset.n); toast(`This pad now keeps Space Station ${o.supply} supplied`); }
-    else if (act === 'unsupply') { o.supply = null; toast('This pad builds rockets for you to fly again'); }
+    if (what === 'expand') act({ t: 'expand', n: o.n });
+    else if (what === 'upgrade' && o.type === 'settlement') act({ t: 'upgrade', i: o.i });
+    else if (what === 'supply') act({ t: 'supply', i: o.i, n: Number(e.target.dataset.n) });
+    else if (what === 'unsupply') act({ t: 'supply', i: o.i, n: null });
     updateInspect();
   });
   const pw = $('pct-buttons');
@@ -7940,6 +8005,7 @@ let toastTimer = 0;
 const eventLog = [];                               // newest last: { msg, kind, at, time }
 let logUnseen = 0, logOpen = false;
 function toast(msg, opt) {
+  if (PID !== ME) return;                          // another player's action: its feedback belongs on their screen
   const box = $('toast');
   if (!opt || !(opt.alert || opt.good)) {
     let el = box.querySelector('.tmsg.hint');
@@ -8671,5 +8737,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { TOUCH, DISK, makeStation, orbitOf, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive, upgradeCity, upgradeStep, cityLevel, poweredShare, poweredHousing, upgradeTargetAt };
+window.__game = { applyCommand, act, ME, isMine, asPlayer, TOUCH, DISK, makeStation, orbitOf, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive, upgradeCity, upgradeStep, cityLevel, poweredShare, poweredHousing, upgradeTargetAt };
 init();
