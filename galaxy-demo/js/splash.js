@@ -28,6 +28,7 @@ const TIPS = [
   'Scale opens sliders for the distance ladder, from Home\'s size to the nearest star.',
   'Press P for the stats panel: frame time, map chunks, memory.',
   'Biomes are designed in the Biome Builder and saved straight into this demo.',
+  "Cities grow in rings: skyscrapers in the middle, cottages at the edge. Zoom into Quaix, Home's capital.",
 ];
 
 const t0 = performance.now();

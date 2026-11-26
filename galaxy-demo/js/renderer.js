@@ -1,7 +1,7 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125170536';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125170536';
-import { blendTable, BORDER } from './biomes.js?v=20261125170536';
+import * as S from './shaders.js?v=20261125190144';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125190144';
+import { blendTable, BORDER } from './biomes.js?v=20261125190144';
 
 // Ground relief, baked once instead of worked out per pixel: each mip level of a ground texture lit as bumps (its light
 // parts stand up, its dark parts sink) by the terrain shader's sun, comparing each texel with the one about a texel
@@ -111,6 +111,7 @@ export class Renderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     this.setBlend(blendTable({}));
     this.blendOn = true;
+    this.townTex = null;                                   // buildings (setTowns), drawn as pictures with the items
     this.wet = [BORDER.wet, BORDER.wetW];         // wet ground along shores: strength 0..1, tiles inland
     // the tables both the terrain and the prop programs read (kept, so either can be changed alone)
     this.tables = null; this.hdK = new Int32Array(32).fill(-1); this.hdInfo = [128, 192, 8, 8]; this.hdSize = [1, 1];
@@ -256,6 +257,14 @@ export class Renderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 32, 2, gl.RGBA, gl.FLOAT, data);
   }
 
+  // Buildings for towns and cities (tools/pack_towns.py): 4 variants per tier in tier order, like the item atlas
+  setTowns(img, meta) {
+    if (this.townTex) this.gl.deleteTexture(this.townTex);
+    this.townTex = this.uploadSpriteAtlas(img);
+    this.townInfo = [meta.cell[0], meta.cell[1], meta.cols, meta.scale]; this.townSize = [img.width, img.height];
+    this.townCells = this.makeCellTexture(meta.base, this.townCells);
+  }
+
   // ---------- items as pictures ----------
   // one chunk's spots for one layer (terrain.js propSpots: 4 x uint32 per spot) as an instance buffer
   makePropBuffer(u32) {
@@ -287,8 +296,10 @@ export class Renderer {
     return [3 * this.shadow.len * Math.abs(Math.cos(a)), 3 * this.shadow.len * Math.abs(Math.sin(a))];
   }
   drawProps(chunks, q) {
-    if (!chunks.length || !this.items) return;
+    if (!chunks.length || (!this.items && !this.townTex)) return;
     const gl = this.gl, { p, u } = this.progProps;
+    const layers = this.items ? ['small', 'big'] : [];
+    if (this.townTex) layers.push('town');
     const pass = shadow => {                               // 0 the items, 1 cast shadows, 2 contact shadows
       gl.useProgram(p);
       gl.uniform2f(u.u_res, this.w, this.h); gl.uniform2f(u.u_center, q.cx, q.cy); gl.uniform1f(u.u_R, q.R);
@@ -300,12 +311,14 @@ export class Renderer {
       gl.uniform1i(u.u_hd, 0);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.itemTable); gl.uniform1i(u.u_items, 1);
       gl.uniform1i(u.u_fld, 2);
-      for (const layer of ['small', 'big']) {
+      for (const layer of layers) {
         gl.uniform1i(u.u_layer, layer === 'big' ? 0 : 1);
-        const big = layer === 'big' && this.bigTex;           // big items from their own sharper atlas, if there is one
-        gl.uniform4f(u.u_hdInfo, ...(big ? this.bigInfo : this.itemInfo)); gl.uniform2f(u.u_hdSize, ...(big ? this.bigSize : this.itemSize));
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, big ? this.bigTex : this.itemTex);
-        const cellTex = big ? this.bigCells : this.itemCells;
+        const town = layer === 'town', big = layer === 'big' && this.bigTex;   // big items from their own sharper atlas, if any
+        gl.uniform1i(u.u_direct, town ? 1 : 0);
+        gl.uniform4f(u.u_hdInfo, ...(town ? this.townInfo : big ? this.bigInfo : this.itemInfo));
+        gl.uniform2f(u.u_hdSize, ...(town ? this.townSize : big ? this.bigSize : this.itemSize));
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, town ? this.townTex : big ? this.bigTex : this.itemTex);
+        const cellTex = town ? this.townCells : big ? this.bigCells : this.itemCells;
         gl.uniform1i(u.u_hasCells, cellTex ? 1 : 0);
         gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, cellTex || this.dummyCol);
         for (const c of chunks) {
@@ -464,6 +477,7 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.gtex); gl.uniform1i(u.u_gtex, 5);
     gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, this.blendTex); gl.uniform1i(u.u_blend, 6);
     gl.uniform1i(u.u_blendOn, this.blendOn ? 1 : 0);
+    gl.uniform1i(u.u_town, this.townTex ? 1 : 0);
     gl.uniform2f(u.u_wet, this.wet[0], this.wet[1]);
     gl.uniform1i(u.u_fx, b.fx ? 1 : 0); gl.uniform1f(u.u_tpp, b.tpp || 0);
     const [wd, ws] = this.water;

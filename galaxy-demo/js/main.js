@@ -1,16 +1,16 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261125170536';
-import { SKIN } from './skin.js?v=20261125170536';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125170536';
-import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125170536';
-import { buildAtlas, decorTables } from './art.js?v=20261125170536';
-import { Renderer } from './renderer.js?v=20261125170536';
-import { Labels } from './labels.js?v=20261125170536';
-import { mulberry32, hash32 } from './rng.js?v=20261125170536';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125170536';
-import { splash, groundLine } from './splash.js?v=20261125170536';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125170536';
+import { RULES } from './rules.js?v=20261125190144';
+import { SKIN } from './skin.js?v=20261125190144';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125190144';
+import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125190144';
+import { buildAtlas, decorTables } from './art.js?v=20261125190144';
+import { Renderer } from './renderer.js?v=20261125190144';
+import { Labels } from './labels.js?v=20261125190144';
+import { mulberry32, hash32 } from './rng.js?v=20261125190144';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125190144';
+import { splash, groundLine } from './splash.js?v=20261125190144';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125190144';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -115,6 +115,18 @@ splash.expect(1);
   for (const [name, cell] of Object.entries(meta.kinds)) { const k = kinds.indexOf(name); if (k >= 0 && k < 32) hdK[k] = cell; }
   R.setHdProps(img, meta, hdK);
 })().catch(e => console.warn('high-resolution props not loaded:', e)).finally(() => { hdDone = true; splash.loaded('Carving boulders'); });
+// Buildings for towns and cities (tools/gen_towns.py -> tools/pack_towns.py; plan: art/towns.md), drawn as pictures
+// on the streets and lots the map workers lay out (terrain.js townLayout)
+let townsDone = false;
+splash.expect(1);
+(async () => {
+  const v = new URL(import.meta.url).search;
+  const meta = await (await fetch('props/towns.json' + v)).json();
+  const img = new Image();
+  img.src = 'props/towns.webp' + v;
+  await img.decode();
+  R.setTowns(img, meta);
+})().catch(e => console.warn('town buildings not loaded:', e)).finally(() => { townsDone = true; splash.loaded('Raising the cities'); });
 // Biome designs from the Biome Builder (biome-builder/, saved into biomes/): each ground type's texture and the items that
 // grow on it (trees, rocks, shrubs, grass), drawn as pictures. Without them the shader draws its own props, as before
 let groundAvg = null;                                    // per ground id, its texture's average colour (far views)
@@ -349,7 +361,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261125170536', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261125190144', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -405,14 +417,16 @@ function onPage(d) {
   R.uploadBand(p.ids, p.col, p.sx, 0, p.sy, d.idsA, d.col, p.fld, d.fld);
   R.mipmap(p.col, p.fld);
   if (d.props) { p.props = R.makePropBuffer(d.props); p.small = R.makePropBuffer(d.small); }   // item spots
+  if (d.town && d.town.length) p.town = R.makePropBuffer(d.town);                                 // buildings
   p.ready = true;
   if (p.L === 0 || p.L === levelsOf(b).Lmax) p.cpu = d.ids;         // for hover info and placing walkers
-  p.bytes = p.sx * p.sy * (4 + 8 * 1.34) + (p.cpu ? p.sx * p.sy * 4 : 0) + (p.props ? p.props.bytes + p.small.bytes : 0);
+  p.bytes = p.sx * p.sy * (4 + 8 * 1.34) + (p.cpu ? p.sx * p.sy * 4 : 0) + (p.props ? p.props.bytes + p.small.bytes : 0) + (p.town ? p.town.bytes : 0);
   if (p.L === 0) { b.counts = d.counts; b.settlements = d.settlements; b.base = p; if (b === cam.focus) walkersDirty = true; }
 }
 function freePage(p) {
   if (p.ids) R.freeMap(p.ids, p.col, p.fld, p.sx, p.sy);
   if (p.props) { R.freePropBuffer(p.props); R.freePropBuffer(p.small); }
+  if (p.town) R.freePropBuffer(p.town);
   pages.delete(p.key);
   if (p.b.base === p) p.b.base = null;
 }
@@ -439,12 +453,12 @@ function tileAt(b, u, v) {
   const lv = levelsOf(b), W = lv.W;
   const tx = clamp(Math.floor((u * 0.5 + 0.5) * W), 0, W - 1), ty = clamp(Math.floor((v * 0.5 + 0.5) * W), 0, W - 1);
   const top = pages.get(`${b.uid}/${lv.N[lv.Lmax]}/${lv.Lmax}/${Math.floor(tx / PAGE)}/${Math.floor(ty / PAGE)}`);
-  if (top && top.cpu) { const i = ((ty - top.y0) * top.sx + (tx - top.x0)) * 4; return { tx, ty, base: top.cpu[i], ov: top.cpu[i + 1], exact: true }; }
+  if (top && top.cpu) { const i = ((ty - top.y0) * top.sx + (tx - top.x0)) * 4; return { tx, ty, base: top.cpu[i], ov: top.cpu[i + 1], flag: top.cpu[i + 2], exact: true }; }
   const p = b.base;
   if (!p || !p.cpu) return null;
   const N = p.N, x = clamp(Math.floor((u * 0.5 + 0.5) * N), 0, N - 1), y = clamp(Math.floor((v * 0.5 + 0.5) * N), 0, N - 1);
   const i = (y * p.sx + x) * 4;
-  return { tx, ty, base: p.cpu[i], ov: p.cpu[i + 1], exact: false };
+  return { tx, ty, base: p.cpu[i], ov: p.cpu[i + 1], flag: p.cpu[i + 2], exact: false };
 }
 
 // ---------- per-frame buffers ----------
@@ -529,7 +543,7 @@ let splashMapAt = 0;
 function splashCheck() {
   if (splash.isDone) return;
   if (performance.now() > 25000) { splash.done(); return; }
-  if (!hdDone || !bakeDone) return;
+  if (!hdDone || !bakeDone || !townsDone) return;
   if (!splashMapAt) { splashMapAt = performance.now(); splash.step("Drawing Home's continents"); }
   const mine = [...pages.values()].filter(p => p.b === HOME && p.used >= frameNo - 1);
   const ready = mine.filter(p => p.ready).length;
@@ -851,13 +865,15 @@ function drawBody(d, s, md, now) {
 // too: a tall prop standing there reaches up into it
 const PROP_REACH = [1.5, 3];     // how far a size-1 prop reaches from its foot, sideways and up, in tiles
 let propMax = 1;                 // the largest item size in the biome designs
+const TOWN_MAX = Math.max(...RULES.towns.size) * 1.06;   // the largest building (sizes vary by 6%)
 function drawPropsOn(b, cx, cy, Rd, focus) {
   const lv = levelsOf(b), L = lv.Lmax, N = lv.N[L], D = 2 * Rd;
   const alpha = clamp((1.15 - 8 * N / D) / 0.45, 0, 1);
-  if (alpha <= 0 || !R.items) return;
+  if (alpha <= 0 || (!R.items && !R.townTex)) return;
   const k = D / N, sx0 = cx - Rd, sy0 = cy - Rd, C = Math.ceil(N / PAGE);
   const [sx, sy] = R.shadowReach();                        // shadows of items just off screen reach into it
-  const mx = (PROP_REACH[0] + sx) * propMax * k, my = PROP_REACH[1] * propMax * k, ms = sy * propMax * k;
+  const big = Math.max(propMax, R.townTex ? TOWN_MAX : 0);    // skyscrapers reach furthest
+  const mx = (PROP_REACH[0] + sx) * big * k, my = PROP_REACH[1] * big * k, ms = sy * big * k;
   const pxA = Math.max(0, Math.floor((-mx - sx0) / k / PAGE)), pxB = Math.min(C - 1, Math.floor((R.w + mx - sx0) / k / PAGE));
   const pyA = Math.max(0, Math.floor((-ms - sy0) / k / PAGE)), pyB = Math.min(C - 1, Math.floor((R.h + my - sy0) / k / PAGE));
   const items = [];
@@ -866,7 +882,7 @@ function drawPropsOn(b, cx, cy, Rd, focus) {
     const nx = clamp(cx, rx0, rx1) - cx, ny = clamp(cy, ry0, ry1) - cy;
     if (nx * nx + ny * ny > Rd * Rd) continue;
     const p = wantPage(b, L, px, py, 2e6 + focus - Math.hypot((rx0 + rx1) / 2 - R.w / 2, (ry0 + ry1) / 2 - R.h / 2));
-    if (p.ready && p.props) items.push({ big: p.props, small: p.small, fld: p.fld, chunk: [p.x0, p.y0, p.sx, p.sy] });
+    if (p.ready && p.props) items.push({ big: p.props, small: p.small, town: p.town, fld: p.fld, chunk: [p.x0, p.y0, p.sx, p.sy] });
   }
   R.drawProps(items, { cx, cy, R: Rd, W8: N * 8, tpp: b.surface.W / D, alpha });
 }
@@ -1090,7 +1106,7 @@ function updateUI(force) {
       if (d) {
         const u = (hover.x - d.x) / d.R, v = (hover.y - d.y) / d.R;
         const t = u * u + v * v <= 1 ? tileAt(f, u, v) : null;
-        if (t) txt = `<b>${f.name}</b> · ${BASE_NAME[BASE[t.base]]}${t.ov ? ' · ' + (RESOURCE_NAME[OVER[t.ov]] ? RESOURCE_NAME[OVER[t.ov]] + ' deposit' : 'buildings') : ''} <span class="dim">tile ${t.tx}, ${t.ty}</span>`;
+        if (t) txt = `<b>${f.name}</b> · ${BASE_NAME[BASE[t.base]]}${t.ov ? ' · ' + (RESOURCE_NAME[OVER[t.ov]] ? RESOURCE_NAME[OVER[t.ov]] + ' deposit' : (t.flag & 192) === 192 ? 'street' : 'buildings') : ''} <span class="dim">tile ${t.tx}, ${t.ty}</span>`;
       }
     }
     tipEl.hidden = !txt;

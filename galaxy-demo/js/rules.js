@@ -161,8 +161,20 @@ export const RULES = {
     homeCount: 28,
     levels: ['Village', 'Town', 'City', 'Metropolis', 'Megacity', 'Megalopolis'],
     levelWeights: [40, 28, 16, 9, 5, 2],
-    radius: [1, 2, 3, 4, 6, 8],            // tiles
+    radius: [5, 7, 10, 13, 16, 20],         // tiles, to the outermost houses
     ground: ['GRASS', 'SAVANNA', 'FOREST', 'BEACH', 'TAIGA', 'TUNDRA', 'DESERT', 'JUNGLE'],
+  },
+
+  // How a settlement looks up close: buildings on 2 x 2 tile lots, the newest kind in the middle and older kinds
+  // in rings around it, so a Megalopolis still has cottages on its outskirts (the plan: art/towns.md)
+  towns: {
+    // building kinds, oldest first; tier t first appears in a settlement of level t (art: tools/gen_towns.py)
+    tiers: ['cottage', 'house', 'townhouse', 'apartment', 'office', 'skyscraper'],
+    size: [0.9, 0.98, 1.04, 1.15, 1.4, 1.7],    // drawn size (1 = a tree's 2 x 3 tile box)
+    fill: [0.62, 0.7, 0.8, 0.84, 0.88, 0.92],  // share of lots built on near the middle, per settlement level
+    gap: [0, 0, 0, 0.1, 0.25, 0.4],             // share of lots left as plazas between buildings of this tier
+    block: [0, 0, 3, 3, 4, 4],                 // lots per block between cross streets (0 = only the main roads)
+    roads: [1.3, 1.5, 1.7, 1.9, 2.1, 2.3],     // how far the main roads run out, in radii
   },
 
   // the Sun's system uses the names from Factory Conquest; the outermost planet comes from the seed

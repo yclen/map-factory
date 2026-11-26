@@ -1,5 +1,5 @@
-import { SLOPE_K } from './terrain.js?v=20261125170536';
-import { ITEM_SLOTS } from './biomes.js?v=20261125170536';
+import { SLOPE_K } from './terrain.js?v=20261125190144';
+import { ITEM_SLOTS } from './biomes.js?v=20261125190144';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -118,6 +118,7 @@ uniform sampler2D u_blend; uniform int u_blendOn;
 uniform vec2 u_wet;
 // 1 = draw big props here, per pixel (the old way); 0 = they're drawn as pictures on top (PROPS_VS), the default
 uniform int u_shaderProps;
+uniform int u_town;      // 1 = buildings are drawn as pictures (the town layer), so town tiles only show their ground
 out vec4 o;
 
 const float SLOPE_K = ${SLOPE_K}.0;
@@ -411,6 +412,28 @@ vec3 cliff(ivec2 a, vec3 c) {
   return c;
 }
 
+// Towns (terrain.js townLayout): a town tile's byte 2 = 128 + 64 on a street + the tier (0-5) of the buildings
+// there. Streets go from dirt tracks (cottages, houses) to grey cobbles (townhouses) to asphalt; lots from trodden
+// earth to paving. A street's edge pixels are half verge where the next tile across isn't street
+bool isStreet(ivec2 t) { uvec4 q = idAt(t); return q.g >= 10u && q.g <= 13u && (q.b & 192u) == 192u; }
+vec3 townGround(vec3 c, uint f, ivec2 a, ivec2 tile, ivec2 inT) {
+  int tier = int(f & 15u);
+  float n = hf(uvec2(a) ^ uvec2(0x91e1u, 0x2f3bu));
+  if ((f & 64u) == 0u) {
+    if (tier >= 3) return mix(c, vec3(0.6, 0.58, 0.54) * (0.94 + 0.09 * n), 0.82);
+    if (tier == 2) return mix(c, vec3(0.52, 0.47, 0.39) * (0.92 + 0.12 * n), 0.32);
+    return mix(c, vec3(0.48, 0.4, 0.29) * (0.9 + 0.15 * n), 0.12);
+  }
+  vec3 rc = tier <= 1 ? vec3(0.5, 0.42, 0.31) : tier == 2 ? vec3(0.5, 0.48, 0.45) : vec3(0.31, 0.32, 0.33);
+  if (tier == 2 && ((a.x + (a.y >> 1)) & 1) == 0 && (a.y & 1) == 0) rc *= 0.86;      // cobbles
+  rc *= 0.91 + 0.15 * n;
+  float k = tier <= 1 ? 0.8 : 0.95;
+  if ((inT.x == 0 && !isStreet(tile - ivec2(1, 0))) || (inT.x == 7 && !isStreet(tile + ivec2(1, 0))) ||
+      (inT.y == 0 && !isStreet(tile - ivec2(0, 1))) || (inT.y == 7 && !isStreet(tile + ivec2(0, 1)))) k *= tier <= 1 ? 0.3 : 0.55;
+  if (tier <= 1 && n > 0.9) k *= 0.4;                     // grass poking through a track
+  return mix(c, rc, k);
+}
+
 // one art pixel of the surface: ground tile + overlay, looked up through the tile-id map. Deposits and buildings
 // always sit on their own tile; only the ground under them wiggles
 vec3 artPix(ivec2 a) {
@@ -448,7 +471,9 @@ vec3 artPix(ivec2 a) {
     // soil stain under a deposit (following the wiggly ground borders), stronger toward the rich middle
     if (gq.g > 0u && gq.g < 16u) { vec4 st = u_oreStain[int(gq.g)]; c = mix(c, st.rgb, st.a * (0.35 + 0.65 * float(gq.b) / 255.0)); }
   }
-  if (oid > 0u) {
+  bool town = oid >= 10u && oid <= 13u && (tq.b & 128u) != 0u;
+  if (town && u_fx == 1) c = townGround(c, tq.b, a, tile, inT);
+  if (oid > 0u && !(town && (u_town == 1 || (tq.b & 64u) != 0u))) {
     int var = int((hashu(uvec2(tile)) >> 2) & 3u);
     bool ore = u_fx == 1 && u_oreStain[int(oid)].a > 0.0;
     // the new look draws deposits by richness (SLOT_ORE): a few lumps at a patch's edge, packed in its middle
@@ -654,6 +679,7 @@ uniform vec2 u_res; uniform vec2 u_center; uniform float u_R; uniform float u_W8
 uniform sampler2D u_items; uniform int u_layer;
 uniform sampler2D u_fld; uniform vec4 u_chunk; uniform float u_tpp; uniform int u_shadow; uniform vec2 u_shadowDir;
 uniform sampler2D u_cells; uniform int u_hasCells;
+uniform int u_direct;    // 1 = buildings (the town layer): a_t.z = atlas cell + size * 256 << 16, no table lookup
 out vec2 v_s; out vec3 v_tint; flat out int v_cell;
 const float SLOPE_K = ${SLOPE_K}.0;
 const vec3 SUN = vec3(-0.55, -0.65, 0.75);
@@ -676,21 +702,25 @@ void main() {
   uint hh = a_t.w;
   int row = int(a_t.z) * 2 + u_layer;
   vec2 A = vec2(ivec2(a_t.xy));
-  float r = float((hh >> 8) & 1023u) / 1023.0, c = 0.0;
-  vec4 it = vec4(0.0);
-  for (int j = 0; j < ${ITEM_SLOTS}; j++) {
-    vec4 a = texelFetch(u_items, ivec2(j, row), 0);
-    if (a.x <= 0.0) continue;
-    float d = a.x;
-    vec4 b = texelFetch(u_items, ivec2(${ITEM_SLOTS} + j, row), 0);
-    if (b.x > 0.0) d *= max(0.0, 1.0 + b.x * 2.9 * (vn2(A / (b.y * 8.0), uint(9 + j)) * 2.0 - 1.0));
-    c += d;
-    if (r < c) { it = a; break; }
+  float sc; int cell;
+  if (u_direct == 1) { sc = float(a_t.z >> 16u) / 256.0; cell = int(a_t.z & 65535u); }
+  else {
+    float r = float((hh >> 8) & 1023u) / 1023.0, c = 0.0;
+    vec4 it = vec4(0.0);
+    for (int j = 0; j < ${ITEM_SLOTS}; j++) {
+      vec4 a = texelFetch(u_items, ivec2(j, row), 0);
+      if (a.x <= 0.0) continue;
+      float d = a.x;
+      vec4 b = texelFetch(u_items, ivec2(${ITEM_SLOTS} + j, row), 0);
+      if (b.x > 0.0) d *= max(0.0, 1.0 + b.x * 2.9 * (vn2(A / (b.y * 8.0), uint(9 + j)) * 2.0 - 1.0));
+      c += d;
+      if (r < c) { it = a; break; }
+    }
+    if (it.x <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }   // nothing grows here: off screen
+    uint h2 = hashu(uvec2(hh, 0x5bd1u));
+    sc = it.z * (1.0 + it.w * (float(h2 & 1023u) / 1023.0 * 2.0 - 1.0));
+    cell = int(it.y) + int((hh >> 20) & 3u);
   }
-  if (it.x <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }   // nothing grows here: off screen
-  uint h2 = hashu(uvec2(hh, 0x5bd1u));
-  float sc = it.z * (1.0 + it.w * (float(h2 & 1023u) / 1023.0 * 2.0 - 1.0));
-  int cell = int(it.y) + int((hh >> 20) & 3u);
   // the picture's base: left and right edge and how high it touches the ground (art px), else a typical one
   vec4 ci = u_hasCells == 1 ? texelFetch(u_cells, ivec2(cell & 255, cell >> 8), 0) : vec4(4.0, 12.0, 2.0, 0.0);
   vec2 FT = A + vec2(8.0, 23.0);                        // the foot, global art px

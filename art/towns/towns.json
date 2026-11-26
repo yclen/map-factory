@@ -1,0 +1,80 @@
+{
+ "cottage": {
+  "sheet": "cottage_v1.png",
+  "grid": [
+   3,
+   2
+  ],
+  "pick": [
+   0,
+   1,
+   2,
+   3
+  ]
+ },
+ "house": {
+  "sheet": "house_v1.png",
+  "grid": [
+   3,
+   2
+  ],
+  "pick": [
+   0,
+   1,
+   2,
+   3
+  ]
+ },
+ "townhouse": {
+  "sheet": "townhouse_v1.png",
+  "grid": [
+   3,
+   2
+  ],
+  "pick": [
+   0,
+   1,
+   2,
+   3
+  ]
+ },
+ "apartment": {
+  "sheet": "apartment_v1.png",
+  "grid": [
+   3,
+   2
+  ],
+  "pick": [
+   0,
+   1,
+   2,
+   3
+  ]
+ },
+ "office": {
+  "sheet": "office_v1.png",
+  "grid": [
+   3,
+   2
+  ],
+  "pick": [
+   0,
+   1,
+   2,
+   3
+  ]
+ },
+ "skyscraper": {
+  "sheet": "skyscraper_v1.png",
+  "grid": [
+   3,
+   2
+  ],
+  "pick": [
+   0,
+   1,
+   2,
+   3
+  ]
+ }
+}

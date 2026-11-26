@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125170536';
-import { RULES } from './rules.js?v=20261125170536';
-import { makeNoise } from './noise.js?v=20261125170536';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125170536';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125190144';
+import { RULES } from './rules.js?v=20261125190144';
+import { makeNoise } from './noise.js?v=20261125190144';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125190144';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -300,19 +300,98 @@ export function placeSettlements(desc, sampler) {
   const S = RULES.settlements;
   const r = mulberry32(hash32(desc.seed, 77));
   const out = [];
-  const minSep = (2 / desc.W) * 14;                       // 14 tiles, in disk units
+  const tile = 2 / desc.W;                                // one tile, in disk units
   const weights = Object.fromEntries(S.levelWeights.map((w, i) => [i, w]));
+  sampler.setTps(1);                                      // classify as at full detail, so every chunk agrees
   for (let tries = 0; out.length < n && tries < n * 120; tries++) {
     const a = r() * TAU, d = Math.sqrt(r()) * 0.9;
     const u = Math.cos(a) * d, v = Math.sin(a) * d;
     if (!SETTLE_GROUND.has(sampler.classify(u, v))) continue;
-    let ok = true;
-    for (const s of out) if (Math.hypot(s.u - u, s.v - v) < minSep) { ok = false; break; }
+    // Home's capital is a Megalopolis, so the demo shows every kind of building
+    const level = desc.home && out.length === 0 ? S.levels.length - 1 : +pickWeighted(r, weights);
+    let ok = true;                                        // the towns' edges at least 6 tiles apart
+    for (const s of out) if (Math.hypot(s.u - u, s.v - v) < (S.radius[level] + s.radius + 6) * tile) { ok = false; break; }
     if (!ok) continue;
-    const level = desc.home && out.length === 0 ? 4 : +pickWeighted(r, weights);
     out.push({ u, v, level, name: makeName(r), radius: S.radius[level], levelName: S.levels[level] });
   }
   return out;
+}
+
+// ---------- towns: the streets and buildings of a settlement (plan: art/towns.md) ----------
+// A settlement is laid out at full detail on 2 x 2 tile lots between streets. The middle gets the newest kind of
+// building its level allows, and each ring further out an older kind, so a city has a skyline in the middle and
+// village cottages at its edge. Main roads cross at the centre and run out into the country; from City up a grid
+// of cross streets cuts it into blocks.
+// Town tiles keep a building overlay (HUT..TOWER: the far view's colour and night lights) and byte 2 says what's
+// there: TOWN_FLAG, + ROAD_FLAG on a street, + the tier (0-5) of the buildings around it (the shader's townGround)
+export const TOWN_FLAG = 128, ROAD_FLAG = 64;
+const TOWN_OV = [O.HUT, O.HUT, O.HOUSE, O.BLOCK, O.TOWER, O.TOWER];
+const mod = (a, n) => ((a % n) + n) % n;
+function townLayout(s, si, desc, sampler) {
+  const W = desc.W, L = s.level, R = s.radius, TW = RULES.towns;
+  const cx = Math.floor((s.u * 0.5 + 0.5) * W), cy = Math.floor((s.v * 0.5 + 0.5) * W);
+  const r = mulberry32(hash32(desc.seed, si, 91));
+  const tiles = new Map(), bld = [], memo = new Map();
+  const land = (tx, ty) => {                              // can a town stand on this tile?
+    const k = tx + ty * W;
+    let g = memo.get(k);
+    if (g === undefined) {
+      const u = (tx + 0.5) / W * 2 - 1, v = (ty + 0.5) / W * 2 - 1;
+      g = u * u + v * v < 0.98 && SETTLE_GROUND.has(sampler.classify(u, v));
+      memo.set(k, g);
+    }
+    return g;
+  };
+  // the newest tier at distance d (0 middle, 1 edge): the whole middle at the top tier, falling off outward
+  const ring = d => Math.max(0, Math.min(L, Math.round(L * (1 - Math.min(d, 1) ** 2))));
+  const B = TW.block[L], P = B ? B * 2 + 1 : 5, reach = Math.round(R * TW.roads[L]);
+  const isStreet = (dx, dy) => (dx === 0 && Math.abs(dy) <= reach) || (dy === 0 && Math.abs(dx) <= reach) ||
+    (B > 0 && Math.hypot(dx, dy) <= R + 0.5 && (mod(dx, P) === 0 || mod(dy, P) === 0));
+  // streets: the main roads, then the grid
+  for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) {
+    if (dx && dy && !(B > 0 && Math.hypot(dx, dy) <= R + 0.5)) continue;
+    if (!isStreet(dx, dy) || !land(cx + dx, cy + dy)) continue;
+    const t = ring(Math.hypot(dx, dy) / R);
+    tiles.set(cx + dx + (cy + dy) * W, [TOWN_OV[t], TOWN_FLAG | ROAD_FLAG | t]);
+  }
+  // lots: the ones whose corner sits at an odd step from a street, inside the (slightly ragged) edge
+  const fill = TW.fill[L];
+  for (let dy = -R - 2; dy <= R + 1; dy++) for (let dx = -R - 2; dx <= R + 1; dx++) {
+    const mx = mod(dx, P), my = mod(dy, P);
+    if (!(mx & 1) || !(my & 1) || mx >= P || my >= P) continue;
+    const d = Math.hypot(dx + 1, dy + 1) / R;
+    const edge = 1 + (r() - 0.5) * 0.3, pick = r(), tj = r(), vj = r(), sj = r(), jx = r(), jy = r();
+    if (d > edge) continue;
+    const tier = Math.max(0, Math.min(L, Math.round(L * (1 - Math.min(d, 1) ** 2) + (tj - 0.5) * 1.3)));
+    // towers stand a little apart (TW.gap): the lots between them, and any empty lot downtown, are paved plazas
+    const built = pick <= fill * (d < 0.55 ? 1 : 1 - (d - 0.55) * 1.1) * (1 - TW.gap[tier]);
+    if (!built && !(tier >= 3 && d < 0.6)) continue;
+    const tx = cx + dx, ty = cy + dy;
+    if (!land(tx, ty) || !land(tx + 1, ty) || !land(tx, ty + 1) || !land(tx + 1, ty + 1)) continue;
+    if (!built) { for (const [ax, ay] of [[0, 0], [1, 0], [0, 1], [1, 1]]) tiles.set(tx + ax + (ty + ay) * W, [O.BLOCK, TOWN_FLAG | tier]); continue; }
+    const old = tier <= 1;                                // cottages and houses stand a little out of line
+    const fx = Math.round((tx + 1) * 8 + (old ? (jx - 0.5) * 5 : 0)), fy = Math.round((ty + 2) * 8 - 2 - (old ? jy * 2.5 : 0));
+    bld.push([fx, fy, tier * 4 + ((vj * 4) | 0), TW.size[tier] * (0.94 + sj * 0.12), tileHash(tx, ty)]);
+    for (const [ax, ay] of [[0, 0], [1, 0], [0, 1], [1, 1]]) tiles.set(tx + ax + (ty + ay) * W, [TOWN_OV[tier], TOWN_FLAG | tier]);
+  }
+  return { tiles, bld, x0: cx - reach, x1: cx + reach, y0: cy - reach, y1: cy + reach };
+}
+// one chunk's buildings as instances for the renderer's town layer: per building 4 x uint32 = the top-left of its
+// 16 x 24 art px box (foot at (8, 23) in it), atlas cell + size * 256 << 16, a hash; front to back
+function townSpots(layouts, x0, y0, sx, sy) {
+  const out = [];
+  for (const lay of layouts) {
+    if (lay.x1 < x0 - 1 || lay.x0 > x0 + sx || lay.y1 < y0 - 1 || lay.y0 > y0 + sy) continue;
+    for (const [fx, fy, cell, size, h] of lay.bld) {
+      const tx = fx >> 3, ty = fy >> 3;
+      if (tx < x0 || ty < y0 || tx >= x0 + sx || ty >= y0 + sy) continue;
+      out.push([fx - 8, fy - 23, cell | (Math.round(size * 256) << 16), h]);
+    }
+  }
+  out.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const u32 = new Uint32Array(out.length * 4);
+  out.forEach((o, i) => u32.set(o, i * 4));
+  return u32;
 }
 
 // One chunk ("page") of a planet's map. The disk's square is sampled on an N x N grid (N = the full tile count
@@ -322,6 +401,8 @@ export function placeSettlements(desc, sampler) {
 // Returns tile ids (4 bytes each: ground, overlay, deposit richness 0..255, cliff mask 0/255), the colour map (RGBA: average tile colour + glow),
 // counts per id, and the planet's settlement list.
 const settleMemo = new Map();
+// street colours by tier (as the shader's townGround draws them): dirt track, gravel, cobbles, asphalt
+const ROAD_COL = [[132, 112, 84], [140, 122, 94], [128, 122, 114], [84, 86, 90]];
 export function generatePage(desc, art, N, x0, y0, sx, sy) {
   const t0 = performance.now();
   const sampler = makeSampler(desc);
@@ -357,27 +438,26 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     out[i + 1] = ov; out[i + 2] = ov ? Math.round(sampler.deposit.rich * 255) : 0;
   }
   for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) tile(x, y, ids, (y * sx + x) * 4);
-  // settlements (worked out once per planet): paint buildings in a disc around each centre, denser in the middle
+  // settlements and their towns (worked out once per planet, at full detail): paint their streets and lots
   const key = desc.id + '/' + desc.W;
-  let settlements = settleMemo.get(key);
-  if (!settlements) { settlements = placeSettlements(desc, sampler); settleMemo.set(key, settlements); if (settleMemo.size > 400) settleMemo.clear(); }
-  for (const s of settlements) {
-    const rt = s.radius * N / desc.W;                     // radius in this level's samples
-    const cx = (s.u * 0.5 + 0.5) * N, cy = (s.v * 0.5 + 0.5) * N;
-    if (cx + rt + 1 < x0 || cx - rt - 1 > x0 + sx || cy + rt + 1 < y0 || cy - rt - 1 > y0 + sy) continue;
-    for (let ty = Math.max(y0, Math.floor(cy - rt) - 1); ty <= Math.min(y0 + sy - 1, cy + rt + 1); ty++) {
-      for (let tx = Math.max(x0, Math.floor(cx - rt) - 1); tx <= Math.min(x0 + sx - 1, cx + rt + 1); tx++) {
-        const d = Math.hypot(tx + 0.5 - cx, ty + 0.5 - cy) / Math.max(rt, 0.5);
-        const center = tx === Math.floor(cx) && ty === Math.floor(cy);
-        if (d > 1 && !center) continue;
-        const i = ((ty - y0) * sx + (tx - x0)) * 4;
-        if (WATER.has(ids[i]) && !center) continue;
-        const h = (tileHash(tx, ty) % 1000) / 1000;
-        if (!center && h > 1 - 0.55 * d) continue;
-        ids[i + 2] = 0;
-        ids[i + 1] = d < 0.3 && s.level >= 3 ? O.TOWER : d < 0.55 && s.level >= 2 ? O.BLOCK : s.level >= 1 ? O.HOUSE : O.HUT;
-        if (WATER.has(ids[i])) ids[i] = T.BEACH;
-      }
+  let memo = settleMemo.get(key);
+  if (!memo) {
+    const settlements = placeSettlements(desc, sampler);
+    memo = { settlements, layouts: settlements.map((s, i) => townLayout(s, i, desc, sampler)) };
+    sampler.setTps(tps);
+    settleMemo.set(key, memo);
+    if (settleMemo.size > 400) settleMemo.clear();
+  }
+  const settlements = memo.settlements, kN = N / desc.W;
+  for (const lay of memo.layouts) {
+    if ((lay.x1 + 1) * kN < x0 || lay.x0 * kN > x0 + sx || (lay.y1 + 1) * kN < y0 || lay.y0 * kN > y0 + sy) continue;
+    for (const [k, t] of lay.tiles) {
+      const x = Math.floor((k % desc.W) * kN) - x0, y = Math.floor(Math.floor(k / desc.W) * kN) - y0;
+      if (x < 0 || y < 0 || x >= sx || y >= sy) continue;
+      const i = (y * sx + x) * 4;
+      if (WATER.has(ids[i])) continue;
+      if (ids[i + 1] >= O.HUT && !(ids[i + 2] & ROAD_FLAG) && (t[1] & ROAD_FLAG)) continue;   // coarse: lots win
+      ids[i + 1] = t[0]; ids[i + 2] = t[1];
     }
   }
   // counts (inside the disk only) and colour map
@@ -395,7 +475,10 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
       const k = art.overStain[ov * 4 + 3] * (0.35 + 0.65 * rich);
       r += (art.overStain[ov * 4] - r) * k; g += (art.overStain[ov * 4 + 1] - g) * k; b += (art.overStain[ov * 4 + 2] - b) * k;
     }
-    if (ov) {
+    if (ov >= O.HUT && (ids[t * 4 + 2] & ROAD_FLAG)) {
+      const c = ROAD_COL[Math.min(3, ids[t * 4 + 2] & 15)];
+      r += (c[0] - r) * 0.8; g += (c[1] - g) * 0.8; b += (c[2] - b) * 0.8;
+    } else if (ov) {
       const a = art.overAvg[ov * 4 + 3] * (art.overStain[ov * 4 + 3] > 0 ? 0.4 + 0.6 * rich : 1);
       r += (art.overAvg[ov * 4] - r) * a; g += (art.overAvg[ov * 4 + 1] - g) * a; b += (art.overAvg[ov * 4 + 2] - b) * a;
       e = Math.max(e, art.overEmis[ov]);
@@ -428,6 +511,7 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
   // full detail (one sample per tile): every spot where an item could stand, for the renderer to draw as pictures
   const props = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, BIG, desc.straggle) : null;
   const small = N === desc.W ? propSpots(ids, N, x0, y0, sx, sy, SMALL, desc.straggle) : null;
+  const town = N === desc.W ? townSpots(memo.layouts, x0, y0, sx, sy) : null;
   // What the shader reads (idsA): the ids again with a one-tile border taken from the neighbouring chunks, so borders
   // blend across chunk edges without a seam, and byte 3 = cliff (128) + tiles from the nearest water (0-7)
   const AW = sx + 2, AH = sy + 2, idsA = new Uint8Array(AW * AH * 4);
@@ -436,6 +520,10 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     const a = ((y + 1) * AW + x + 1) * 4;
     if (y >= 0 && y < sy && x >= 0 && x < sx) { idsA[a + 3] = ids[(y * sx + x) * 4 + 3] ? 128 : 0; continue; }
     tile(x, y, idsA, a);
+    if (N === desc.W && !WATER.has(idsA[a])) {             // a neighbouring chunk's town tile (streets join up)
+      const k = x0 + x + (y0 + y) * desc.W;
+      for (const lay of memo.layouts) { const t = lay.tiles.get(k); if (t) { idsA[a + 1] = t[0]; idsA[a + 2] = t[1]; break; } }
+    }
     const g = (y + 1) * GW + x + 1, base = idsA[a], ov = idsA[a + 1];
     idsA[a + 3] = !WATER.has(base) && base !== T.SEA_ICE && !(ov >= O.HUT) && (CLIFF_GROUND.has(base) || Vr[g] > 0.42) ? 128 : 0;
   }
@@ -447,7 +535,7 @@ export function generatePage(desc, art, N, x0, y0, sx, sy) {
     return e < sampler.sea && WATER.has(sampler.classify(u, v, 0, e));
   });
   else for (let i = 3; i < idsA.length; i += 4) idsA[i] |= 7;
-  return { ids, idsA, col, fld, counts, settlements, props, small, ms: performance.now() - t0 };
+  return { ids, idsA, col, fld, counts, settlements, props, small, town, ms: performance.now() - t0 };
 }
 
 // Tiles from the nearest water (deep or shallow) for every tile of an id map with its border (idsA: AW x AH, byte 3's
