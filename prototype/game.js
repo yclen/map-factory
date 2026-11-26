@@ -3316,6 +3316,7 @@ function stepPush(p, dt) {
   cands.sort((a, b) => a.s - b.s);
   const cities = allCities(), fought = new Set();
   let guarded = 0;
+  const took = [];
   for (const c of cands) {
     if (owner[c.i]) continue;
     // inside a city's zone: its people stand in the way, and fall one for one with your troops until none are left
@@ -3338,10 +3339,19 @@ function stepPush(p, dt) {
     if (work > p.work) break;
     p.work -= work; p.budget -= cost;
     claim(c.i, cid, true);
-    // marker follows the part of the front closest to the target
-    const cx = c.i % W + 0.5, cy = ((c.i / W) | 0) + 0.5;
-    if (p.lx == null || Math.hypot(cx - p.tx, cy - p.ty) < Math.hypot(p.lx - p.tx, p.ly - p.ty) + 1.5) { p.lx = cx; p.ly = cy; }
+    took.push(c.i);
     if (p.work < 1) break;
+  }
+  // The marker (and its troop count) goes where the troops are taking land right now: the tile taken this step
+  // nearest the middle of all of them. (It used to stay by the target, so a big push whose land near the target
+  // ran out seemed stuck there while it was really advancing elsewhere.)
+  if (took.length) {
+    let ax = 0, ay = 0;
+    for (const t of took) { ax += t % W; ay += (t / W) | 0; }
+    ax /= took.length; ay /= took.length;
+    let best = took[0], bd = Infinity;
+    for (const t of took) { const d = (t % W - ax) ** 2 + (((t / W) | 0) - ay) ** 2; if (d < bd) { bd = d; best = t; } }
+    p.lx = best % W + 0.5; p.ly = ((best / W) | 0) + 0.5;
   }
   const cheapest = cands.length ? Math.min(...cands.slice(0, 40).map(c => tileCost(c.i))) : Infinity;
   if (!cands.length || p.budget < 0.5 || (!guarded && p.budget < Math.max(cheapest, grassCost))) p.done = true;
