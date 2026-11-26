@@ -4080,6 +4080,15 @@ function fireMissile(tx, ty) {
   s.ready = game.time + s.rd; s.shots = (s.shots || 0) + 1;
   launchShot(s, tx + 0.5, ty + 0.5, CFG.buildings[s.type].weapon);
 }
+// Demolish one of your own buildings (hold right-click on it): it just breaks, nothing comes back
+function demolish(b) {
+  const x = b.i % W + 0.5, y = ((b.i / W) | 0) + 0.5, name = CFG.buildings[b.type].name;
+  removeBuilding(b.i);
+  recomputeBuildings();                            // a city gone: less housing (its people crowd out), a cabin gone: no more wood
+  game.blasts.push({ x, y, t: 0, R: 1.1, life: 0.8, big: false, seed: (x * 31 + y * 17) | 0 });
+  floatText(x, y - 0.6, `${name} demolished`, '#ff9a8a');
+  if (PID === ME && inspected === b) inspect(null);
+}
 function removeBuilding(i) {
   const b = buildingAt(i);
   if (!b) return;
@@ -7344,6 +7353,38 @@ function hoverTile() {
 }
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+// Hold right-click (on a touch screen: keep holding the long press) on one of your buildings to demolish it.
+// A ring fills around it while you hold; let go or move away first and nothing happens.
+const HOLD_MS = 900;
+const hold = { i: -1, t0: 0, fired: 0 };
+function startHold(x, y) {
+  const b = pickAt(x, y), [wx, wy] = toWorld(x, y);
+  if (!b || kindOf(b) !== 'building' || !isMine(b.i) || game.tool || game.aiming || blueprint) return;
+  if (Math.max(Math.abs(Math.floor(wx) - b.i % W), Math.abs(Math.floor(wy) - ((b.i / W) | 0))) > 1) return;   // right on it, not just near
+  hold.i = b.i; hold.t0 = performance.now();
+}
+const cancelHold = () => { hold.i = -1; };
+function stepHold() {
+  if (hold.i < 0) return;
+  if (!building[hold.i] || !isMine(hold.i)) return cancelHold();
+  if (performance.now() - hold.t0 < HOLD_MS) return;
+  const i = hold.i;
+  hold.i = -1; hold.fired = performance.now();
+  if (navigator.vibrate) navigator.vibrate(25);
+  act({ t: 'demolish', i });
+}
+function drawHold() {                              // the ring that fills while you hold
+  if (hold.i < 0) return;
+  const f = clamp((performance.now() - hold.t0) / HOLD_MS, 0, 1), [sx, sy] = toScreen(hold.i % W + 0.5, ((hold.i / W) | 0) + 0.5);
+  const r = clamp(cam.zoom * 0.9, 14, 40);
+  ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = '#ff6b5b'; ctx.beginPath(); ctx.arc(sx, sy, r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke();
+  ctx.font = "700 12px 'Segoe UI', Arial, sans-serif"; ctx.textAlign = 'center'; ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(4,6,12,0.85)'; ctx.strokeText('Demolish', sx, sy - r - 8); ctx.fillStyle = '#ffb3a8'; ctx.fillText('Demolish', sx, sy - r - 8);
+  ctx.restore();
+}
 canvas.addEventListener('mousedown', e => {
   if (performance.now() - lastTouch < 800) return;   // the browser's copy of a tap: the touch code has it
   mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true;
@@ -7351,13 +7392,14 @@ canvas.addEventListener('mousedown', e => {
   mouse.dragged = false; mouse.selecting = false; mouse.camX = cam.x; mouse.camY = cam.y;
   mouse.offX = cam.offX; mouse.offY = cam.offY;
   if (e.button === 1) e.preventDefault();   // no browser autoscroll on middle-drag
+  if (e.button === 2) startHold(e.clientX, e.clientY);
 });
 window.addEventListener('mousemove', e => {
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (mouse.down < 0) return;
   const dx = e.clientX - mouse.sx, dy = e.clientY - mouse.sy;
   if (!mouse.dragged && Math.hypot(dx, dy) > 5) {
-    mouse.dragged = true;
+    mouse.dragged = true; cancelHold();
     if (mouse.down === 0) mouse.selecting = true;
     else canvas.classList.add('dragging');
   }
@@ -7369,7 +7411,9 @@ window.addEventListener('mousemove', e => {
 window.addEventListener('mouseup', e => {
   const wasDrag = mouse.dragged, wasSel = mouse.selecting, btn = mouse.down;
   mouse.down = -1; mouse.dragged = false; mouse.selecting = false; canvas.classList.remove('dragging');
+  cancelHold();
   if (btn < 0) return;
+  if (btn === 2 && performance.now() - hold.fired < 400) return;   // that hold demolished something: not a right-click too
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (wasSel) { finishSelection(mouse.sx, mouse.sy, e.clientX, e.clientY); return; }
   if (wasDrag || e.target !== canvas) return;
@@ -7380,7 +7424,7 @@ window.addEventListener('mouseup', e => {
 // action can come from this screen or (with multiplayer) from another player's screen over the network.
 // Checks that a player's own screen can't be trusted with (is that city, pad or station theirs?) live here.
 //   build {i, type} · bridge {s, i} · push {x, y, pct} · fire {x, y} · paste {x, y, items} · upgrade {i}
-//   pad {i} · supply {i, n} (n = null: stop) · expand {n} (station number) · settle {id} (expedition)
+//   pad {i} · supply {i, n} (n = null: stop) · expand {n} (station number) · settle {id} (expedition) · demolish {i}
 // ======================================================================
 function applyCommand(pid, cmd) {
   if (NET.on) planCache = { key: null, val: null };   // (a hover cache: every screen plans from scratch)
@@ -7399,6 +7443,7 @@ function applyAs(pid, cmd) {
       case 'paste': return pasteAt(cmd.x, cmd.y, cmd.items);
       case 'upgrade': return own && b.type === 'settlement' ? upgradeCity(b) : undefined;
       case 'pad': return own && b.type === 'pad' ? padClick(b) : undefined;
+      case 'demolish': return own ? demolish(b) : undefined;
       case 'supply':
         if (!own || b.type !== 'pad') return;
         b.supply = cmd.n ?? null;
@@ -7622,6 +7667,7 @@ canvas.addEventListener('pointerdown', e => {
       tch.long = true; tch.pending = null;
       if (navigator.vibrate) navigator.vibrate(12);
       clickAt(2, tch.sx, tch.sy);
+      startHold(tch.sx, tch.sy);                   // keep holding on one of your buildings: demolish it
     }, 500);
   } else tch.drag = true;                          // a second finger: a pinch, never a tap
 });
@@ -7640,13 +7686,14 @@ canvas.addEventListener('pointermove', e => {
     nudgeScreen(-(mx1 - mx0) / cam.zoom, -(my1 - my0) / cam.zoom);
     return;
   }
-  if (!tch.drag && Math.hypot(e.clientX - tch.sx, e.clientY - tch.sy) > 10) { tch.drag = true; clearTimeout(tch.timer); }
+  if (!tch.drag && Math.hypot(e.clientX - tch.sx, e.clientY - tch.sy) > 10) { tch.drag = true; clearTimeout(tch.timer); cancelHold(); }
   if (tch.drag && !tch.long) { if (camRide && !game.flying && fingers.size < 2) camRide = null; nudgeScreen(-(e.clientX - f.x) / cam.zoom, -(e.clientY - f.y) / cam.zoom); }
   f.x = e.clientX; f.y = e.clientY;
 });
 function liftFinger(e, cancelled) {
   if (e.pointerType === 'mouse' || !fingers.delete(e.pointerId)) return;
   lastTouch = performance.now();
+  cancelHold();
   clearTimeout(tch.timer);
   if (fingers.size || cancelled || tch.drag || tch.long) return;
   touchTap(e.clientX, e.clientY);
@@ -8883,7 +8930,9 @@ function start() {
       stepCamAnim(dt);
       stepZoom(dt);
       applyFollow();
+      stepHold();
       render();
+      drawHold();
     } finally { game.time = simTime; lead = 0; }
     hudT += dt;
     // touch buttons first: they read the layout, which is only clean before the HUD writes into the page
