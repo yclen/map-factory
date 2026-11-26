@@ -1,16 +1,16 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261125163154';
-import { SKIN } from './skin.js?v=20261125163154';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125163154';
-import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125163154';
-import { buildAtlas, decorTables } from './art.js?v=20261125163154';
-import { Renderer } from './renderer.js?v=20261125163154';
-import { Labels } from './labels.js?v=20261125163154';
-import { mulberry32, hash32 } from './rng.js?v=20261125163154';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125163154';
-import { splash, groundLine } from './splash.js?v=20261125163154';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125163154';
+import { RULES } from './rules.js?v=20261125163828';
+import { SKIN } from './skin.js?v=20261125163828';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125163828';
+import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125163828';
+import { buildAtlas, decorTables } from './art.js?v=20261125163828';
+import { Renderer } from './renderer.js?v=20261125163828';
+import { Labels } from './labels.js?v=20261125163828';
+import { mulberry32, hash32 } from './rng.js?v=20261125163828';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125163828';
+import { splash, groundLine } from './splash.js?v=20261125163828';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125163828';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -349,7 +349,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261125163154', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261125163828', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -641,7 +641,65 @@ function render(now, dt) {
   t2 = performance.now(); parts[2] += t2 - tm; tm = t2;
   labels.end(now, dt, labelDpr, cw, ch);
   drawRocketLayer(labels.g);
+  updateEasy(now);
+  drawEasy(labels.g, now);
   parts[3] += performance.now() - tm;
+}
+
+// ---------- easy select (mouse): coming near a star, planet or moon puts a dotted yellow ring round it, which stays a
+// moment after the pointer leaves, so a fast moon can still be caught; a click while it shows flies there ----------
+const EASY_NEAR = 30;        // px from a body's edge that counts as near it
+const EASY_HOLD = 1800;      // ms the ring stays after the pointer leaves (fading out over the last 0.5 s)
+const EASY_CLICK = 80;       // px: a click this far outside the ring still counts as clicking it (it may have moved on)
+let easy = null, easyFlewAt = -1e9;   // { b, until, x, y, r }: the ringed body, and where it was drawn this frame
+function nearAt(x, y) {
+  let best = null, bestS = Infinity;
+  for (let i = 0; i < pickN; i++) {
+    const p = picks[i];
+    if (p.r > minDim() * 0.4) continue;              // a planet filling the screen is the ground you're on, not a target
+    const d = Math.hypot(x - p.x, y - p.y), edge = Math.max(0, d - p.r);
+    if (edge > EASY_NEAR) continue;
+    const sc = d <= p.r ? p.r : 1e4 + edge;          // inside a disc: the smallest wins (a moon over its planet); else nearest
+    if (sc < bestS) { best = p; bestS = sc; }
+  }
+  return best;
+}
+function updateEasy(now) {
+  if (hover && !ptrs.size && !hoverRocket) {
+    const p = nearAt(hover.x, hover.y);
+    if (p) easy = { b: p.b, until: now + EASY_HOLD, x: p.x, y: p.y, r: p.r };
+  }
+  if (easy) {
+    let found = null;
+    for (let i = 0; i < pickN && !found; i++) if (picks[i].b === easy.b) found = picks[i];
+    if (!found || now > easy.until) easy = null;     // gone off screen or too small to draw, or held long enough
+    else { easy.x = found.x; easy.y = found.y; easy.r = found.r; }
+  }
+  const cur = easy || hoverRocket ? 'pointer' : '';
+  if (glCanvas.style.cursor !== cur) glCanvas.style.cursor = cur;
+}
+const easyRadius = () => Math.max(easy.r + 7, 12);
+function drawEasy(g, now) {
+  if (!easy) return;
+  const r = easyRadius(), a = clamp((easy.until - now) / 500, 0, 1);
+  g.save();
+  g.globalAlpha = a;
+  g.setLineDash([5, 5]); g.lineDashOffset = -now / 70;             // the dashes creep slowly round
+  g.lineWidth = 3.5; g.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+  g.beginPath(); g.arc(easy.x, easy.y, r, 0, TAU); g.stroke();
+  g.lineWidth = 1.8; g.strokeStyle = '#f2c14e';
+  g.beginPath(); g.arc(easy.x, easy.y, r, 0, TAU); g.stroke();
+  g.restore();
+}
+// a click while the ring shows, near it (or near where the body has moved): fly there. True if it did
+function easyClick(x, y) {
+  const t = performance.now();
+  if (t - easyFlewAt < 450) return true;             // the second click of a double-click: already on the way
+  if (!easy || Math.hypot(x - easy.x, y - easy.y) > easyRadius() + EASY_CLICK) return false;
+  const b = easy.b;
+  easy = null; easyFlewAt = t;
+  flyTo(b);
+  return true;
 }
 
 function ringVisible(x, y, r) {
@@ -898,6 +956,7 @@ glCanvas.addEventListener('pointercancel', endPtr);
 glCanvas.addEventListener('pointerleave', () => { hover = null; });
 function tap(x, y) {
   const t = performance.now();
+  if (easyClick(x, y)) { lastTap = null; return; }
   if (lastTap && t - lastTap.t < 320 && Math.hypot(x - lastTap.x, y - lastTap.y) < 26) {
     lastTap = null;
     const b = pickAt(x, y);
@@ -999,7 +1058,7 @@ function updateUI(force) {
   }
   // hover tooltip (mouse only)
   hoverRocket = hover && !ptrs.size ? rocketAt(hover.x, hover.y) : null;
-  glCanvas.style.cursor = hoverRocket ? 'pointer' : '';
+  glCanvas.style.cursor = hoverRocket || easy ? 'pointer' : '';
   if (hoverRocket) {
     const rk = hoverRocket === 'pad' ? padRocket : hoverRocket;
     const what = hoverRocket === 'pad'
