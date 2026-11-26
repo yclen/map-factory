@@ -1,5 +1,5 @@
-import { SLOPE_K } from './terrain.js?v=20261125162548';
-import { ITEM_SLOTS } from './biomes.js?v=20261125162548';
+import { SLOPE_K } from './terrain.js?v=20261125163154';
+import { ITEM_SLOTS } from './biomes.js?v=20261125163154';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.

@@ -1,16 +1,16 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261125162548';
-import { SKIN } from './skin.js?v=20261125162548';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125162548';
-import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125162548';
-import { buildAtlas, decorTables } from './art.js?v=20261125162548';
-import { Renderer } from './renderer.js?v=20261125162548';
-import { Labels } from './labels.js?v=20261125162548';
-import { mulberry32, hash32 } from './rng.js?v=20261125162548';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125162548';
-import { splash, groundLine } from './splash.js?v=20261125162548';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125162548';
+import { RULES } from './rules.js?v=20261125163154';
+import { SKIN } from './skin.js?v=20261125163154';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125163154';
+import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125163154';
+import { buildAtlas, decorTables } from './art.js?v=20261125163154';
+import { Renderer } from './renderer.js?v=20261125163154';
+import { Labels } from './labels.js?v=20261125163154';
+import { mulberry32, hash32 } from './rng.js?v=20261125163154';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125163154';
+import { splash, groundLine } from './splash.js?v=20261125163154';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125163154';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -349,7 +349,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261125162548', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261125163154', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };

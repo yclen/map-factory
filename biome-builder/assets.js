@@ -1,9 +1,9 @@
 // Loading art for the Biome Builder: the raw AI sheets (cut into sprites here in the browser, the same way
 // tools/pack_props.py does it), the AI ground textures (made seamless here), and the game's pixel-art fallbacks.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125162548';
-import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125162548';
-import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125162548';
-import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125162548';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125163154';
+import { BASE, ATLAS_COLS, SLOT_FLOOR, SLOT_DECO, PROP_W, PROP_H, PROP_Y0, PROP_COLS } from '../galaxy-demo/js/ids.js?v=20261125163154';
+import { buildAtlas, ATLAS_W, ATLAS_H } from '../galaxy-demo/js/art.js?v=20261125163154';
+import { mulberry32, hash32 } from '../galaxy-demo/js/rng.js?v=20261125163154';
 
 const ART = '../art/';
 const SHEET_W = 922;            // sheets are cut at most this wide (60% of ChatGPT's 1536 px): plenty for the closest zoom

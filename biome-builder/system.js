@@ -3,12 +3,12 @@
 // pyramid of 256 x 256 chunks, items drawn as pictures). The chunk and drawing code follows galaxy-demo/js/main.js
 // (wantPage, pump, onPage, drawBody, setPage, drawPropsOn): keep them in step when one changes.
 // World coordinates are tiles, with the star at (0, 0).
-import { Renderer } from '../galaxy-demo/js/renderer.js?v=20261125162548';
-import { buildAtlas } from '../galaxy-demo/js/art.js?v=20261125162548';
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125162548';
-import { RULES } from '../galaxy-demo/js/rules.js?v=20261125162548';
-import { hash32, mulberry32, range } from '../galaxy-demo/js/rng.js?v=20261125162548';
-import { makeSampler } from '../galaxy-demo/js/terrain.js?v=20261125162548';
+import { Renderer } from '../galaxy-demo/js/renderer.js?v=20261125163154';
+import { buildAtlas } from '../galaxy-demo/js/art.js?v=20261125163154';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125163154';
+import { RULES } from '../galaxy-demo/js/rules.js?v=20261125163154';
+import { hash32, mulberry32, range } from '../galaxy-demo/js/rng.js?v=20261125163154';
+import { makeSampler } from '../galaxy-demo/js/terrain.js?v=20261125163154';
 
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 const PAGE = 256;
@@ -32,7 +32,7 @@ export function createSystem(canvas, overlay, hooks) {
   const workers = [];
   const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
   for (let i = 0; i < NW; i++) {
-    const w = new Worker(new URL('../galaxy-demo/js/mapworker.js?v=20261125162548', import.meta.url), { type: 'module' });
+    const w = new Worker(new URL('../galaxy-demo/js/mapworker.js?v=20261125163154', import.meta.url), { type: 'module' });
     w.busy = null;
     w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
     w.onerror = e => { console.error('map worker', e.message); w.busy = null; };

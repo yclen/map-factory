@@ -130,6 +130,7 @@ export const RULES = {
   // each cap reaches in from its pole, as a share of the radius (noise and mountains make the edges ragged)
   ice: { cap: 0.16 },
   resourceBlob: 22,        // typical deposit size, in tiles
+  oreAmount: 0.2,          // how much ground ore covers, as a share of the original amount (1 = about 15% of Home's land)
 
   // which ground a resource can sit on ('land' = anything that isn't water or lava)
   resourceGround: {

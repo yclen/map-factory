@@ -2,10 +2,10 @@
 // same map. A planet is a flat disk of tiles, like Home in Factory Conquest: (u, v) runs -1..1 across it,
 // the centre is warmest and the rim coldest. Noise is sampled at the disk position, not per tile, so a
 // low-res map (for far views) and the full map (for close-ups) show the same continents.
-import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125162548';
-import { RULES } from './rules.js?v=20261125162548';
-import { makeNoise } from './noise.js?v=20261125162548';
-import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125162548';
+import { T, O, BASE, RESOURCES, WATER } from './ids.js?v=20261125163154';
+import { RULES } from './rules.js?v=20261125163154';
+import { makeNoise } from './noise.js?v=20261125163154';
+import { hash32, mulberry32, makeName, pickWeighted, tileHash } from './rng.js?v=20261125163154';
 
 const TAU = Math.PI * 2;
 const nameToId = list => new Set(list.map(n => T[n]));
@@ -147,7 +147,9 @@ export function makeSampler(desc) {
   for (const [, a] of res) total += a;
   const resFreq = (desc.W / 2) / RULES.resourceBlob;      // tiles per disk unit / deposit size
   const presence = Math.min(0.5, total * 0.17);            // rough share of land inside a patch
-  const thr = 0.62 - presence * 0.9;
+  // the patch threshold: where the old rule put it, then raised so patches cover RULES.oreAmount of the ground
+  // they used to (fewer patches, and the ones left a little smaller)
+  const thr = fbmAbove(fbmShareAbove(0.62 - presence * 0.9) * (RULES.oreAmount ?? 1));
   const oR = [o(), o(), o()];
   function deposit(x, y, z, base) {
     if (!res.length || base === T.DEEP || base === T.LAVA) return 0;
@@ -263,6 +265,27 @@ function labSampler(desc, N, r, detail, sea, ctl) {
     return id;
   }
   return { classify, deposit: () => 0, elev, detail, sea };
+}
+// The spread of 2-octave fBm values, sampled once (the same for every seed): the share of points at or above x, and
+// the value that share p of points reach. For setting how much ground ore deposits cover
+let FBM_SORTED = null;
+function fbmSorted() {
+  if (!FBM_SORTED) {
+    const N = makeNoise(97), r = mulberry32(11), a = new Float32Array(40000);
+    for (let i = 0; i < a.length; i++) a[i] = N.fbm(r() * 300, r() * 300, r() * 300, 2);
+    FBM_SORTED = a.sort();
+  }
+  return FBM_SORTED;
+}
+function fbmShareAbove(x) {
+  const a = fbmSorted();
+  let lo = 0, hi = a.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < x) lo = m + 1; else hi = m; }
+  return (a.length - lo) / a.length;
+}
+function fbmAbove(p) {
+  const a = fbmSorted();
+  return a[Math.min(a.length - 1, Math.max(0, Math.floor((1 - p) * a.length)))];
 }
 // ground where cliffs always may form (elsewhere only in scattered bands)
 const CLIFF_GROUND = new Set([T.MOUNTAIN, T.PEAK, T.MESA, T.HIGHLAND, T.CANYON]);
