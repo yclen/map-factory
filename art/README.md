@@ -190,7 +190,7 @@ To pick other cells from a sheet, edit `art/props/props.json`: `"pick": [0, 2, 3
 | `art/props/raw/` | every sheet Codex made, kept forever (`<kind>_v1.png`, `_v2`, ...) |
 | `art/props/props.json` | which sheet each prop kind uses, and how to cut it |
 | `tools/gen_props.py` | builds the prompt and asks Codex for a sheet |
-| `tools/pack_props.py` | cuts sheets out and packs `galaxy-demo/props/props_hd.png` + `.json` |
+| `tools/pack_props.py` | cuts sheets out and packs `galaxy-demo/props/props_hd.webp` + `.json` |
 | `galaxy-demo/props/` | the packed atlas the game loads (generated: don't edit by hand) |
 | `art/ground/raw/` | every ground texture Codex made (`<name>_v1.png`, ...) |
 | `tools/gen_ground.py` | asks Codex for a seamless ground texture |

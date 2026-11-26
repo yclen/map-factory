@@ -3,7 +3,7 @@
 Each entry in art/props/props.json names a big-prop kind from galaxy-demo/js/skin.js (oak, pine, boulder, ...) and
 a raw sheet in art/props/raw/: several variations of that prop in a grid, on a flat magenta (#FF00FF) background or
 a transparent one. This script cuts each variation out, stands it on the prop's foot point and packs 4 variations per
-kind into galaxy-demo/props/props_hd.png, with props_hd.json saying where each kind is. The demo draws those kinds
+kind into galaxy-demo/props/props_hd.webp, with props_hd.json saying where each kind is. The demo draws those kinds
 from the atlas and keeps its pixel-art props for everything else.
 
 Run after adding or changing a sheet:  python tools/pack_props.py
@@ -108,11 +108,13 @@ def main():
         index[name] = n * VARIANTS
         print(f'{name}: {e["sheet"]} cells {pick[:VARIANTS]}')
     OUT.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(atlas.clip(0, 255).astype(np.uint8)).save(OUT / 'props_hd.png', optimize=True)
+    # WebP at high quality: about a third the size of a PNG, so the demo loads faster (the renderer premultiplies alpha,
+    # so lossy edges stay clean)
+    Image.fromarray(atlas.clip(0, 255).astype(np.uint8)).save(OUT / 'props_hd.webp', quality=90, alpha_quality=100, method=6)
     meta = {'scale': SCALE, 'cell': [CELL_W, CELL_H], 'cols': COLS, 'size': [COLS * CELL_W, rows * CELL_H], 'kinds': index}
     (OUT / 'props_hd.json').write_text(json.dumps(meta, indent=1) + '\n', encoding='utf-8')
-    kb = (OUT / 'props_hd.png').stat().st_size // 1024
-    print(f'packed {len(names)} kinds into galaxy-demo/props/props_hd.png ({COLS * CELL_W} x {rows * CELL_H}, {kb} KB)')
+    kb = (OUT / 'props_hd.webp').stat().st_size // 1024
+    print(f'packed {len(names)} kinds into galaxy-demo/props/props_hd.webp ({COLS * CELL_W} x {rows * CELL_H}, {kb} KB)')
 
     if '--preview' in sys.argv:
         bg = Image.new('RGBA', (COLS * CELL_W, rows * CELL_H), (150, 105, 60, 255))
