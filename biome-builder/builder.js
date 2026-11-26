@@ -3,14 +3,14 @@
 // cold ones furthest out. Pick a biome, design it (ground texture and the items that grow on it: trees, rocks,
 // shrubs, grass), and Save: the design goes to art/biomes/<GROUND>.json and
 // is baked into galaxy-demo/biomes/, which the Galaxy demo loads. See galaxy-demo/js/biomes.js for the format.
-import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125161714';
-import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125161714';
-import { decorTables } from '../galaxy-demo/js/art.js?v=20261125161714';
-import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF, BLEND, BORDER, STYLES, VARIETY, blendOf, blendTable, straggleTable } from '../galaxy-demo/js/biomes.js?v=20261125161714';
-import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125161714';
-import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125161714';
-import { splash } from './splash.js?v=20261125161714';
-import { createSystem } from './system.js?v=20261125161714';
+import { SKIN } from '../galaxy-demo/js/skin.js?v=20261125162548';
+import { BASE, BASE_NAME } from '../galaxy-demo/js/ids.js?v=20261125162548';
+import { decorTables } from '../galaxy-demo/js/art.js?v=20261125162548';
+import { skinKey, itemTable, ITEM_SLOTS, SHADOW, RELIEF, BLEND, BORDER, STYLES, VARIETY, blendOf, blendTable, straggleTable } from '../galaxy-demo/js/biomes.js?v=20261125162548';
+import { hash32 } from '../galaxy-demo/js/rng.js?v=20261125162548';
+import { loadAll, loadHd, canvas, buildItemAtlas, groundLayer, GROUND_TEX, spriteStats, tilesPerPx } from './assets.js?v=20261125162548';
+import { splash } from './splash.js?v=20261125162548';
+import { createSystem } from './system.js?v=20261125162548';
 
 const ID = Object.fromEntries(BASE.map((n, i) => [n, i]));
 const NO_DESIGN = new Set(['DEEP', 'SHALLOW', 'LAVA']);              // open liquid: nothing grows, the game draws it

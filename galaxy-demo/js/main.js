@@ -1,15 +1,16 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261125161714';
-import { SKIN } from './skin.js?v=20261125161714';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125161714';
-import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125161714';
-import { buildAtlas, decorTables } from './art.js?v=20261125161714';
-import { Renderer } from './renderer.js?v=20261125161714';
-import { Labels } from './labels.js?v=20261125161714';
-import { mulberry32, hash32 } from './rng.js?v=20261125161714';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125161714';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125161714';
+import { RULES } from './rules.js?v=20261125162548';
+import { SKIN } from './skin.js?v=20261125162548';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125162548';
+import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125162548';
+import { buildAtlas, decorTables } from './art.js?v=20261125162548';
+import { Renderer } from './renderer.js?v=20261125162548';
+import { Labels } from './labels.js?v=20261125162548';
+import { mulberry32, hash32 } from './rng.js?v=20261125162548';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125162548';
+import { splash, groundLine } from './splash.js?v=20261125162548';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125162548';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -40,10 +41,13 @@ const SEED = (+params.get('seed') | 0) || RULES.galaxy.seed;
 const glCanvas = $('gl'), lblCanvas = $('labels');
 let R;
 try { R = new Renderer(glCanvas); }
-catch (e) { $('fatal').hidden = false; $('fatal').textContent = 'This demo needs WebGL2. ' + e.message; throw e; }
+catch (e) { $('fatal').hidden = false; $('fatal').textContent = 'This demo needs WebGL2. ' + e.message; splash.fail('This demo needs WebGL2, which this browser doesn\'t have'); throw e; }
+// anything that breaks while starting up shows on the loading screen rather than leaving it stuck
+addEventListener('error', e => splash.fail('Something went wrong while loading: ' + e.message));
 glCanvas.addEventListener('webglcontextlost', e => { e.preventDefault(); $('fatal').hidden = false; $('fatal').textContent = 'Graphics were reset. Reloading…'; setTimeout(() => location.reload(), 800); });
 const labels = new Labels(lblCanvas);
 
+splash.step('Scattering 1,000 stars', 0.08);
 const G = generateGalaxy(SEED);
 for (const s of G.stars) { s.kind = 'star'; s._x = s.x; s._y = s.y; s.uid = 'star' + s.idx; }
 const HOME = G.sun.planets.find(p => p.home);
@@ -98,6 +102,9 @@ R.water = [SKIN.base.DEEP.c, SKIN.base.SHALLOW.c];
 R.setDecor(decorTables(SKIN));
 // high-resolution props drawn from AI-generated sheets (tools/gen_props.py, tools/pack_props.py) replace the
 // pixel-art props of the same kind once loaded; anything missing just keeps its pixel art
+// The loading screen waits for these pictures (hdDone, bakeDone), then for Home's first map (frame: splashCheck)
+let hdDone = false, bakeDone = false;
+splash.expect(1);
 (async () => {
   const v = new URL(import.meta.url).search;            // this release's stamp, so a new atlas isn't served stale
   const meta = await (await fetch('props/props_hd.json' + v)).json();
@@ -107,7 +114,7 @@ R.setDecor(decorTables(SKIN));
   const kinds = Object.keys(SKIN.props), hdK = new Int32Array(32).fill(-1);
   for (const [name, cell] of Object.entries(meta.kinds)) { const k = kinds.indexOf(name); if (k >= 0 && k < 32) hdK[k] = cell; }
   R.setHdProps(img, meta, hdK);
-})().catch(e => console.warn('high-resolution props not loaded:', e));
+})().catch(e => console.warn('high-resolution props not loaded:', e)).finally(() => { hdDone = true; splash.loaded('Carving boulders'); });
 // Biome designs from the Biome Builder (biome-builder/, saved into biomes/): each ground type's texture and the items that
 // grow on it (trees, rocks, shrubs, grass), drawn as pictures. Without them the shader draws its own props, as before
 let groundAvg = null;                                    // per ground id, its texture's average colour (far views)
@@ -116,12 +123,18 @@ let groundAvg = null;                                    // per ground id, its t
 let borderFuzz = BORDER.fuzz, straggle = null;
 (async () => {
   const v = new URL(import.meta.url).search;
+  splash.step('Reading the biome designs', 0.1);
   const res = await fetch('biomes/biomes.json' + v);
   if (!res.ok) return;
   const bake = await res.json();
-  const load = async src => { const img = new Image(); img.src = src + v; await img.decode(); return img; };
-  const [atlas, ...grounds] = await Promise.all([load('biomes/' + bake.atlas.file),
-    ...bake.grounds.map(g => load('biomes/' + g.file))]);
+  // each picture ticks the loading screen along, saying what it is (a ground's texture name, for grounds)
+  const load = async (src, text) => { const img = new Image(); img.src = src + v; await img.decode(); splash.loaded(text); return img; };
+  const textureOf = g => { const t = bake.templates[BASE[g.ids[0]]]; return t && t.ground && t.ground.texture; };
+  splash.expect(1 + bake.grounds.length, true);
+  const [atlas, ...grounds] = await Promise.all([load('biomes/' + bake.atlas.file, 'Growing trees, rocks and grass'),
+    ...bake.grounds.map(g => load('biomes/' + g.file, groundLine(textureOf(g))))]);
+  splash.step('Shaping the ground');
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));   // let that line show before the busy part (~1 s)
   const K = new Int32Array(32).fill(-1), S = new Float32Array(32).fill(8), Rl = new Float32Array(32);
   bake.grounds.forEach((g, i) => { for (const id of g.ids) { K[id] = i; S[id] = g.scale; Rl[id] = g.relief || 0; } });
   R.setGroundTextures(grounds, bake.groundSize, K, S, Rl);
@@ -141,7 +154,7 @@ let borderFuzz = BORDER.fuzz, straggle = null;
   }).catch(e => console.warn('sharp big items not loaded:', e));
   for (const p of [...pages.values()]) freePage(p);   // rebuild maps with the textures' colours for far views
   jobs.length = 0;
-})().catch(e => console.warn('biome designs not loaded:', e));
+})().catch(e => console.warn('biome designs not loaded:', e)).finally(() => { bakeDone = true; splash.expect(0, true); });
 // the new terrain look (hillshading, water, organic borders, colour variation) can be switched off to compare
 let terrainFx = true;
 try { terrainFx = localStorage.getItem('galaxyDemo.terrainFx') !== '0'; } catch (e) { /* no storage */ }
@@ -336,7 +349,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261125161714', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261125162548', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -510,8 +523,23 @@ let lastNow = performance.now(), lastCpu = 0;
 const parts = new Float64Array(5), partsAvg = new Float64Array(5);   // stars+systems, GPU calls, spheres, labels, ui
 const perf = { frames: 0, acc: 0, max: 0, fps: 0, avg: 0, worst: 0, cpu: 0, cpuAcc: 0, t0: performance.now(), ema: 16.7, slowFor: 0, fastFor: 0 };
 
+// The loading screen goes once the pictures are in and Home's map is drawn: its whole-planet map and every chunk the
+// first view asks for (or after 25 s whatever happens, so it can never get stuck)
+let splashMapAt = 0;
+function splashCheck() {
+  if (splash.isDone) return;
+  if (performance.now() > 25000) { splash.done(); return; }
+  if (!hdDone || !bakeDone) return;
+  if (!splashMapAt) { splashMapAt = performance.now(); splash.step("Drawing Home's continents"); }
+  const mine = [...pages.values()].filter(p => p.b === HOME && p.used >= frameNo - 1);
+  const ready = mine.filter(p => p.ready).length;
+  splash.map(mine.length ? ready / mine.length : 0);
+  const base = mine.find(p => p.L === 0);
+  if (base && base.ready && (ready === mine.length || performance.now() - splashMapAt > 6000)) splash.done();
+}
 function frame(now) {
   requestAnimationFrame(frame);
+  splashCheck();
   const dtMs = Math.min(100, now - lastNow); lastNow = now;
   const dt = dtMs / 1000;
   const c0 = performance.now();

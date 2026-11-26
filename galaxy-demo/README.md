@@ -48,6 +48,7 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
 | `js/main.js` | Camera, zoom levels, input, map cache, stats panel, rocket pad and readout |
 | `js/rocket.js` | Rocket physics: gravity, thrust, fuel, drag, landing and the predicted path |
 | `js/renderer.js`, `js/shaders.js` | WebGL2 drawing |
+| `js/splash.js` (+ `#splash` in `index.html`) | The "Map Conquest" loading screen: progress through the art and Home's first map, tips |
 
 ## Rocket demo
 
