@@ -1,8 +1,8 @@
 // Galaxy and solar-system generation: pure functions of (seed, RULES). Runs once at load, in milliseconds.
 // Seed tree: galaxy seed -> star seed -> planet seed -> moon seed. Planet surfaces are generated later,
 // on demand, from the planet seed (terrain.js).
-import { RULES } from './rules.js?v=20261125190144';
-import { hash32, mulberry32, range, irange, gauss, pickWeighted, makeName, roman } from './rng.js?v=20261125190144';
+import { RULES } from './rules.js?v=20261125193712';
+import { hash32, mulberry32, range, irange, gauss, pickWeighted, makeName, roman } from './rng.js?v=20261125193712';
 
 const TAU = Math.PI * 2;
 

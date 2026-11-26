@@ -1,16 +1,16 @@
 // Galaxy demo: a 1,000-star spiral galaxy you can zoom through continuously, down to the tiles of a planet.
 // World positions are JS doubles in galaxy units; the camera is subtracted before anything reaches the GPU.
-import { RULES } from './rules.js?v=20261125190144';
-import { SKIN } from './skin.js?v=20261125190144';
-import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125190144';
-import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125190144';
-import { buildAtlas, decorTables } from './art.js?v=20261125190144';
-import { Renderer } from './renderer.js?v=20261125190144';
-import { Labels } from './labels.js?v=20261125190144';
-import { mulberry32, hash32 } from './rng.js?v=20261125190144';
-import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125190144';
-import { splash, groundLine } from './splash.js?v=20261125190144';
-import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125190144';
+import { RULES } from './rules.js?v=20261125193712';
+import { SKIN } from './skin.js?v=20261125193712';
+import { generateGalaxy, galaxyPoint, heatWord, surfaceSize } from './galaxy.js?v=20261125193712';
+import { itemTable, blendTable, straggleTable, BORDER } from './biomes.js?v=20261125193712';
+import { buildAtlas, decorTables } from './art.js?v=20261125193712';
+import { Renderer } from './renderer.js?v=20261125193712';
+import { Labels } from './labels.js?v=20261125193712';
+import { mulberry32, hash32 } from './rng.js?v=20261125193712';
+import { BASE, BASE_NAME, OVER, RESOURCES, RESOURCE_NAME, SLOT_WALKER, SLOT_PIN, WATER } from './ids.js?v=20261125193712';
+import { splash, groundLine } from './splash.js?v=20261125193712';
+import { makeRocket, stepRocket, predictPath, orbitAround, conicPath } from './rocket.js?v=20261125193712';
 
 const TAU = Math.PI * 2;
 let SU = 1e-6;                  // galaxy units per Home radius: set by the distance ladder (applyScale)
@@ -361,7 +361,7 @@ let jobSeq = 0, mapsMs = 0, mapsBuilt = 0;
 const workers = [];
 const NW = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
 for (let i = 0; i < NW; i++) {
-  const w = new Worker(new URL('./mapworker.js?v=20261125190144', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./mapworker.js?v=20261125193712', import.meta.url), { type: 'module' });
   w.busy = null;
   w.onmessage = e => { onPage(e.data); w.busy = null; pump(); };
   w.onerror = e => { console.error('map worker', e.message); w.busy = null; };
@@ -449,6 +449,7 @@ function evictPages() {
   }
 }
 // the tile under a disk position (u, v in -1..1): from a full-detail chunk if loaded, else the level-0 map
+const ROAD_NAME = ['dirt track', 'gravel road', 'cobbled road', 'paved road', 'highway'];
 function tileAt(b, u, v) {
   const lv = levelsOf(b), W = lv.W;
   const tx = clamp(Math.floor((u * 0.5 + 0.5) * W), 0, W - 1), ty = clamp(Math.floor((v * 0.5 + 0.5) * W), 0, W - 1);
@@ -1106,7 +1107,7 @@ function updateUI(force) {
       if (d) {
         const u = (hover.x - d.x) / d.R, v = (hover.y - d.y) / d.R;
         const t = u * u + v * v <= 1 ? tileAt(f, u, v) : null;
-        if (t) txt = `<b>${f.name}</b> · ${BASE_NAME[BASE[t.base]]}${t.ov ? ' · ' + (RESOURCE_NAME[OVER[t.ov]] ? RESOURCE_NAME[OVER[t.ov]] + ' deposit' : (t.flag & 192) === 192 ? 'street' : 'buildings') : ''} <span class="dim">tile ${t.tx}, ${t.ty}</span>`;
+        if (t) txt = `<b>${f.name}</b> · ${BASE_NAME[BASE[t.base]]}${t.ov && (t.flag & 160) !== 160 ? ' · ' + (RESOURCE_NAME[OVER[t.ov]] ? RESOURCE_NAME[OVER[t.ov]] + ' deposit' : (t.flag & 192) === 192 ? ((t.flag & 16) ? 'street' : ROAD_NAME[Math.min(4, t.flag & 15)]) : 'buildings') : ''} <span class="dim">tile ${t.tx}, ${t.ty}</span>`;
       }
     }
     tipEl.hidden = !txt;

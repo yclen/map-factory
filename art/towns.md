@@ -11,7 +11,7 @@ it grew out of a village:
 
 | Level | Radius (tiles) | Newest building (tier) | What you see |
 |---|---|---|---|
-| Village | 5 | cottage (0) | a handful of thatched cottages at a dirt crossroads |
+| Village | 5 | cottage (0) | a handful of thatched cottages along a dirt track or two |
 | Town | 7 | house (1) | two-storey red-roof houses in the middle, cottages round the edge |
 | City | 10 | townhouse (2) | brick townhouses on cobbled streets laid out in blocks |
 | Metropolis | 13 | apartment (3) | apartment blocks on paved lots, asphalt streets |
@@ -41,18 +41,50 @@ All of it is worked out from the planet seed (`terrain.js` `townLayout`), the sa
   fewer, and the edge itself is ragged.
 - **Rings.** A lot's tier is the settlement's level, falling off with the square of the distance from the middle,
   give or take one: a big core of the newest buildings, and thinner rings of older ones outside it.
-- **Streets.** Two main roads cross at the centre and run out into the country (1.3 to 2.3 radii). From City up, a
-  grid of cross streets cuts the town into blocks of 3 or 4 lots.
+- **Arms, not a cross.** Each town runs a straight street out to every road that leaves it, then adds a few arms of
+  its own at random angles (villages 1-3 in all, the biggest cities 4-6), which wander off into the country and peter
+  out. From City up, a grid of cross streets (set off by a random amount) cuts the town into blocks of 3 or 4 lots, and
+  the arms cut across it like boulevards.
+- **Houses line the streets.** In villages and towns a lot away from any street is seldom built on, and every house
+  gets a small yard where no trees grow.
 - **Plazas.** Towers stand a little apart: some of the lots between offices and skyscrapers are left as paved
   plazas (`gap`), so the downtown isn't a solid wall.
 - **Old buildings sit loose.** Cottages and houses stand slightly out of line; from townhouses up, everything is
   square on the street.
-- **Ground.** Streets go from dirt tracks to grey cobbles to asphalt, following the tier of the buildings beside
-  them; lots from trodden earth to paving. Trees and rocks never grow on a street or a lot.
+- **Ground.** Lots go from trodden earth to paving; downtown (apartments up) is paved all over, with pavements along
+  the streets. Trees and rocks never grow on a road, a lot or a yard.
 - **Far away** each town is a patch of colour on the planet map (grey for a city, brown for a village), with its
   roads; further out, its pin and name.
 
 The numbers are in `galaxy-demo/js/rules.js` (`settlements.radius` and `towns`).
+
+## Roads
+
+Neighbouring settlements that can reach each other over land are joined by a winding road (`terrain.js`
+`roadNetwork`, worked out once per planet):
+
+- **Which towns.** The relative neighbourhood graph: a and b are joined unless some third town is nearer to both.
+  That gives a natural network with no long parallel roads, every town linked to its real neighbours.
+- **The route.** A path search on a coarse grid (16 tiles on Home) that never crosses water or lava, climbs
+  mountains only when it must, goes round other towns, and is cheaper along roads already built, so later roads join
+  earlier ones. Noise in the cost makes it wander. No path over land, no road.
+- **The shape.** The route is smoothed (corner cutting) and given a gentle two-scale meander (never into water,
+  straight where it meets a town), then laid on the tiles. Each road tile remembers where the curve crosses it to a
+  quarter tile, and the shader joins those points, so roads curve smoothly instead of stepping.
+- **Quality.** A road is as good as its poorer end: between villages a dirt track, towns gravel, cities cobbles,
+  metropolises asphalt with a kerb, megacities and up a highway with white edge lines and a dashed yellow centre line.
+  Town streets follow the tier of the buildings beside them, so a city's streets get rougher toward its edge.
+
+| Tier | Road | Half-width (tiles) |
+|---|---|---|
+| 0 | dirt track: wheel ruts, grass down the middle | 0.24 |
+| 1 | gravel | 0.28 |
+| 2 | cobbles | 0.32 |
+| 3 | asphalt with a kerb | 0.36 |
+| 4-5 | highway: edge lines, dashed centre line | 0.40-0.44 |
+
+Roads are drawn per screen pixel (`shaders.js` `roadAt`, only near a road), so their edges stay sharp at any zoom.
+From far away they show in the planet map as thin lines that fade out before they'd look too thick.
 
 ## Making the art
 
@@ -72,7 +104,8 @@ sheet and cells 0-3 the first time). Raw sheets are kept in `art/towns/raw/`.
 
 - **Night lights.** Lit windows on the night side, brighter in bigger cities.
 - **Regional styles.** Desert towns in adobe, tundra towns with snowy roofs, using the biome under the town.
-- **Roads between cities.** Main roads that actually run to the nearest neighbours.
+- **Bridges and ferries.** Roads stop at water for now; short bridges over rivers and ferry lines across straits.
+- **Road art.** The road surfaces are drawn by the shader; AI-made road textures (cobbles, asphalt) could replace them.
 - **Farms and outskirts.** Fields, barns and orchards around villages and towns.
 - **Landmarks.** One special building per city (a town hall, cathedral, stadium) at the centre plaza.
 - **Growth.** When a settlement levels up in the game, its rings grow outward and new tiers appear in the middle.

@@ -1,7 +1,7 @@
 // Rocket flight: a small 2D physics sim around Home. Positions are in system units relative to Home's centre
 // (Home's radius = HOME.r), y pointing down the screen, so Home's North Pole is at (0, -R).
 // angle 0 = nose pointing north (up the screen); positive angles turn clockwise.
-import { RULES } from './rules.js?v=20261125190144';
+import { RULES } from './rules.js?v=20261125193712';
 
 const P = RULES.rocket;
 const TAU = Math.PI * 2;

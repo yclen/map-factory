@@ -1,5 +1,5 @@
-import { SLOPE_K } from './terrain.js?v=20261125190144';
-import { ITEM_SLOTS } from './biomes.js?v=20261125190144';
+import { SLOPE_K } from './terrain.js?v=20261125193712';
+import { ITEM_SLOTS } from './biomes.js?v=20261125193712';
 
 // GLSL for the WebGL2 renderer. All colours leave the shaders premultiplied by alpha; output with alpha 0
 // adds light (used for glows), output with alpha 1 covers what's behind.
@@ -129,6 +129,8 @@ vec3 g_land = vec3(1.0);  // hill shading x colour variation, for land
 float g_depth = 0.0;      // water depth (elevation units)
 vec2 g_off = vec2(0.0);   // this chunk's first art pixel on the whole map (so noise lines up across chunks)
 vec2 g_ap = vec2(0.0);    // this screen pixel's exact spot on the whole map, in art pixels (high-resolution props)
+vec2 g_lp = vec2(0.0);    // the same in this chunk's own art pixels, and how many art pixels one screen pixel spans
+float g_fw = 1.0;
 float g_hdLod = 0.0;      // mip level for high-resolution props at the current zoom
 vec2 g_dx = vec2(0.0), g_dy = vec2(0.0);   // how far g_ap moves per screen pixel (texture filtering)
 vec4 g_gnd = vec4(0.0);   // the ground texture's colour at this screen pixel, blended across borders (a = 1 when set)
@@ -415,23 +417,82 @@ vec3 cliff(ivec2 a, vec3 c) {
 // Towns (terrain.js townLayout): a town tile's byte 2 = 128 + 64 on a street + the tier (0-5) of the buildings
 // there. Streets go from dirt tracks (cottages, houses) to grey cobbles (townhouses) to asphalt; lots from trodden
 // earth to paving. A street's edge pixels are half verge where the next tile across isn't street
-bool isStreet(ivec2 t) { uvec4 q = idAt(t); return q.g >= 10u && q.g <= 13u && (q.b & 192u) == 192u; }
 vec3 townGround(vec3 c, uint f, ivec2 a, ivec2 tile, ivec2 inT) {
   int tier = int(f & 15u);
   float n = hf(uvec2(a) ^ uvec2(0x91e1u, 0x2f3bu));
-  if ((f & 64u) == 0u) {
-    if (tier >= 3) return mix(c, vec3(0.6, 0.58, 0.54) * (0.94 + 0.09 * n), 0.82);
-    if (tier == 2) return mix(c, vec3(0.52, 0.47, 0.39) * (0.92 + 0.12 * n), 0.32);
-    return mix(c, vec3(0.48, 0.4, 0.29) * (0.9 + 0.15 * n), 0.12);
+  if ((f & 32u) != 0u) return c;                          // beside a road: plain ground
+  if ((f & 64u) != 0u) {                                  // a road: drawn over it (roadAt); in town from apartments up, a pavement
+    return (f & 16u) != 0u && tier >= 3 ? mix(c, vec3(0.62, 0.6, 0.56) * (0.94 + 0.09 * n), 0.85) : c;
   }
-  vec3 rc = tier <= 1 ? vec3(0.5, 0.42, 0.31) : tier == 2 ? vec3(0.5, 0.48, 0.45) : vec3(0.31, 0.32, 0.33);
-  if (tier == 2 && ((a.x + (a.y >> 1)) & 1) == 0 && (a.y & 1) == 0) rc *= 0.86;      // cobbles
-  rc *= 0.91 + 0.15 * n;
-  float k = tier <= 1 ? 0.8 : 0.95;
-  if ((inT.x == 0 && !isStreet(tile - ivec2(1, 0))) || (inT.x == 7 && !isStreet(tile + ivec2(1, 0))) ||
-      (inT.y == 0 && !isStreet(tile - ivec2(0, 1))) || (inT.y == 7 && !isStreet(tile + ivec2(0, 1)))) k *= tier <= 1 ? 0.3 : 0.55;
-  if (tier <= 1 && n > 0.9) k *= 0.4;                     // grass poking through a track
-  return mix(c, rc, k);
+  if (tier >= 3) return mix(c, vec3(0.6, 0.58, 0.54) * (0.94 + 0.09 * n), 0.82);
+  if (tier == 2) return mix(c, vec3(0.52, 0.47, 0.39) * (0.92 + 0.12 * n), 0.32);
+  return mix(c, vec3(0.48, 0.4, 0.29) * (0.9 + 0.15 * n), 0.12);
+}
+
+// Roads (terrain.js buildWorld): a road tile carries flags 128 + 64 and its tier in byte 2, and where the road's curve
+// crosses it (to a quarter tile: x in the overlay id, y in bits 3-4 of byte 3). Roads are drawn per screen pixel as
+// smooth strips joining those points in neighbouring road tiles, so a winding road curves instead of stepping: a road
+// tile joins its side neighbours, and a corner neighbour only when neither tile between is road. Every strip among
+// the 3 x 3 tiles round the pixel counts, and only where byte 3 says a road is near (bit 64). Tiers: 0 dirt track (wheel ruts, grass down the middle), 1 gravel, 2 cobbles, 3 asphalt with a
+// kerb, 4-5 asphalt with white edge lines and a dashed centre line
+bool isRoad(uvec4 q) { return q.g >= 10u && q.g <= 13u && (q.b & 192u) == 192u; }
+float roadW(float tier) { return 0.24 + 0.04 * tier; }
+// the strip a-b of this tier, if nearer than the best so far: r = (how far inside its edge, -; tier; distance from its
+// middle; position along it)
+void roadSeg(vec2 p, vec2 a, vec2 b, float tier, inout vec4 r) {
+  vec2 ab = b - a;
+  float L2 = dot(ab, ab), t = L2 > 1e-4 ? clamp(dot(p - a, ab) / L2, 0.0, 1.0) : 0.0;
+  float d = length(p - a - ab * t), m = d - roadW(tier);
+  if (m < r.x) {
+    vec2 dir = ab.x < 0.0 || (ab.x == 0.0 && ab.y < 0.0) ? -ab : ab;   // the same way whichever end it's seen from
+    r = vec4(m, tier, d, L2 > 1e-4 ? dot(p + g_off / 8.0, dir) * inversesqrt(L2) : 0.0);
+  }
+}
+vec4 roadAt(vec2 p, ivec2 tile) {
+  vec4 r = vec4(1e9, 0.0, 0.0, 0.0);
+  bool R[9]; vec2 P[9]; float T[9];
+  for (int j = 0; j < 9; j++) {
+    ivec2 t = tile + ivec2(j % 3 - 1, j / 3 - 1);
+    uvec4 q = idAt(t);
+    R[j] = isRoad(q);
+    P[j] = vec2(t) + (vec2(float(q.g) - 10.0, float((q.a >> 3) & 3u)) + 0.5) * 0.25;
+    T[j] = float(q.b & 7u);
+  }
+  for (int j = 0; j < 9; j++) {
+    if (!R[j]) continue;
+    int c = j % 3;
+    if (c < 2 && R[j + 1]) roadSeg(p, P[j], P[j + 1], min(T[j], T[j + 1]), r);
+    if (j < 6 && R[j + 3]) roadSeg(p, P[j], P[j + 3], min(T[j], T[j + 3]), r);
+    if (c < 2 && j < 6 && R[j + 4] && !R[j + 1] && !R[j + 3]) roadSeg(p, P[j], P[j + 4], min(T[j], T[j + 4]), r);
+    if (c > 0 && j < 6 && R[j + 2] && !R[j - 1] && !R[j + 3]) roadSeg(p, P[j], P[j + 2], min(T[j], T[j + 2]), r);
+  }
+  if (R[4] && r.x > 1e8) roadSeg(p, P[4], P[4], T[4], r);  // a lone road tile
+  return r;
+}
+vec3 roadCol(vec4 r, vec2 p, ivec2 a, vec3 ground) {
+  int tier = int(r.y + 0.5);
+  float w = roadW(r.y), e = r.z / w, n = hf(uvec2(a) ^ uvec2(0x7f4au, 0x1c2du));
+  vec3 c;
+  if (tier == 0) {
+    c = vec3(0.47, 0.39, 0.28) * (0.86 + 0.24 * n);
+    if (abs(e - 0.5) < 0.17) c *= 0.82;                                   // wheel ruts
+    if (e < 0.2) c = mix(c, ground, 0.55);                                // grass down the middle
+  } else if (tier == 1) {
+    c = vec3(0.58, 0.54, 0.47) * (0.78 + 0.4 * n * n);                    // gravel
+    if (e > 0.75) c = mix(c, ground, 0.3);
+  } else if (tier == 2) {
+    c = vec3(0.53, 0.51, 0.48) * (0.9 + 0.14 * n);                        // cobbles
+    if (((a.x + ((a.y >> 1) & 1)) & 1) == 0 && (a.y & 1) == 0) c *= 0.82;
+    if (e > 0.82) c *= 0.8;
+  } else {
+    c = vec3(0.29, 0.3, 0.31) * (0.95 + 0.08 * n);                        // asphalt
+    if (tier == 3 && e > 0.84) c = vec3(0.66, 0.65, 0.62);                // kerb
+    if (tier >= 4) {
+      if (e > 0.78 && e < 0.88) c = vec3(0.86, 0.86, 0.83);               // edge lines
+      if (r.z < 0.035 && fract(r.w * 1.6) < 0.5) c = vec3(0.92, 0.8, 0.42);   // dashed centre line
+    }
+  }
+  return c;
 }
 
 // one art pixel of the surface: ground tile + overlay, looked up through the tile-id map. Deposits and buildings
@@ -473,7 +534,7 @@ vec3 artPix(ivec2 a) {
   }
   bool town = oid >= 10u && oid <= 13u && (tq.b & 128u) != 0u;
   if (town && u_fx == 1) c = townGround(c, tq.b, a, tile, inT);
-  if (oid > 0u && !(town && (u_town == 1 || (tq.b & 64u) != 0u))) {
+  if (oid > 0u && !(town && (u_town == 1 || (tq.b & 96u) != 0u))) {
     int var = int((hashu(uvec2(tile)) >> 2) & 3u);
     bool ore = u_fx == 1 && u_oreStain[int(oid)].a > 0.0;
     // the new look draws deposits by richness (SLOT_ORE): a few lumps at a patch's edge, packed in its middle
@@ -510,6 +571,19 @@ vec3 finish(ivec2 a, vec3 c) {
     if (r > 0.955 && !shore) c += vec3(0.32) * smoothstep(0.0, 0.06, ph) * smoothstep(0.22, 0.06, ph);
     if (g_depth > 0.01) return c;
   } else if ((gq.a & 128u) != 0u && gq.r != 20u) c = cliff(a, c);
+  if (!water) {
+    // roads, at this screen pixel's exact spot (their edges stay sharp however far in you zoom)
+    vec2 p = g_lp / 8.0;
+    ivec2 tile = ivec2(floor(p));
+    if ((idAt(tile).a & 64u) != 0u) {
+      vec4 r = roadAt(p, tile);
+      float aa = g_fw / 8.0;
+      float cov = 1.0 - smoothstep(-aa, aa, r.x);
+      if (cov > 0.0) {
+        c = mix(c, roadCol(r, p, a, c) * g_land, cov);
+      }
+    }
+  }
   float sh = 0.0;
   vec4 pr = vec4(0.0);
   if (u_shaderProps == 1) pr = props(a, sh);
@@ -590,6 +664,7 @@ void main() {
           g_off = floor(u_page.xy * u_map / u_page.zw + 0.5) * 8.0;
           vec2 g = ap + g_off;
           g_ap = g + 0.5;
+          g_lp = ap; g_fw = max(fw.x, fw.y);
           // art pixels per screen pixel (u_pix > 1 draws blocks of pixels alike) x texels per art pixel
           g_hdLod = max(0.0, log2(u_map.x * 4.0 / (u_R * u_page.z) * max(u_pix, 1.0) * u_hdInfo.w));
           uint wj = hashu(uvec2(ivec2(floor(g))) ^ uvec2(0x7f4au, 0x1b3du));
@@ -605,7 +680,7 @@ void main() {
           if (u_wet.x > 0.0) {
             // tiles from the water, smoothed between tile centres (0 on water: the waterline is about half a tile)
             vec2 f = g_ct - vec2(g_ci);
-            float d0 = float(g_cq[0].a & 127u), d1 = float(g_cq[1].a & 127u), d2 = float(g_cq[2].a & 127u), d3 = float(g_cq[3].a & 127u);
+            float d0 = float(g_cq[0].a & 7u), d1 = float(g_cq[1].a & 7u), d2 = float(g_cq[2].a & 7u), d3 = float(g_cq[3].a & 7u);
             if (min(min(d0, d1), min(d2, d3)) < 7.0) {
               float d = mix(mix(d0, d1, f.x), mix(d2, d3, f.x), f.y) + (vn2(g / 9.0, 14u) - 0.5) * 1.2 + (vn2(g / 2.5, 15u) - 0.5) * 0.35;
               g_wet = u_wet.x * (1.0 - smoothstep(0.45, 0.5 + u_wet.y, d));

@@ -49,7 +49,7 @@ then open http://localhost:8160. Add `?seed=123` for a different galaxy.
 | `js/rocket.js` | Rocket physics: gravity, thrust, fuel, drag, landing and the predicted path |
 | `js/renderer.js`, `js/shaders.js` | WebGL2 drawing |
 | `js/splash.js` (+ `#splash` in `index.html`) | The "Map Conquest" loading screen: progress through the art and Home's first map, tips |
-| `props/towns.webp`, `props/towns.json` | Buildings for towns and cities, 6 tiers x 4 (made by `tools/pack_towns.py`; plan in `art/towns.md`). `terrain.js` `townLayout` lays out each settlement's streets and lots |
+| `props/towns.webp`, `props/towns.json` | Buildings for towns and cities, 6 tiers x 4 (made by `tools/pack_towns.py`; plan in `art/towns.md`). `terrain.js` `buildWorld` lays out the roads between settlements (`roadNetwork`) and each one's streets and lots (`townLayout`); `shaders.js` `roadAt` draws the roads |
 
 ## Rocket demo
 
