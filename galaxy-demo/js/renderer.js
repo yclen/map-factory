@@ -1,7 +1,7 @@
 // Thin WebGL2 renderer: a handful of programs, instanced sprites, one quad per visible body.
-import * as S from './shaders.js?v=20261125193712';
-import { ATLAS_W, ATLAS_H } from './art.js?v=20261125193712';
-import { blendTable, BORDER } from './biomes.js?v=20261125193712';
+import * as S from './shaders.js?v=20261125194943';
+import { ATLAS_W, ATLAS_H } from './art.js?v=20261125194943';
+import { blendTable, BORDER } from './biomes.js?v=20261125194943';
 
 // Ground relief, baked once instead of worked out per pixel: each mip level of a ground texture lit as bumps (its light
 // parts stand up, its dark parts sink) by the terrain shader's sun, comparing each texel with the one about a texel
@@ -112,6 +112,7 @@ export class Renderer {
     this.setBlend(blendTable({}));
     this.blendOn = true;
     this.townTex = null;                                   // buildings (setTowns), drawn as pictures with the items
+    this.roadTex = null; this.roadSize = 512;              // road surfaces (setRoads)
     this.wet = [BORDER.wet, BORDER.wetW];         // wet ground along shores: strength 0..1, tiles inland
     // the tables both the terrain and the prop programs read (kept, so either can be changed alone)
     this.tables = null; this.hdK = new Int32Array(32).fill(-1); this.hdInfo = [128, 192, 8, 8]; this.hdSize = [1, 1];
@@ -257,6 +258,25 @@ export class Renderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 32, 2, gl.RGBA, gl.FLOAT, data);
   }
 
+  // Road surfaces (tools/pack_roads.py): square textures stacked top to bottom, one texture-array layer each (an
+  // image's pixels row by row are already the layers one after another)
+  setRoads(img) {
+    const gl = this.gl, s = img.width, n = Math.round(img.height / s);
+    const c = document.createElement('canvas'); c.width = s; c.height = s * n;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const data = new Uint8Array(g.getImageData(0, 0, s, s * n).data.buffer);
+    if (this.roadTex) gl.deleteTexture(this.roadTex);
+    const t = this.roadTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
+    gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, s, s, n, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    this.roadSize = s;
+    this.texBytes += s * s * n * 4 * 1.34;
+  }
   // Buildings for towns and cities (tools/pack_towns.py): 4 variants per tier in tier order, like the item atlas
   setTowns(img, meta) {
     if (this.townTex) this.gl.deleteTexture(this.townTex);
@@ -478,6 +498,8 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, this.blendTex); gl.uniform1i(u.u_blend, 6);
     gl.uniform1i(u.u_blendOn, this.blendOn ? 1 : 0);
     gl.uniform1i(u.u_town, this.townTex ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.roadTex); gl.uniform1i(u.u_roads, 7);
+    gl.uniform1i(u.u_roadsOn, this.roadTex ? 1 : 0); gl.uniform1f(u.u_roadSize, this.roadSize);
     gl.uniform2f(u.u_wet, this.wet[0], this.wet[1]);
     gl.uniform1i(u.u_fx, b.fx ? 1 : 0); gl.uniform1f(u.u_tpp, b.tpp || 0);
     const [wd, ws] = this.water;

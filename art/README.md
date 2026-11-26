@@ -202,6 +202,7 @@ To pick other cells from a sheet, edit `art/props/props.json`: `"pick": [0, 2, 3
 | `art/style/towns.md` | the towns theme sent with every building prompt |
 | `art/towns/raw/`, `art/towns/towns.json` | every building sheet Codex made, and which cells each tier uses |
 | `tools/gen_towns.py`, `tools/pack_towns.py` | make the six building sheets; pack them into `galaxy-demo/props/towns.webp` + `.json` |
+| `art/roads/raw/`, `tools/pack_roads.py` | road surface textures (dirt, gravel, cobbles, asphalt, paving); packed into `galaxy-demo/props/roads.webp` |
 
 How the game uses it: each prop kind gets 4 variants, each 16 x 24 art pixels (2 x 3 tiles) at 8 texels per art
 pixel, standing on its foot point (bottom middle). They're drawn as **pictures**, one quad per prop (`PROPS_VS` in

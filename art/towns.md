@@ -81,9 +81,19 @@ Neighbouring settlements that can reach each other over land are joined by a win
 | 1 | gravel | 0.28 |
 | 2 | cobbles | 0.32 |
 | 3 | asphalt with a kerb | 0.36 |
-| 4-5 | highway: edge lines, dashed centre line | 0.40-0.44 |
+| 4-5 | highway: edge lines, dashed centre line (in town: asphalt with a kerb) | 0.40-0.44 |
 
-Roads are drawn per screen pixel (`shaders.js` `roadAt`, only near a road), so their edges stay sharp at any zoom.
+Roads are drawn per screen pixel (`shaders.js` `roadAt` and `roadCol`, only near a road), so their edges and
+surfaces stay sharp at any zoom. The surfaces are seamless AI textures, one copy per 3 x 3 tiles: dirt, gravel,
+cobbles, asphalt, and paving slabs for downtown lots, plazas and pavements. Ruts, worn edges, kerbs and lane lines
+are drawn on top by the shader.
+
+```powershell
+# a new surface (then move it from art/ground/raw/ to art/roads/raw/, so the Biome Builder doesn't list it)
+python tools/gen_ground.py roadcobbles "an old cobblestone street ..." --note "covers only 3 x 3 metres ..."
+# pack all five into galaxy-demo/props/roads.webp (made seamless, 512 px each)
+python tools/pack_roads.py
+```
 From far away they show in the planet map as thin lines that fade out before they'd look too thick.
 
 ## Making the art
@@ -105,7 +115,6 @@ sheet and cells 0-3 the first time). Raw sheets are kept in `art/towns/raw/`.
 - **Night lights.** Lit windows on the night side, brighter in bigger cities.
 - **Regional styles.** Desert towns in adobe, tundra towns with snowy roofs, using the biome under the town.
 - **Bridges and ferries.** Roads stop at water for now; short bridges over rivers and ferry lines across straits.
-- **Road art.** The road surfaces are drawn by the shader; AI-made road textures (cobbles, asphalt) could replace them.
 - **Farms and outskirts.** Fields, barns and orchards around villages and towns.
 - **Landmarks.** One special building per city (a town hall, cathedral, stadium) at the centre plaza.
 - **Growth.** When a settlement levels up in the game, its rings grow outward and new tiers appear in the middle.
