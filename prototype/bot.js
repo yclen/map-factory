@@ -193,7 +193,7 @@
     const end = g.time + minutes * 60;
     let nextLog = Math.ceil(g.time / 60) * 60;
     while (g.time < end) {
-      for (let k = 0; k < 20; k++) G.tick(0.05);
+      for (let k = 0; k < 20; k++) (G.simTick || G.tick)(0.05);
       step();
       if (g.time >= nextLog) { report.log.push(snapshot()); nextLog += 60; }
     }

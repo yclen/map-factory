@@ -672,7 +672,7 @@ const SAVE_KEY = 'map-factory-save-v1';
 const SAVE_V = 4;                               // v2: settlements replaced houses; v3: polar ice reshaped the map; v4: people live in cities
 const SAVED = (() => { try { const v = JSON.parse(localStorage.getItem(SAVE_KEY)); return v && v.v === SAVE_V ? v : null; } catch (e) { return null; } })();
 const SEED = params.has('seed') ? (parseInt(params.get('seed'), 10) || 1) : SAVED ? SAVED.seed : ((Math.random() * 1e6) | 0);
-const RESUME = SAVED && SAVED.seed === SEED ? SAVED : null;
+const RESUME = SAVED && SAVED.seed === SEED && !params.has('join') ? SAVED : null;   // (joining a friend's world: theirs, not yours)
 const W = CFG.mapW, H = CFG.mapH, N = W * H;
 const rng = mulberry32(SEED);
 const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -734,7 +734,8 @@ const frontier = new Set();   // unowned land tiles touching our territory
 // and each country belongs to one player (c.player). PID is the player whose action (or command sent from
 // another screen) is being worked out right now; ME is the player at this screen. Single-player: both are 0.
 // ======================================================================
-const ME = 0;
+let ME = 0;                                        // (a friend's screen takes its own id when it joins: see mp.js)
+const SYS = 250;                                   // "no player": the sim stepping on its own, between commands
 let PID = ME;
 const isMine = i => owner[i] === PID + 1;          // the acting player's land
 function asPlayer(pid, fn) {                       // run fn as player pid (then back to whoever was acting)
@@ -742,6 +743,10 @@ function asPlayer(pid, fn) {                       // run fn as player pid (then
   PID = pid;
   try { return fn(); } finally { PID = was; }
 }
+const myCountries = (pid = ME) => game.countries.filter(c => c.alive && c.player === pid);
+// random numbers the sim draws. Single-player: as always. In a shared world every screen has to draw the very same
+// numbers, so mp.js swaps both for one seeded generator whose state is kept in the shared state (game.rs).
+let simRand = Math.random, pushRand = rng;
 
 // ======================================================================
 // map generation
@@ -964,6 +969,59 @@ function generateWorld() {
   game.population = game.peakPop = home.people;
 }
 
+// A player joins a shared world: an empire of their own on a free spot, as far from everyone else as can be found,
+// with forest and stone in reach if possible. Every screen works it out the same way (simRand is shared there).
+const okCol = c => Array.isArray(c) && c.length === 3 && c.every(v => Number.isInteger(v) && v >= 0 && v <= 255) ? c : null;
+function joinPlayer(pid, { name, col } = {}) {
+  if (!Number.isInteger(pid) || pid < 0 || pid >= SYS || myCountries(pid).length) return;   // (already has an empire)
+  (game.players || (game.players = []))[pid] = { name: String(name || `Player ${pid + 1}`).slice(0, 24), col: okCol(col) || PLAYER_COL[pid % PLAYER_COL.length] };
+  for (let p = 0; p < pid; p++) if (!game.players[p]) game.players[p] = null;   // (no holes: the array is copied as JSON)
+  const R = CFG.startRadius, Rb = R + 3;
+  const others = [...game.countries.filter(c => c.alive && c.tiles), ...game.nations.filter(n => n.alive && n.tiles)].map(c => [c.lx, c.ly]);
+  const freeDep = (x, y, type) => deposits.find(d => d.type === type && (d.cx - x) ** 2 + (d.cy - y) ** 2 < (R - 1) ** 2 && !owner[d.tiles[0]] && !aiOf[d.tiles[0]]);
+  let best = null, bs = -Infinity;
+  for (let t = 0; t < 2500; t++) {
+    const a = simRand() * Math.PI * 2, r = Math.sqrt(simRand()) * DISK.R * 0.8;
+    const x = Math.round(DISK.cx + Math.cos(a) * r), y = Math.round(DISK.cy + Math.sin(a) * r);
+    if (x < Rb || y < Rb || x >= W - Rb || y >= H - Rb || biome[idx(x, y)] !== GRASS) continue;
+    let ok = true, land = 0;
+    for (let dy = -Rb; dy <= Rb && ok; dy++) for (let dx = -Rb; dx <= Rb; dx++) {
+      if (dx * dx + dy * dy > Rb * Rb) continue;
+      const i = idx(x + dx, y + dy);
+      if (owner[i] || aiOf[i]) { ok = false; break; }
+      if (isLand(i)) land++;
+    }
+    if (!ok) continue;
+    const far = Math.min(220, ...others.map(([ox, oy]) => Math.hypot(ox - x, oy - y)));
+    const score = far + land * 0.2 + (freeDep(x, y, 'forest') ? 80 : 0) + (freeDep(x, y, 'stone') ? 50 : 0);
+    if (score > bs) { bs = score; best = { x, y }; }
+  }
+  if (!best) return asPlayer(pid, () => toast('There is no free land left to start on'));
+  const home = newCountry({ res: { ...CFG.startResources }, player: pid });
+  let cap = -1, capD = Infinity;
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    const d = dx * dx + dy * dy, i = idx(best.x + dx, best.y + dy);
+    if (d > R * R || biome[i] === OCEAN) continue;
+    claim(i, home.id);
+    if (biome[i] === GRASS && depositOf[i] < 0 && d < capD) { capD = d; cap = i; }
+  }
+  if (cap >= 0) placeBuilding(cap, 'settlement');
+  for (const type of ['forest', 'stone']) {        // the start's cabin and camp, like the first player's
+    const d = freeDep(best.x, best.y, type) || deposits.find(q => q.type === type && q.tiles.some(t => owner[t] === pid + 1));
+    if (!d) continue;
+    const mid = t => (t % W - d.cx) ** 2 + (((t / W) | 0) - d.cy) ** 2;
+    const t = d.tiles.filter(q => owner[q] === pid + 1 && !building[q]).reduce((a, b) => (a < 0 || mid(b) < mid(a) ? b : a), -1);
+    if (t >= 0) placeBuilding(t, type === 'forest' ? 'cabin' : 'camp');
+  }
+  recomputeNetwork();
+  const c = liveCountry(home.id);
+  if (c) c.people = Math.min(CFG.startPeople, c.cap);
+  if (game.peaks) game.peaks[pid] = c ? c.people : 0;
+  if (pid === ME && c) game.active = c.id;
+  asPlayer(SYS, () => toast(`${game.players[pid].name} joined the world`, { good: true, at: [best.x + 0.5, best.y + 0.5] }));
+  return c;
+}
+
 // ======================================================================
 // territory layers
 // ======================================================================
@@ -993,6 +1051,10 @@ const PIXEL_BORDER_BELOW = 6;   // zoom where the border switches from pixels to
 const COL = {
   fill: [47, 125, 225, 72], border: [28, 98, 214, 230],
 };
+// players' colours (player 0 is the blue above); a player who joins a shared world picks one (game.players[p].col)
+const PLAYER_COL = [[47, 125, 225], [226, 74, 74], [54, 186, 96], [236, 190, 48], [170, 92, 224], [240, 136, 40], [32, 196, 196], [230, 96, 180]];
+const playerCol = p => (game.players && game.players[p] && game.players[p].col) || PLAYER_COL[p % PLAYER_COL.length];
+const playerName = p => (game.players && game.players[p] && game.players[p].name) || `Player ${p + 1}`;
 
 function paintTerr(i) {
   landTouch(i);                                    // every change of hands repaints the tile: the land recompute only redoes these
@@ -1013,11 +1075,13 @@ function paintTerr(i) {
     return;
   }
   let border = false;
+  const me = owner[i];
   for (const [dx, dy] of DIRS4) {
     const nx = x + dx, ny = y + dy;
-    if (!inb(nx, ny) || !owner[idx(nx, ny)]) { border = true; break; }
+    if (!inb(nx, ny) || owner[idx(nx, ny)] !== me) { border = true; break; }
   }
-  const fc = COL.fill, bc = COL.border;
+  let fc = COL.fill, bc = COL.border;
+  if (me > 1) { const p = playerCol(me - 1); fc = [p[0], p[1], p[2], 80]; bc = [p[0] * 0.8, p[1] * 0.8, p[2] * 0.8, 235]; }
   f[o] = fc[0]; f[o + 1] = fc[1]; f[o + 2] = fc[2]; f[o + 3] = fc[3];
   if (border) { b[o] = bc[0]; b[o + 1] = bc[1]; b[o + 2] = bc[2]; b[o + 3] = bc[3]; } else b[o + 3] = 0;
 }
@@ -1050,7 +1114,7 @@ function claim(i, cid, conquer = false) {
     const nx = x + dx, ny = y + dy;
     if (!inb(nx, ny)) continue;
     const n = idx(nx, ny);
-    if (owner[n]) { paintTerr(n); if (liveCountry(countryOf[n]) !== me) game.netDirty = true; }   // touching another country: merge
+    if (owner[n]) { paintTerr(n); if (liveCountry(countryOf[n]) !== me) game.netDirty = true; }   // touching another country: merge (if it's the same player's)
     else { if (aiOf[n]) { paintTerr(n); const foe = game.nations[aiOf[n] - 1]; if (foe.warFront) foe.warFront.add(i); } if (isLand(n)) frontier.add(n); }
   }
   return true;
@@ -1253,7 +1317,7 @@ function aiTake(n, i) {
   game.landDirty = game.bldDirty = true;           // your settlements here hold less now, or are theirs
 }
 // a clear tile of this nation's within `rad` of a point (or -1)
-function aiSpot(n, px, py, rad, rnd = Math.random) {
+function aiSpot(n, px, py, rad, rnd = simRand) {
   for (let k = 0; k < 40; k++) {
     const x = Math.round(px + (rnd() - 0.5) * 2 * rad), y = Math.round(py + (rnd() - 0.5) * 2 * rad);
     if (!inb(x, y)) continue;
@@ -1274,7 +1338,7 @@ function aiThink(n) {
   const count = t => mine.reduce((a, b) => a + (b.type === t ? 1 : 0), 0);
   // 1) arm: more weapons as the nation grows, placed by one of its settlements
   const towns = mine.filter(b => b.type === 'settlement');
-  const base = towns.length ? towns[(Math.random() * towns.length) | 0].i : idx(Math.floor(n.lx), Math.floor(n.ly));
+  const base = towns.length ? towns[(simRand() * towns.length) | 0].i : idx(Math.floor(n.lx), Math.floor(n.ly));
   const want = count('mortar') < Math.min(A.maxMortars, 1 + Math.floor(n.tiles / A.tilesPerMortar)) ? 'mortar'
     : count('silo') < Math.min(A.maxSilos, 1 + Math.floor(n.tiles / A.tilesPerSilo)) ? 'silo'
     : count('turret') < Math.min(A.maxTurrets, Math.floor(n.tiles / A.tilesPerTurret)) ? 'turret'
@@ -1296,7 +1360,7 @@ function aiThink(n) {
   // 2) settle: a new settlement where a good patch of its land has none in reach
   const front = [...n.front];
   for (let k = 0; k < 6 && front.length; k++) {
-    const f = front[(Math.random() * front.length) | 0], x = f % W, y = (f / W) | 0;
+    const f = front[(simRand() * front.length) | 0], x = f % W, y = (f / W) | 0;
     let c = -1;
     for (const [dx, dy] of DIRS4) { const nb = idx(x + dx * 3, y + dy * 3); if (inb(x + dx * 3, y + dy * 3) && aiOf[nb] === n.id + 1) c = nb; }
     if (c < 0 || isServed(c) || building[c] || depositOf[c] >= 0 || crowdingCity(c)) continue;
@@ -1307,9 +1371,9 @@ function aiThink(n) {
     let budget = n.people * A.expandShare, spent = 0;
     const cands = [];
     for (let k = 0; k < 50; k++) {
-      const f = front[(Math.random() * front.length) | 0];
+      const f = front[(simRand() * front.length) | 0];
       if (!freeLand(f)) { n.front.delete(f); continue; }
-      cands.push({ f, d: Math.hypot(f % W - n.lx, ((f / W) | 0) - n.ly) + Math.random() * 5 });
+      cands.push({ f, d: Math.hypot(f % W - n.lx, ((f / W) | 0) - n.ly) + simRand() * 5 });
     }
     n.stuck = cands.length ? 0 : (n.stuck || 0) + 1;
     cands.sort((a, b) => a.d - b.d);
@@ -1326,7 +1390,7 @@ function aiThink(n) {
     toast(`${n.full} has run out of room and declared war on you!`, { alert: true, at: [n.lx, n.ly] });
   }
   // a neighbour may simply turn on you once your borders touch
-  if (!n.hostile && Math.random() < A.aggression && touchesYou(n)) {
+  if (!n.hostile && simRand() < A.aggression && touchesYou(n)) {
     n.hostile = true;
     toast(`${n.full} has turned on you: its soldiers are massing at your border.`, { alert: true, at: [n.lx, n.ly] });
   }
@@ -1367,7 +1431,7 @@ function stepRaid(r, dt) {
     let touching = false;
     if (owner[f]) for (const [dx, dy] of DIRS4) if (inb(x + dx, y + dy) && aiOf[idx(x + dx, y + dy)] === n.id + 1) touching = true;
     if (!touching) { n.warFront.delete(f); continue; }
-    cands.push({ f, cost: tileCost(f), d: Math.hypot(x - r.tx, y - r.ty) + Math.random() * 3 });
+    cands.push({ f, cost: tileCost(f), d: Math.hypot(x - r.tx, y - r.ty) + simRand() * 3 });
   }
   cands.sort((a, b) => a.d - b.d);
   if (r.lx == null && cands.length) { r.lx = cands[0].f % W + 0.5; r.ly = ((cands[0].f / W) | 0) + 0.5; }
@@ -1452,14 +1516,17 @@ function liveCountry(id) {                       // follows merges to the countr
   return c && c.alive ? c : null;
 }
 const countryAt = i => (owner[i] ? liveCountry(countryOf[i]) : null);
-const activeCountry = () => liveCountry(game.active) || liveCountry(0) || game.countries.find(c => c.alive);
+const activeCountry = () => {                     // the country the HUD shows: always one of this screen's player's
+  const a = liveCountry(game.active) || liveCountry(0);
+  return a && a.player === ME ? a : game.countries.find(c => c.alive && c.player === ME);
+};
 
 function mergeCountry(from, into) {
   into.people += from.people;
   for (const r in from.res) into.res[r] += from.res[r];
   from.alive = false; from.mergedInto = into.id; from.people = 0;
   if (game.active === from.id) game.active = into.id;
-  toast(`${from.short} has merged into ${into.full}`);
+  asPlayer(into.player, () => toast(`${from.short} has merged into ${into.full}`));
 }
 
 function recomputeNetwork() {
@@ -1516,11 +1583,11 @@ function recomputeNetwork() {
   if (game.started) for (const c of game.countries) {
     if (!c.alive || c.tiles) continue;               // every tile of it was taken
     c.alive = false; c.people = 0;
-    toast(`${c.full} has fallen!`, { alert: true, at: isFinite(c.box[0]) ? [(c.box[0] + c.box[2]) / 2 + 0.5, (c.box[1] + c.box[3]) / 2 + 0.5] : null });
+    asPlayer(c.player, () => toast(`${c.full} has fallen!`, { alert: true, at: isFinite(c.box[0]) ? [(c.box[0] + c.box[2]) / 2 + 0.5, (c.box[1] + c.box[3]) / 2 + 0.5] : null }));
   }
-  if (game.started && !game.over && !game.countries.some(c => c.alive)) {
+  if (game.started && !game.over && !myCountries().length) {        // (this screen's player is out; a shared world goes on)
     game.over = true; game.driving = null; game.aiming = false;
-    toast(`Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`, { alert: true, sticky: true });
+    asPlayer(ME, () => toast(`Your last country has fallen. ${say('Press N', 'Tap New map in the Build menu')} to start a new map.`, { alert: true, sticky: true }));
   }
   recomputeBuildings();
 }
@@ -1659,7 +1726,7 @@ function launchRocket(b) {
   const x = b.i % W + 0.5, y = ((b.i / W) | 0) + 0.5;
   const f = { x, y, vx: 0, vy: 0, a: Math.atan2(y - DISK.cy, x - DISK.cx), fuel: b.rocket.fuel, throttle: 1, engine: false,
     landed: true, left: false, orbit: false, t: 0, trail: [[x, y]], n: ++rocketCount };
-  f.pad = b.i; f.home = countryAt(b.i) ? countryAt(b.i).id : null;
+  f.pad = b.i; f.home = countryAt(b.i) ? countryAt(b.i).id : null; f.player = PID;
   b.rocket = null;
   game.flights.push(f);
   if (PID !== ME) return;                          // (another player's rocket: they fly it from their screen)
@@ -1668,6 +1735,23 @@ function launchRocket(b) {
     'Rocket on the pad. Engine on starts it, ▲ ▼ set the throttle, ◀ ▶ turn. Let go leaves it flying.'));
 }
 let rocketCount = 0;
+// The keys you're steering with, as bits on the vehicle (e.in for a truck or boat, f.in for a rocket). They only change
+// through a 'steer' command, so every screen of a shared world steps the vehicle the same way.
+const IN = { up: 1, down: 2, left: 4, right: 8, max: 16 };
+function keyBits(rocket) {
+  if (menuOpen) return 0;
+  const k = (...ks) => ks.some(q => keys.has(q));
+  return (k('arrowup', 'w') || (rocket && k('e')) ? IN.up : 0) | (k('arrowdown', 's') || (rocket && k('q')) ? IN.down : 0)
+    | (k('arrowleft', 'a') ? IN.left : 0) | (k('arrowright', 'd') ? IN.right : 0) | (rocket && k('shift') ? IN.max : 0);
+}
+const steerRef = v => (game.flights.includes(v) ? { v: 'f', id: v.n } : { v: 'e', id: v.id });
+let steered = null, steerSent = 0;
+// before each sim step: send the keys for what you're driving or flying when they change (and let go of the last one)
+function feedSteer() {
+  const v = game.flying || game.driving || null, bits = v ? keyBits(v === game.flying) : 0;
+  if (steered && steered !== v) { if (steerSent && !steered.done) act({ t: 'steer', ...steerRef(steered), k: 0 }); steered = null; steerSent = 0; }
+  if (v && (v !== steered || bits !== steerSent)) { act({ t: 'steer', ...steerRef(v), k: bits }); steered = v; steerSent = bits; }
+}
 // Space (or the Engine button): light the engine at the throttle setting, or cut it
 function toggleEngine(f) {
   f.engine = !f.engine;
@@ -1698,12 +1782,11 @@ function orbitOf(x, y, vx, vy) {
   return { escape: false, pe, ap: a * (1 + e), e, ex, ey, period: 2 * Math.PI * Math.sqrt(a * a * a / mu) };
 }
 function stepFlight(f, dt) {
-  const F = CFG.rocket.flight, on = game.flying === f && !menuOpen;
-  const key = (...ks) => on && ks.some(k => keys.has(k));
-  if (key('shift')) f.throttle = 1;
-  if (key('e', 'w', 'arrowup')) f.throttle = Math.min(1, f.throttle + F.throttleRate * dt);
-  if (key('q', 's', 'arrowdown')) f.throttle = Math.max(0, f.throttle - F.throttleRate * dt);
-  f.a += ((key('d', 'arrowright') ? 1 : 0) - (key('a', 'arrowleft') ? 1 : 0)) * F.turn * dt;
+  const F = CFG.rocket.flight, k = f.in || 0;     // its pilot's keys (see feedSteer)
+  if (k & IN.max) f.throttle = 1;
+  if (k & IN.up) f.throttle = Math.min(1, f.throttle + F.throttleRate * dt);
+  if (k & IN.down) f.throttle = Math.max(0, f.throttle - F.throttleRate * dt);
+  f.a += ((k & IN.right ? 1 : 0) - (k & IN.left ? 1 : 0)) * F.turn * dt;
   const n = Math.max(1, Math.ceil(dt / 0.02)), h = dt / n, tank = CFG.rocket.tank;
   for (let k = 0; k < n && !f.done; k++) {
     const m = rocketMass(f);
@@ -1848,15 +1931,16 @@ const shownOrbit = st => [st.x + st.vx * lead, st.y + st.vy * lead];
 function makeStation(f) {
   if (!f || !f.orbit) return toast('Get the rocket into a stable orbit first (periapsis above the air)');
   let home = liveCountry(f.home ?? -1), pad = f.pad != null ? buildingAt(f.pad) : null;
-  if (!home) home = activeCountry();
+  if (!home) home = PID === ME && !NET.on ? activeCountry() : myCountries(PID)[0] || null;
   if (!pad || pad.type !== 'pad' || countryAt(pad.i) !== home) pad = game.buildings.find(b => b.type === 'pad' && countryAt(b.i) === home) || null;
-  const st = { orbital: true, n: ++stationCount, x: f.x, y: f.y, vx: f.vx, vy: f.vy, home: home ? home.id : null, pad: pad ? pad.i : null,
+  const st = { orbital: true, n: ++stationCount, player: f.player ?? 0, x: f.x, y: f.y, vx: f.vx, vy: f.vy, home: home ? home.id : null, pad: pad ? pad.i : null,
     people: 0, level: 1, res: { wood: 0, stone: 0, iron: 0 }, runs: 0, a: 0 };
   game.orbitals.push(st);
   endFlight(f);
   if (pad) pad.supply = st.n;
   floatText(st.x, st.y - 6, `Station ${st.n}!`, '#f2c14e');
   toast(`Rocket ${f.n} is now Space Station ${st.n}.${pad ? ` ${home.short}'s launch pad will keep it supplied: every rocket it fuels flies up with people and goods.` : ' Build a launch pad to supply it.'}`);
+  if (PID !== ME) return;
   rideWith(st);
   inspect(st);
 }
@@ -2039,7 +2123,7 @@ function flightHud() {
       'background:rgba(14,18,26,0.9);border:1px solid rgba(255,255,255,0.14);border-radius:10px;color:#e8edf2;z-index:30;pointer-events:none;display:none';
     document.body.appendChild(el);
     // its button is rebuilt ten times a second, so catch the press itself rather than a click
-    el.addEventListener('pointerdown', e => { if (e.target.dataset && e.target.dataset.act === 'station') { e.preventDefault(); makeStation(game.flying); } });
+    el.addEventListener('pointerdown', e => { if (e.target.dataset && e.target.dataset.act === 'station' && game.flying) { e.preventDefault(); act({ t: 'station', id: game.flying.n }); } });
   }
   const f = game.flying;
   if (!f) { el.style.display = 'none'; return; }
@@ -2783,16 +2867,18 @@ function nearestCountryTo(tx, ty) {
       if (inb(nx, ny) && isMine(idx(nx, ny))) { const c = countryAt(idx(nx, ny)); if (c) return { country: c, tile: best }; }
     }
   }
-  const own = PID === ME ? activeCountry() : game.countries.find(c => c.alive && c.player === PID);
+  const own = PID === ME && !NET.on ? activeCountry() : game.countries.find(c => c.alive && c.player === PID);
   return { country: own, tile: best >= 0 ? best : idx(spawn.x, spawn.y) };
 }
 
 // ---------- unlocks: your empire's peak population opens up new buildings ----------
-const isUnlocked = type => game.peakPop >= (CFG.buildings[type].unlock || 0);
+// (in a shared world every player's peak is kept in game.peaks; game.peakPop is this screen's player's)
+const peakOf = pid => (game.peaks ? game.peaks[pid] || 0 : game.peakPop);
+const isUnlocked = (type, pid = PID) => peakOf(pid) >= (CFG.buildings[type].unlock || 0);
 function checkUnlocks(quiet = false) {
   let changed = quiet;                             // quiet = the first check at start: always draw the bar
   for (const [type, b] of Object.entries(CFG.buildings)) {
-    if (game.unlocked.has(type) || !isUnlocked(type)) continue;
+    if (game.unlocked.has(type) || !isUnlocked(type, ME)) continue;
     game.unlocked.add(type);
     addToBar(type);                                // new unlocks (and, on load, anything newly unlocked by an update) take a free slot
     changed = true;
@@ -3033,7 +3119,7 @@ function missingFor(cost, C = activeCountry()) {
   for (const [r, n] of Object.entries(cost)) if (!C || C.res[r] < n) return r;
   return null;
 }
-const empireCap = () => game.countries.reduce((a, c) => a + (c.alive ? c.cap : 0), 0);
+const empireCap = () => game.countries.reduce((a, c) => a + (c.alive && c.player === PID ? c.cap : 0), 0);
 function placeBuilding(i, type) {
   const old = buildingAt(i);
   if (old) { old.type = type; building[i] = BLD_CODE[type]; return; }   // upgrade in place
@@ -3145,6 +3231,12 @@ function bridgeClick(i) {
     game.bridgeStart = i;
     return toast(say('Now click the land across the water. Right-click to start somewhere else.', 'Now tap the land across the water'));
   }
+  if (NET.on && NET.role === 'guest') {            // a guest's bridge is built when the host's next steps come back
+    if (bridgePlan(st, i).why) return toast(bridgePlan(st, i).why);
+    act({ t: 'bridge', s: st, i });
+    game.bridgeStart = null;
+    return setTool(null);
+  }
   const br = act({ t: 'bridge', s: st, i });
   if (!br) return;
   game.bridgeStart = null;
@@ -3174,9 +3266,12 @@ function buildBridge(st, i) {
 // ======================================================================
 let pushId = 0, expeditionId = 0;
 // people per click come from the country that will do the work
-const sendFrom = (C, pct = game.sendPct) => Math.floor((C ? freePeople(C) : 0) * pct / 100);
+// the send-%: the one that came with the command being worked out (every screen the same), else this screen's slider
+let cmdPct = null;
+const pctNow = () => cmdPct ?? game.sendPct;
+const sendFrom = (C, pct = pctNow()) => Math.floor((C ? freePeople(C) : 0) * pct / 100);
 
-function startPush(tx, ty, pct = game.sendPct) {
+function startPush(tx, ty, pct = pctNow()) {
   const b = biome[idx(tx, ty)];
   if (b === OCEAN) return toast(`Can't expand into water. Build a port, then launch a boat from it (build menu, Vehicles).`);
   if (b === WALL || b === VOID) return toast('Nothing to claim there: that is the edge of the world.');
@@ -3217,7 +3312,7 @@ function stepPush(p, dt) {
   }
   const band = 4 + Math.sqrt(p.start) * 1.3;
   const cands = [];
-  for (const m of mine) if (m.d <= minD + band) cands.push({ i: m.i, s: (m.d - minD) / band * 1.2 - m.on * 0.45 + rng() });
+  for (const m of mine) if (m.d <= minD + band) cands.push({ i: m.i, s: (m.d - minD) / band * 1.2 - m.on * 0.45 + pushRand() });
   cands.sort((a, b) => a.s - b.s);
   const cities = allCities(), fought = new Set();
   let guarded = 0;
@@ -3273,7 +3368,7 @@ function kitFor(C, paying = {}) {
   const kit = {};
   for (const r of KIT_RES) {
     const have = Math.max(0, C.res[r] - (paying[r] || 0));
-    kit[r] = Math.floor(Math.min(have, Math.max(CFG.expeditionKit[r] || 0, have * game.sendPct / 100)));
+    kit[r] = Math.floor(Math.min(have, Math.max(CFG.expeditionKit[r] || 0, have * pctNow() / 100)));
   }
   return kit;
 }
@@ -3335,7 +3430,7 @@ function takeWheel(e) {
 }
 // X: hop into the next expedition that's waiting for a driver
 function nextVehicle() {
-  const list = [...game.expeditions.filter(e => !e.auto && !e.done), ...game.flights.filter(f => !f.done)];
+  const list = [...game.expeditions.filter(e => !e.auto && !e.done && (e.player ?? 0) === ME), ...game.flights.filter(f => !f.done && (f.player ?? 0) === ME)];
   if (!list.length) return toast(`No vehicle or rocket is out. Pick a truck or boat in the build menu (${say('E', 'Build')}), then click one of your stations or ports.`);
   const next = list[(list.indexOf(game.flying || game.driving) + 1) % list.length];
   if (game.flights.includes(next)) takeRocket(next); else { game.flying = null; takeWheel(next); }
@@ -3354,10 +3449,9 @@ function stepExpedition(e, dt) {
 // One physics model for every vehicle: thrust along the heading, drag from what's underneath.
 // A truck grips (no sideways slide) and crawls through desert and mountains; a boat drifts and turns wide.
 function driveStep(e, dt) {
-  const D = CFG.drive, V = D[e.kind], on = game.driving === e && !menuOpen;
-  const key = (...ks) => on && ks.some(k => keys.has(k));
-  const thr = key('arrowup', 'w') ? 1 : key('arrowdown', 's') ? -0.5 : 0;
-  const turn = (key('arrowright', 'd') ? 1 : 0) - (key('arrowleft', 'a') ? 1 : 0);
+  const D = CFG.drive, V = D[e.kind], k = e.in || 0;   // its driver's keys (see feedSteer)
+  const thr = k & IN.up ? 1 : k & IN.down ? -0.5 : 0;
+  const turn = (k & IN.right ? 1 : 0) - (k & IN.left ? 1 : 0);
   e.a += turn * V.turn * dt;
   const hx = Math.cos(e.a), hy = Math.sin(e.a);
   const under = idx(Math.floor(e.x), Math.floor(e.y));
@@ -3416,7 +3510,7 @@ function settleExpedition(e) {
 
 // an expedition that lands on free land founds a new country (a colony) with its own people and stockpile
 // (worked out as the expedition's own player, whoever's screen or tick it lands on)
-function arrive(e) { asPlayer(e.player ?? ME, () => arriveAs(e)); }
+function arrive(e) { asPlayer(e.player ?? 0, () => arriveAs(e)); }
 function arriveAs(e) {
   const cx = Math.floor(e.tx), cy = Math.floor(e.ty);
   const there = countryAt(idx(cx, cy));
@@ -3619,8 +3713,17 @@ function tick(dt) {
     pop += c.people;
   }
   for (const st of game.orbitals) pop += st.people;   // people living in space count too
-  game.population = pop;
-  if (pop > game.peakPop + 0.5) { game.peakPop = pop; checkUnlocks(); }
+  if (game.peaks) {                               // a shared world: every player's people and peak, each on their own
+    const pp = [];
+    for (const c of game.countries) if (c.alive) pp[c.player] = (pp[c.player] || 0) + c.people;
+    for (const st of game.orbitals) { const h = liveCountry(st.home ?? -1), p = h ? h.player : st.player ?? 0; pp[p] = (pp[p] || 0) + st.people; }
+    for (let p = 0; p < pp.length; p++) if ((pp[p] || 0) > (game.peaks[p] || 0) + 0.5) game.peaks[p] = pp[p];
+    game.population = pp[ME] || 0;
+    if ((game.peaks[ME] || 0) > game.peakPop) { game.peakPop = game.peaks[ME]; checkUnlocks(); }
+  } else {
+    game.population = pop;
+    if (pop > game.peakPop + 0.5) { game.peakPop = pop; checkUnlocks(); }
+  }
 
   for (const p of game.pushes) stepPush(p, dt);
   gunStep(dt);
@@ -3700,6 +3803,17 @@ function tick(dt) {
   stepPops(dt);
 }
 
+// one sim step as nobody in particular (commands are applied as their player, before a step)
+const simTick = dt => asPlayer(SYS, () => tick(dt));
+// Caches that some sim steps read (which tiles are served, harvested, planned): in a shared world every screen drops
+// and rebuilds them at the same moment (whenever someone joins), so a fresh copy of the world steps like the old one.
+function resetSimCaches() {
+  landFull = true;
+  planCache = { key: null, val: null };
+  recomputeBuildings();
+  roadsDirty = true; pipesDirty = true;
+}
+
 // ---------- saving ----------
 let noSave = false;
 // what a building remembers across a reload besides where it is: its tallies, and a launch pad's rocket and pause
@@ -3743,6 +3857,7 @@ function saveGame() {
       orbitals: game.orbitals.map(st => [st.n, st.x, st.y, st.vx, st.vy, st.home, st.pad, st.people, st.level, st.res.wood, st.res.stone, st.res.iron, st.runs]),
       supplyRuns: game.supplyRuns.map(r => [r.st, r.t, r.T, r.fx, r.fy, r.cargo.people, r.cargo.wood, r.cargo.stone, r.cargo.iron]),
       runs, cam: { x: cam.x, y: cam.y, zoom: cam.zoom },
+      players: game.players || null, peaks: game.peaks || null, rs: game.rs ?? null,   // a shared world's players
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     game.savedAt = game.time;
@@ -3786,7 +3901,8 @@ function loadGame(sv) {
   stationCount = Math.max(0, ...game.orbitals.map(st => st.n));
   game.supplyRuns = (sv.supplyRuns || []).map(([st, t, T, fx, fy, people, wood, stone, iron]) => ({ st, t, T, fx, fy, cargo: { people, wood, stone, iron } }));
   game.flights = (sv.flights || []).map(([x, y, vx, vy, a, fuel, landed, everOrbit, n, throttle, pad, home]) => ({ x, y, vx, vy, a, fuel, throttle: throttle ?? 1, engine: false, pad, home,
-    landed: !!landed, left: Math.hypot(x - DISK.cx, y - DISK.cy) > DISK.R, orbit: false, everOrbit: !!everOrbit, t: 10, trail: [[x, y]], n: n || ++rocketCount }));
+    landed: !!landed, left: Math.hypot(x - DISK.cx, y - DISK.cy) > DISK.R, orbit: false, everOrbit: !!everOrbit, t: 10, trail: [[x, y]], n: n || ++rocketCount,
+    player: liveCountry(home ?? -1)?.player ?? 0 }));
   rocketCount = Math.max(rocketCount, ...game.flights.map(f => f.n), 0);
   for (const [bi, iron, fuel, paused] of sv.rockets || []) {   // rockets being built or waiting on their pads
     const b = buildingAt(bi);
@@ -3813,6 +3929,7 @@ function loadGame(sv) {
   if (sv.barUsed) { game.barUsed = sv.barUsed; game.useTick = sv.useTick || 0; }
   else { game.barUsed = game.hotbar.map((t, k) => (t ? 10 - k : 0)); game.useTick = 10; }   // a save from before: keep its order
   game.seenTech = new Set(sv.seenTech || sv.unlocked);   // from before NEW tags: nothing is new
+  if (sv.players) { game.players = sv.players; game.peaks = sv.peaks || [sv.peakPop]; game.rs = sv.rs || 1; }
   scanNationTiles();
   buildFronts();
   recomputeNetwork();
@@ -5778,16 +5895,17 @@ function render() {
         if (y === H - 1 || aiOf[i + W] !== a) { q.moveTo(sx, sy + z); q.lineTo(sx + z, sy + z); }
         continue;
       }
-      const p = paths.blue;
+      const o = owner[i], p = o === 1 ? paths.blue : paths['p' + o] || (paths['p' + o] = new Path2D());   // each player's border in their colour
       const [sx, sy] = toScreen(x, y);
-      if (x === 0 || !owner[i - 1]) { p.moveTo(sx, sy); p.lineTo(sx, sy + z); }
-      if (x === W - 1 || !owner[i + 1]) { p.moveTo(sx + z, sy); p.lineTo(sx + z, sy + z); }
-      if (y === 0 || !owner[i - W]) { p.moveTo(sx, sy); p.lineTo(sx + z, sy); }
-      if (y === H - 1 || !owner[i + W]) { p.moveTo(sx, sy + z); p.lineTo(sx + z, sy + z); }
+      if (x === 0 || owner[i - 1] !== o) { p.moveTo(sx, sy); p.lineTo(sx, sy + z); }
+      if (x === W - 1 || owner[i + 1] !== o) { p.moveTo(sx + z, sy); p.lineTo(sx + z, sy + z); }
+      if (y === 0 || owner[i - W] !== o) { p.moveTo(sx, sy); p.lineTo(sx + z, sy); }
+      if (y === H - 1 || owner[i + W] !== o) { p.moveTo(sx, sy + z); p.lineTo(sx + z, sy + z); }
     }
     ctx.lineCap = 'square';
     ctx.lineWidth = Math.min(4, 1.5 + z * 0.12);
     ctx.strokeStyle = '#1c62d6'; ctx.stroke(paths.blue);
+    for (const key in paths) if (key[0] === 'p') { const c = playerCol(+key.slice(1) - 1); ctx.strokeStyle = `rgb(${c.map(v => Math.round(v * 0.8)).join(',')})`; ctx.stroke(paths[key]); }
     for (const key in paths) if (key[0] === 'n') { ctx.strokeStyle = game.nations[+key.slice(1) - 1].hex; ctx.stroke(paths[key]); }
     ctx.lineCap = 'butt';
   }
@@ -6669,7 +6787,10 @@ function stillThere(o) {
   }
   return false;
 }
-const mineOf = o => kindOf(o) !== 'building' || !!owner[o.i];   // vehicles, routes and bridges are always yours
+const mineOf = o => {                              // routes and bridges are anyone's to look at; buildings and vehicles only yours
+  const k = kindOf(o);
+  return k === 'building' ? asPlayer(ME, () => isMine(o.i)) : k === 'exp' || k === 'flight' ? (o.player ?? 0) === ME : true;
+};
 let inspected = null;                              // whatever's card is open
 const ringFx = { hover: { x: 0, y: 0, r: 0, a: 0, b: null }, sel: { x: 0, y: 0, r: 0, a: 0, b: null }, t: performance.now() };
 // where something's ring sits (world) and how big it is (pixels)
@@ -7182,7 +7303,9 @@ function drawCountryLabels(z) {
     const size = clamp(span * 0.16, 11, 26);
     const sy = sy0 + (z < CFG.detailZoom ? 14 + size * 0.6 : z * 3.2);   // sit below the settlement at the centre
     const text = (span > 140 ? c.full : c.short).toUpperCase();
-    stampLabel(text, 800, size, 0.12, 4, c.id === game.active ? '#ffffff' : 'rgba(214,228,255,0.88)', sx, sy);
+    const pc = c.player !== ME ? playerCol(c.player) : null;   // another player's country: their name over it, in their colour
+    if (pc) stampLabel(playerName(c.player).toUpperCase(), 800, size * 0.7, 0.12, 4, `rgb(${pc.map(v => Math.round(v * 0.5 + 128)).join(',')})`, sx, sy - size * 1.05);
+    stampLabel(text, 800, size, 0.12, 4, pc ? `rgb(${pc.map(v => Math.round(v * 0.4 + 150)).join(',')})` : c.id === game.active ? '#ffffff' : 'rgba(214,228,255,0.88)', sx, sy);
     under(c, c.people, sx, sy, size, '#f2c14e');
   }
   for (const n of game.nations) {
@@ -7260,6 +7383,12 @@ window.addEventListener('mouseup', e => {
 //   pad {i} · supply {i, n} (n = null: stop) · expand {n} (station number) · settle {id} (expedition)
 // ======================================================================
 function applyCommand(pid, cmd) {
+  if (NET.on) planCache = { key: null, val: null };   // (a hover cache: every screen plans from scratch)
+  const pct0 = cmdPct;
+  cmdPct = clamp(+cmd.pct || 25, 1, 100);
+  try { return applyAs(pid, cmd); } finally { cmdPct = pct0; }
+}
+function applyAs(pid, cmd) {
   return asPlayer(pid, () => {
     const b = Number.isInteger(cmd.i) ? buildingAt(cmd.i) : null, own = !!b && isMine(b.i);
     switch (cmd.t) {
@@ -7276,17 +7405,41 @@ function applyCommand(pid, cmd) {
         return toast(b.supply != null ? `This pad now keeps Space Station ${b.supply} supplied` : 'This pad builds rockets for you to fly again');
       case 'expand': {
         const st = game.orbitals.find(o => o.n === cmd.n), home = st && liveCountry(st.home ?? -1);
-        return st && (home ? home.player === PID : PID === ME) ? expandStation(st) : undefined;
+        return st && (home ? home.player : st.player ?? 0) === PID ? expandStation(st) : undefined;
       }
       case 'settle': {
-        const e = game.expeditions.find(x => x.id === cmd.id && !x.done && (x.player ?? ME) === PID);
+        const e = game.expeditions.find(x => x.id === cmd.id && !x.done && (x.player ?? 0) === PID);
         return e ? settleExpedition(e) : undefined;
+      }
+      case 'steer': {                              // the keys a player steers their truck, boat or rocket with
+        const v = cmd.v === 'f' ? game.flights.find(f => f.n === cmd.id && !f.done) : game.expeditions.find(x => x.id === cmd.id && !x.done);
+        if (v && (v.player ?? 0) === PID) v.in = cmd.k & 31;
+        return;
+      }
+      case 'engine': {
+        const f = game.flights.find(q => q.n === cmd.id && !q.done);
+        if (!f || (f.player ?? 0) !== PID) return;
+        if (cmd.on === false) { f.engine = false; return; }
+        return toggleEngine(f);
+      }
+      case 'station': {
+        const f = game.flights.find(q => q.n === cmd.id && !q.done);
+        return f && (f.player ?? 0) === PID ? makeStation(f) : undefined;
+      }
+      case 'join': return joinPlayer(PID, cmd);   // (only the host makes these: mp.js drops one sent by a guest)
+      case 'name': {                               // a player's name in a shared world
+        const nm = typeof cmd.name === 'string' ? cmd.name.trim().slice(0, 24) : '';
+        if (nm && game.players && game.players[PID]) game.players[PID].name = nm;
+        return;
       }
     }
   });
 }
 // this screen's actions (with multiplayer, a guest's go to the host instead, and come back in the world it sends)
-const act = cmd => applyCommand(ME, cmd);
+function act(cmd) {
+  if (cmd.pct == null) cmd = { ...cmd, pct: game.sendPct };   // every command carries the sender's send-%
+  return NET.on ? NET.act(cmd) : applyCommand(ME, cmd);
+}
 
 // a click (or a tap: btn 0; a long press: btn 2) at a screen point
 function clickAt(btn, x, y) {
@@ -7326,6 +7479,7 @@ function clickAt(btn, x, y) {
         else if (c) game.active = c.id;
       }
     }
+    else if (owner[t.i] && !isMine(t.i)) toast(`That's ${playerName(owner[t.i] - 1)}'s land`);
     else if (owner[t.i]) {                         // clicking inside one of your countries selects it
       inspect(null);
       const c = countryAt(t.i);
@@ -7388,8 +7542,8 @@ window.addEventListener('keydown', e => {
   if (k === ' ' && game.driving) { e.preventDefault(); if (!e.repeat) act({ t: 'settle', id: game.driving.id }); }
   if (k === 'x' && !e.repeat) nextVehicle();
   if (k.startsWith('arrow') && (game.driving || game.flying)) e.preventDefault();
-  if (k === ' ' && game.flying) { e.preventDefault(); if (!e.repeat) toggleEngine(game.flying); }
-  if (k === 'enter' && game.flying && !e.repeat) makeStation(game.flying);
+  if (k === ' ' && game.flying) { e.preventDefault(); if (!e.repeat) act({ t: 'engine', id: game.flying.n }); }
+  if (k === 'enter' && game.flying && !e.repeat) act({ t: 'station', id: game.flying.n });
   if (k === 'f' && !e.repeat) setAiming(!game.aiming);
   if (k === 'e' && !e.repeat && !game.flying) toggleBuildMenu();   // flying, E is throttle up
   if (k === 't' && !e.repeat) toggleTechTree();
@@ -7426,7 +7580,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) keys.
 // Esc: let go of whatever you're doing
 function cancelAll() {
   if (game.flying && !game.tool && !menuOpen && !game.aiming) {
-    game.flying.engine = false; game.flying = null;
+    act({ t: 'engine', id: game.flying.n, on: false }); game.flying = null;
     toast('Let go of the rocket: engine off, it keeps flying. Press X to take it again.');
   }
   if (game.driving && !game.tool && !menuOpen && !game.aiming) { game.driving = null; toast(say('Parked. Press X to take the wheel again.', 'Parked. Tap Drive to take the wheel again.')); }
@@ -7441,7 +7595,7 @@ function goHome() {
   flyCam(spawn.x + 0.5, spawn.y + 0.5, cam.zoom < CFG.cityZoom ? CFG.startZoom * 0.7 : cam.zoom);
 }
 function nextCountry(dir) {
-  const alive = game.countries.filter(c => c.alive && c.tiles);
+  const alive = myCountries().filter(c => c.tiles);
   if (!alive.length) return;
   const j = alive.indexOf(activeCountry());
   flyToCountry(alive[(j + (dir < 0 ? alive.length - 1 : 1)) % alive.length]);
@@ -7545,7 +7699,7 @@ function bindTouchButtons() {
     b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); keys.add(k); b.classList.add('on'); });
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
   }
-  $('dp-settle').addEventListener('click', () => { if (game.flying) toggleEngine(game.flying); else if (game.driving) act({ t: 'settle', id: game.driving.id }); });
+  $('dp-settle').addEventListener('click', () => { if (game.flying) act({ t: 'engine', id: game.flying.n }); else if (game.driving) act({ t: 'settle', id: game.driving.id }); });
   $('dp-park').addEventListener('click', () => cancelAll());
   $('bm-new').addEventListener('click', () => { if (confirm('Start a new map? This deletes your saved game.')) newGame(); });
 }
@@ -7563,7 +7717,7 @@ function updateTouchButtons() {
   show('fire', game.aiming || silosOf().length > 0);
   show('drive', anyOut && !game.driving && !game.flying);
   show('cancel', !!(game.tool || game.aiming || blueprint || cam.follow || menuOpen));
-  show('next', game.countries.filter(c => c.alive && c.tiles).length > 1);
+  show('next', myCountries().filter(c => c.tiles).length > 1);
   document.querySelector('#tbar [data-act="fire"]').classList.toggle('on', !!game.aiming);
   document.querySelector('#tbar [data-act="build"]').classList.toggle('on', menuOpen);
   $('dpad').classList.toggle('show', !!(game.driving || game.flying) && !menuOpen);
@@ -8005,7 +8159,7 @@ let toastTimer = 0;
 const eventLog = [];                               // newest last: { msg, kind, at, time }
 let logUnseen = 0, logOpen = false;
 function toast(msg, opt) {
-  if (PID !== ME) return;                          // another player's action: its feedback belongs on their screen
+  if (PID !== ME && PID !== SYS) return;           // another player's action: its feedback belongs on their screen
   const box = $('toast');
   if (!opt || !(opt.alert || opt.good)) {
     let el = box.querySelector('.tmsg.hint');
@@ -8110,9 +8264,9 @@ function updateHud() {
   const C = activeCountry();
   if (!C) return;                                  // game over: nothing left to show
   if (menuOpen) updateBuildMenu();
-  const alive = game.countries.filter(c => c.alive).length;
+  const mine = myCountries(), alive = mine.length;
   $('val-country').textContent = C.full;
-  $('country-count').textContent = alive > 1 ? `${game.countries.filter(c => c.alive).indexOf(C) + 1} of ${alive}` : '';
+  $('country-count').textContent = alive > 1 ? `${mine.indexOf(C) + 1} of ${alive}` : '';
   const inc = incomingTo(C);
   const fromTxt = [...inc.bySrc].map(([s, n]) => `${s.short} (${fmtNum(n)})`).join(', ');
   for (const r of ['wood', 'stone', 'iron']) {
@@ -8702,6 +8856,7 @@ function start() {
   if (RESUME && !noSave) toast(`Welcome back: game loaded (seed ${SEED}, ${fmtTime(game.time)} played). It autosaves every 10 s; ${say('N starts a new map', 'New map is in the Build menu')}.`);
   else toast(`Map seed ${SEED} · this seed's far planet: ${SEED_PLANET.name}, a ${SEED_PLANET.kind === 'gas' ? 'gas giant' : 'rocky world'}${say(' (press G to visit)', '')}`);
 
+  NET.boot();                                      // a shared world (?host= / ?join=): connect (mp.js)
   const step = 1 / CFG.tickHz;
   let last = performance.now(), acc = 0, hudT = 0;
   function frame(now) {
@@ -8715,7 +8870,8 @@ function start() {
     acc += dt;
     // catch up at most 3 steps a frame: a slow phone that can't keep up runs the game a little slower,
     // instead of piling up more and more steps each frame until it freezes
-    for (let n = 0; acc >= step && n < 3; n++) { acc -= step; tick(step); }
+    if (NET.on) acc = NET.frame(acc, step);         // a shared world: the host keeps time (mp.js)
+    else for (let n = 0; acc >= step && n < 3; n++) { acc -= step; feedSteer(); simTick(step); }
     if (acc > step) acc = step;
     // The sim steps 20 times a second, the screen 60+. Draw the world `lead` seconds past the last step
     // (game.time moved forward just for the drawing), so the sun, moon, planets, trucks and trains glide
@@ -8737,5 +8893,5 @@ function start() {
 }
 
 // handy for debugging/testing in the browser console
-window.__game = { applyCommand, act, ME, isMine, asPlayer, TOUCH, DISK, makeStation, orbitOf, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive, upgradeCity, upgradeStep, cityLevel, poweredShare, poweredHousing, upgradeTargetAt };
+window.__game = { simTick, resetSimCaches, joinPlayer, myCountries, applyCommand, act, ME, isMine, asPlayer, TOUCH, DISK, makeStation, orbitOf, inspect, pickAt, updateInspect, touchTap, mouse, nextVehicle, game, cam, CFG, SEED, tick, updateHud, liveCountry, countryAt, activeCountry, nearestCountryTo, countryOf, isUnlocked, toggleBuildMenu, startPush, SEED_PLANET, planetRecipe, BODY, LOCK, followBody, genericPos, genericBiomeAt, moonPos, sunPos, vulcanPos, followVulcan, vulcanBiomeAt, vulcanBiome, followSun, followMoon, lockWorld, moonBiomeAt, moonBiome, applyFollow, toWorld, toScreen, tryBuild, launchExpedition, recomputeNetwork, idx, biome, owner, landmass, isCoastal, OCEAN, depositOf, deposits, canBuild, aiOf, nationAt, defenseAt, fireMissile, setAiming, explode, saveGame, SAVE_KEY, recomputeBuildings, building, buildingAt, freePeople, params, isHarvested, harvestGain, render, recomputeNetwork2: recomputeNetwork, aiTake, stepRaid, tryIntercept, gunStep, yourMortars, underFire, isMilitary, aiThink, aiFire, provoke, pickWeapon, launchShot, keys, settleExpedition, settleSite, takeWheel, settlementGain, settlementCap, settlementLevel, isServed, sideOf, stopSaving: () => { noSave = true; }, bridgePlan, bridgeClick, bridgeAt, setTool, clickAt, dispatchFreight, supplyWish, shortOf, askFor, placeBuilding, arrive, upgradeCity, upgradeStep, cityLevel, poweredShare, poweredHousing, upgradeTargetAt };
 init();
